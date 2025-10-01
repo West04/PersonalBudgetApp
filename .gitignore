@@ -1,0 +1,68 @@
+# ---------------------------------
+# Python
+# ---------------------------------
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.venv*/
+pip-wheel-metadata/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+.cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_convert
+
+# Django / Flask stuff
+*.log
+local_settings.py
+db.sqlite3
+instance/
+.webassets-cache
+
+# ---------------------------------
+# Environment files
+# ---------------------------------
+.env
+.env.*        # e.g., .env.local, .env.prod
+!.env.example # keep the example file
+
+# ---------------------------------
+# IDEs and Editors
+# ---------------------------------
+# PyCharm / IntelliJ
+.idea/*
+!.idea/codeStyles
+!.idea/inspectionProfiles
+
+# VSCode
+.vscode/
+
+# ---------------------------------
+# OS files
+# ---------------------------------
+.DS_Store
+Thumbs.db
