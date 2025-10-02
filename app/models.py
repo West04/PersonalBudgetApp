@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
 
 from sqlalchemy import Column, UUID, ForeignKey, Text, DECIMAL, DATE, UniqueConstraint, TIMESTAMP, func
+
 from .database import Base
 
 
@@ -22,10 +22,10 @@ class Transaction(Base):
     transaction_id = Column(UUID, primary_key=True, default=uuid.uuid4)
     description = Column(Text)
     amount = Column(DECIMAL(10, 2), nullable=False)
+    category_id = Column(UUID, ForeignKey('categories.category_id'))
     transaction_date = Column(TIMESTAMP,
                               server_default=func.now(),
                               nullable=False)
-    category_id = Column(UUID, ForeignKey('categories.category_id'))
 
 
 class Budgets(Base):
