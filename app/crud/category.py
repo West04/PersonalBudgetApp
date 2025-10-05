@@ -1,8 +1,8 @@
 from uuid import UUID
 from sqlalchemy.orm import Session
 
-from .models import Category
-from .schemas import CategoryCreate
+from ..models import Category
+from ..schemas import CategoryCreate
 
 
 def get_category(db: Session, category_id: UUID):
@@ -15,5 +15,3 @@ def create_category(db: Session, new_category: CategoryCreate):
     db.commit()
     db.refresh(db_category)
     return db_category
-
-
