@@ -37,7 +37,7 @@ class Budgets(Base):
     category_id = Column(UUID, ForeignKey('categories.category_id'))
 
     __table_args__ = (
-        UniqueConstraint(budget_month, category_id)
+        UniqueConstraint(budget_month, category_id),
     )
 
     
