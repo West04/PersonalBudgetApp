@@ -1,5 +1,6 @@
+from http.client import HTTPException
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from .. import crud, schemas
@@ -11,7 +12,7 @@ router = APIRouter(
 )
 
 
-@router.post("/", response_model=schemas.CategoryRead)
+@router.post("/", response_model=schemas.CategoryRead, status_code=status.HTTP_201_CREATED)
 def create_category(
     category: schemas.CategoryCreate,
     db: Session = Depends(get_db)
@@ -30,4 +31,12 @@ def read_category(
     """
     Get a specific category by its ID.
     """
-    return crud.get_category(db=db, category_id=category_id)
+    db_category = crud.get_category(db=db, category_id=category_id)
+
+    if db_category is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Category not found'
+        )
+
+    return db_category
