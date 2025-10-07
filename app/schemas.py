@@ -18,6 +18,11 @@ class CategoryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class CategoryUpdate(BaseModel):
+    name: Union[str, None] = None
+    parent_id: Union[UUID, None] = None
+
+
 class TransactionCreate(BaseModel):
     description: str
     amount: float
