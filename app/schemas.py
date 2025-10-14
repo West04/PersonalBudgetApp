@@ -27,6 +27,13 @@ class TransactionCreate(BaseModel):
     description: str
     amount: float
     category_id: UUID
+    transaction_date: datetime
+
+class TransactionUpdate(BaseModel):
+    description: str
+    amount: float
+    category_id: UUID
+    transaction_date: datetime
 
 
 class TransactionRead(BaseModel):
@@ -43,6 +50,11 @@ class BudgetCreate(BaseModel):
     budget_month: date
     planned_amount: float
     category_id: UUID
+
+
+class BudgetUpdate(BaseModel):
+    planned_amount: float
+    budget_month: date
 
 
 class BudgetRead(BaseModel):
