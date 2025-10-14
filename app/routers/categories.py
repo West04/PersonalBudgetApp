@@ -1,4 +1,6 @@
 from uuid import UUID
+from typing import Optional
+
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 
@@ -21,9 +23,6 @@ def create_category(
     Create a new category.
     """
     return category.create_category(db=db, new_category=category)
-
-
-from typing import Optional
 
 
 @router.get("/", response_model=list[schemas.CategoryRead])
