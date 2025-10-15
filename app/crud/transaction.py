@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import date
 
 from ..models import Transaction
-from .. import schemas
+from ..schemas import TransactionCreate, TransactionUpdate
 
 
 def get_transaction(db: Session, transaction_id: UUID) -> Optional[Transaction]:
@@ -23,7 +23,7 @@ def list_transaction(db: Session, category_id: Optional[UUID] = None, transactio
     return q.all()
 
 
-def create_transaction(db: Session, new_transaction: schemas.TransactionCreate) -> Transaction:
+def create_transaction(db: Session, new_transaction: TransactionCreate) -> Transaction:
     db_transaction = Transaction(
         description=new_transaction.description,
         amount=new_transaction.amount,
@@ -48,24 +48,21 @@ def delete_transaction(db: Session, transaction_id: UUID) -> Optional[Transactio
 
 def update_transaction(
         db: Session,
-        transaction_id: Optional[UUID] = None,
-        description: Optional[str] = None,
-        amount: Optional[float] = None,
-        category_id: Optional[UUID] = None,
-        transaction_date: Optional[date] = None
+        update_transaction: TransactionUpdate,
+        transaction_id: Optional[UUID] = None
 ) -> Optional[Transaction]:
     db_transaction = db.query(Transaction).filter(Transaction.transaction_id == transaction_id).first()
     if db_transaction is None:
         return None
 
-    if description is not None:
-        db_transaction.description = description
-    if amount is not None:
-        db_transaction.amount = amount
-    if category_id is not None:
-        db_transaction.category_id = category_id
-    if transaction_date is not None:
-        db_transaction.transaction_date = transaction_date
+    if update_transaction.description is not None:
+        db_transaction.description = update_transaction.description
+    if update_transaction.amount is not None:
+        db_transaction.amount = update_transaction.amount
+    if db_transaction.category_id is not None:
+        db_transaction.category_id = db_transaction.category_id
+    if db_transaction.transaction_date is not None:
+        db_transaction.transaction_date = db_transaction.transaction_date
 
     db.add(db_transaction)
     db.commit()

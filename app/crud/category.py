@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from ..models import Category
-from ..schemas import CategoryCreate
+from ..schemas import CategoryCreate, CategoryUpdate
 
 
 def get_category(db: Session, category_id: UUID) -> Optional[Category]:
@@ -35,19 +35,19 @@ def delete_category(db: Session, category_id: UUID) -> Optional[Category]:
     return db_category
 
 
-def update_category(db: Session, category_id: UUID, new_name: str = None, new_parent_id: UUID = None) -> Optional[Category]:
+def update_category(db: Session, category_id: UUID, update_category: CategoryUpdate) -> Optional[Category]:
     db_category = db.query(Category).filter(Category.category_id == category_id).first()
     if db_category is None:
         return None
 
-    if new_name is not None:
-        db_category.name = new_name
+    if update_category.name is not None:
+        db_category.name = update_category.name
 
-    if new_parent_id is not None:
+    if update_category.parent_id is not None:
         # Prevent setting a category's parent to itself
-        if new_parent_id == category_id:
+        if update_category.parent_id == category_id:
             return None
-        db_category.parent_id = new_parent_id
+        db_category.parent_id = update_category.parent_id
 
     db.add(db_category)
     db.commit()
