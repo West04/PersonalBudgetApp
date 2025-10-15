@@ -3,12 +3,12 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from ..models import Budgets
+from ..models import Budget
 from ..schemas import BudgetCreate
 
 
 def create_budget(db: Session, new_budget: BudgetCreate):
-    db_budget = Budgets(
+    db_budget = Budget(
         budget_month=new_budget.budget_month,
         planned_amount=new_budget.planned_amount,
         category_id=new_budget.category_id
@@ -20,23 +20,23 @@ def create_budget(db: Session, new_budget: BudgetCreate):
 
 
 def list_budget(db: Session, budget_month: date = None):
-    q = db.query(Budgets)
+    q = db.query(Budget)
     if budget_month is not None:
-        q = q.filter(Budgets.category_id == budget_month)
+        q = q.filter(Budget.budget_month == budget_month)
     return q.all()
 
 
 def get_budget(db: Session, budget_id: UUID):
-    return db.query(Budgets).filter(Budgets.budget_id == budget_id).first()
+    return db.query(Budget).filter(Budget.budget_id == budget_id).first()
 
 
-def update_budget(db: Session, budget_id: UUID, new_name: str, new_amount: float):
-    db_budget = db.query(Budgets).filter(Budgets.budget_id == budget_id).first()
+def update_budget(db: Session, budget_id: UUID, budget_month: date, new_amount: float):
+    db_budget = db.query(Budget).filter(Budget.budget_id == budget_id).first()
     if db_budget is None:
         return None
 
-    if new_name is not None:
-        db_budget.name = new_name
+    if budget_month is not None:
+        db_budget.name = budget_month
 
     if new_amount is not None:
         db_budget.amount = new_amount
@@ -49,7 +49,7 @@ def update_budget(db: Session, budget_id: UUID, new_name: str, new_amount: float
 
 
 def delete_budget(db: Session, budget_id: UUID):
-    db_budget = db.query(Budgets).filter(Budgets.budget_id == budget_id).first()
+    db_budget = db.query(Budget).filter(Budget.budget_id == budget_id).first()
     if db_budget is None:
         return None
     db.delete(db_budget)

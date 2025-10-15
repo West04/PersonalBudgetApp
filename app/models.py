@@ -10,7 +10,7 @@ class Category(Base):
 
     category_id = Column(UUID, primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
-    parent_id = Column(UUID, ForeignKey('categories.category_id'))
+    parent_id = Column(UUID, ForeignKey('categories.category_id'), ondelete="CASCADE")
     created_at = Column(TIMESTAMP,
                         server_default=func.now(),
                         nullable=False)
@@ -22,19 +22,19 @@ class Transaction(Base):
     transaction_id = Column(UUID, primary_key=True, default=uuid.uuid4)
     description = Column(Text)
     amount = Column(DECIMAL(10, 2), nullable=False)
-    category_id = Column(UUID, ForeignKey('categories.category_id'))
+    category_id = Column(UUID, ForeignKey('categories.category_id'), ondelete="SET NULL")
     transaction_date = Column(TIMESTAMP,
                               server_default=func.now(),
                               nullable=False)
 
 
-class Budgets(Base):
+class Budget(Base):
     __tablename__ = 'budgets'
 
     budget_id = Column(UUID, primary_key=True, default=uuid.uuid4)
     budget_month = Column(DATE, nullable=False)
     planned_amount = Column(DECIMAL(10, 2), nullable=False)
-    category_id = Column(UUID, ForeignKey('categories.category_id'))
+    category_id = Column(UUID, ForeignKey('categories.category_id'), ondelete="CASCADE")
 
     __table_args__ = (
         UniqueConstraint(budget_month, category_id),
