@@ -19,16 +19,13 @@ def list_transaction(db: Session, category_id: Optional[UUID] = None, transactio
         q = q.filter(Transaction.category_id == category_id)
 
     if transaction_date is not None:
-        q = q.filter(Transaction.transaction_date == transaction_date)
+        q = q.filter(Transaction.transaction_date >= transaction_date)
     return q.all()
 
 
 def create_transaction(db: Session, new_transaction: TransactionCreate) -> Transaction:
     db_transaction = Transaction(
-        description=new_transaction.description,
-        amount=new_transaction.amount,
-        category_id=new_transaction.category_id,
-        transaction_date=new_transaction.transaction_date
+        **new_transaction.model_dump()
     )
     db.add(db_transaction)
     db.commit()
@@ -48,21 +45,16 @@ def delete_transaction(db: Session, transaction_id: UUID) -> Optional[Transactio
 
 def update_transaction(
         db: Session,
-        update_transaction: TransactionUpdate,
-        transaction_id: Optional[UUID] = None
+        transaction_id: UUID,
+        payload: TransactionUpdate
 ) -> Optional[Transaction]:
     db_transaction = db.query(Transaction).filter(Transaction.transaction_id == transaction_id).first()
     if db_transaction is None:
         return None
 
-    if update_transaction.description is not None:
-        db_transaction.description = update_transaction.description
-    if update_transaction.amount is not None:
-        db_transaction.amount = update_transaction.amount
-    if db_transaction.category_id is not None:
-        db_transaction.category_id = db_transaction.category_id
-    if db_transaction.transaction_date is not None:
-        db_transaction.transaction_date = db_transaction.transaction_date
+    update_data = payload.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_transaction, key, value)
 
     db.add(db_transaction)
     db.commit()
