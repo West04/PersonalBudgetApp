@@ -65,8 +65,7 @@ def update_budget(
     db_budget = crud_budget.update_budget(
         db=db,
         budget_id=budget_id,
-        budget_month=payload.budget_month,
-        new_amount=payload.amount
+        update_budget=payload
     )
 
     if db_budget is None:

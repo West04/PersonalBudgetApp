@@ -65,8 +65,7 @@ def update_category(
     updated = crud_category.update_category(
         db=db,
         category_id=category_id,
-        new_name=payload.name,
-        new_parent_id=payload.parent_id
+        update_category=payload
     )
 
     if updated is None:

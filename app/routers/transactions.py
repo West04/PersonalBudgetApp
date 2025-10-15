@@ -66,10 +66,7 @@ def update_transaction(
     updated = crud_transaction.update_transaction(
         db=db,
         transaction_id=transaction_id,
-        description=payload.description,
-        amount=payload.amount,
-        category_id=payload.category_id,
-        transaction_date=payload.transaction_date
+        update_transaction=payload
     )
 
     if updated is None:
