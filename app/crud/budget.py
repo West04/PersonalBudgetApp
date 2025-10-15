@@ -10,9 +10,7 @@ from ..schemas import BudgetCreate, BudgetUpdate
 
 def create_budget(db: Session, new_budget: BudgetCreate) -> Budget:
     db_budget = Budget(
-        budget_month=new_budget.budget_month,
-        planned_amount=new_budget.planned_amount,
-        category_id=new_budget.category_id
+        **new_budget.model_dump()
     )
     db.add(db_budget)
     db.commit()

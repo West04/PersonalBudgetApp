@@ -18,7 +18,9 @@ def list_categories(db: Session, parent_id: Optional[UUID] = None) -> List[Categ
 
 
 def create_category(db: Session, new_category: CategoryCreate) -> Category:
-    db_category = Category(name=new_category.name, parent_id=new_category.parent_id)
+    db_category = Category(
+        **new_category.model_dump()
+    )
     db.add(db_category)
     db.commit()
     db.refresh(db_category)
