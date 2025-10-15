@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import schemas
-from ..crud import category
+from ..crud import category as crud_category
 from ..database import get_db
 
 router = APIRouter(
@@ -22,7 +22,7 @@ def create_category(
     """
     Create a new category.
     """
-    return category.create_category(db=db, new_category=category)
+    return crud_category.create_category(db=db, new_category=category)
 
 
 @router.get("/", response_model=list[schemas.CategoryRead])
@@ -30,7 +30,7 @@ def list_categories(parent_id: Optional[UUID] = None, db: Session = Depends(get_
     """
     List categories. Optionally filter by parent_id to get subcategories.
     """
-    return category.list_categories(db=db, parent_id=parent_id)
+    return crud_category.list_categories(db=db, parent_id=parent_id)
 
 
 @router.get("/{category_id}", response_model=schemas.CategoryRead)
@@ -41,7 +41,7 @@ def read_category(
     """
     Get a specific category by its ID.
     """
-    db_category = category.get_category(db=db, category_id=category_id)
+    db_category = crud_category.get_category(db=db, category_id=category_id)
 
     if db_category is None:
         raise HTTPException(
@@ -62,7 +62,7 @@ def update_category(
     Update a specific category by its ID.
     """
 
-    updated = category.update_category(
+    updated = crud_category.update_category(
         db=db,
         category_id=category_id,
         new_name=payload.name,
@@ -83,7 +83,7 @@ def delete_category(
         category_id: UUID,
         db: Session = Depends(get_db)
 ):
-    deleted = category.delete_category(
+    deleted = crud_category.delete_category(
         db=db,
         category_id=category_id
     )
