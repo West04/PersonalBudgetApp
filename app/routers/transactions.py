@@ -1,5 +1,5 @@
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List
 from datetime import date
 
 from fastapi import APIRouter, Depends, status, HTTPException
@@ -26,12 +26,16 @@ def create_transaction(
     return crud_transaction.create_transaction(db=db, new_transaction=transaction)
 
 
-@router.get("/", response_model=list[schemas.TransactionRead])
-def list_transactions(category_id: Optional[UUID] = None, transaction_data: Optional[date] = None, db: Session = Depends(get_db)):
+@router.get("/", response_model=List[schemas.TransactionRead])
+def list_transactions(
+    category_id: Optional[UUID] = None,
+    transaction_date: Optional[date] = None,
+    db: Session = Depends(get_db)
+):
     """
-    List categories. Optionally filter by category_id and transaction_date.
+    List transactions. Optionally filter by category_id and transaction_date.
     """
-    return crud_transaction.list_transaction(db=db, category_id=category_id, transaction_date=transaction_data)
+    return crud_transaction.list_transaction(db=db, category_id=category_id, transaction_date=transaction_date)
 
 
 @router.get("/{transaction_id}", response_model=schemas.TransactionRead)
@@ -40,7 +44,7 @@ def read_transaction(
     db: Session = Depends(get_db)
 ):
     """
-    Get a specific category by its ID.
+    Get a specific transaction by its ID.
     """
     db_transaction = crud_transaction.get_transaction(db=db, transaction_id=transaction_id)
 
@@ -49,11 +53,10 @@ def read_transaction(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='Transaction not found'
         )
-
     return db_transaction
 
 
-@router.put("/{transaction_id}", response_model=schemas.TransactionRead, status_code=status.HTTP_202_ACCEPTED)
+@router.put("/{transaction_id}", response_model=schemas.TransactionRead, status_code=status.HTTP_200_OK)
 def update_transaction(
         transaction_id: UUID,
         payload: schemas.TransactionUpdate,
@@ -62,19 +65,17 @@ def update_transaction(
     """
     Update a specific transaction by its ID.
     """
-
     updated = crud_transaction.update_transaction(
         db=db,
         transaction_id=transaction_id,
-        update_transaction=payload
+        payload=payload
     )
 
     if updated is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail='Category not found or invalid update'
+            detail='Transaction not found or invalid update'
         )
-
     return updated
 
 
@@ -94,6 +95,6 @@ def delete_transaction(
     if deleted is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail='Category not found'
+            detail='Transaction not found'
         )
     return None
