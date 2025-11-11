@@ -1,7 +1,7 @@
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, condecimal
 from datetime import date, datetime
-from typing import Union
+from typing import Union, Optional, List
 
 DecimalAmount = condecimal(max_digits=10, decimal_places=2)
 
@@ -25,25 +25,59 @@ class CategoryUpdate(BaseModel):
     parent_id: Union[UUID, None] = None
 
 
+class PlaidItemRead(BaseModel):
+    id: UUID
+    plaid_item_id: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AccountRead(BaseModel):
+    id: UUID
+    plaid_account_id: str
+    item_id: UUID
+    name: str
+    mask: Optional[str] = None
+    type: str
+    subtype: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PlaidPublicTokenRequest(BaseModel):
+    public_token: str
+
+
+class PlaidLinkTokenResponse(BaseModel):
+    link_token: str
+
+
 class TransactionCreate(BaseModel):
+    plaid_transaction_id: str
+    account_id: UUID
+    category_id: Optional[UUID] = None
     description: str
     amount: DecimalAmount
-    category_id: UUID
-    transaction_date: datetime
+    date: date
+    datetime: Optional[datetime] = None
+    pending: bool = False
+
 
 class TransactionUpdate(BaseModel):
     description: Union[str, None] = None
-    amount: Union[DecimalAmount, None] = None
     category_id: Union[UUID, None] = None
-    transaction_date: Union[datetime, None] = None
 
 
 class TransactionRead(BaseModel):
     transaction_id: UUID
+    plaid_transaction_id: str
+    account_id: UUID
+    category_id: Optional[UUID] = None
     description: str
     amount: DecimalAmount
-    category_id: UUID
-    transaction_date: datetime
+    date: date
+    datetime: Optional[datetime] = None
+    pending: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,5 +100,3 @@ class BudgetRead(BaseModel):
     category_id: UUID
 
     model_config = ConfigDict(from_attributes=True)
-
-
