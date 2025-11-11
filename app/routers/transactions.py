@@ -15,33 +15,36 @@ router = APIRouter(
 )
 
 
-@router.post("/", response_model=schemas.TransactionRead, status_code=status.HTTP_201_CREATED)
-def create_transaction(
-    transaction: schemas.TransactionCreate,
-    db: Session = Depends(get_db)
-):
-    """
-    Create a new transaction.
-    """
-    return crud_transaction.create_transaction(db=db, new_transaction=transaction)
-
-
 @router.get("/", response_model=List[schemas.TransactionRead])
 def list_transactions(
-    category_id: Optional[UUID] = None,
-    transaction_date: Optional[date] = None,
-    db: Session = Depends(get_db)
+        account_id: Optional[UUID] = None,
+        category_id: Optional[UUID] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        db: Session = Depends(get_db)
 ):
     """
-    List transactions. Optionally filter by category_id and transaction_date.
+    List transactions.
+
+    Can be filtered by:
+    - `account_id`: To get transactions for a specific bank account.
+    - `category_id`: To get transactions for a specific budget category.
+    - `start_date`: The start of a date range (e.g., 2023-01-01)
+    - `end_date`: The end of a date range (e.g., 2023-01-31)
     """
-    return crud_transaction.list_transaction(db=db, category_id=category_id, transaction_date=transaction_date)
+    return crud_transaction.list_transaction(
+        db=db,
+        account_id=account_id,
+        category_id=category_id,
+        start_date=start_date,
+        end_date=end_date
+    )
 
 
 @router.get("/{transaction_id}", response_model=schemas.TransactionRead)
 def read_transaction(
-    transaction_id: UUID,
-    db: Session = Depends(get_db)
+        transaction_id: UUID,
+        db: Session = Depends(get_db)
 ):
     """
     Get a specific transaction by its ID.
@@ -63,8 +66,12 @@ def update_transaction(
         db: Session = Depends(get_db)
 ):
     """
-    Update a specific transaction by its ID.
+Deletes a specific transaction by its ID.
     """
+    # This endpoint is now used for *categorizing* a transaction
+    # or updating its description.
+    # The 'payload' will only accept 'category_id' and 'description'
+    # thanks to our updated TransactionUpdate schema.
     updated = crud_transaction.update_transaction(
         db=db,
         transaction_id=transaction_id,
@@ -85,7 +92,7 @@ def delete_transaction(
         db: Session = Depends(get_db)
 ):
     """
-        Delete a specific transaction by its ID.
+    Delete a specific transaction by its ID.
     """
     deleted = crud_transaction.delete_transaction(
         db=db,
