@@ -1,26 +1,53 @@
 import uuid
 
-from sqlalchemy import Column, UUID, ForeignKey, Text, DECIMAL, DATE, UniqueConstraint, TIMESTAMP, func, String, Boolean
+from sqlalchemy import Column, UUID, ForeignKey, Text, DECIMAL, DATE, UniqueConstraint, TIMESTAMP, func, String, Boolean, Integer
 from sqlalchemy.orm import relationship
 
 from .database import Base
+
+
+class CategoryGroup(Base):
+    __tablename__ = 'category_groups'
+
+    category_group_id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    name = Column(String, unique=True, nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+
+    # Relationships
+    categories = relationship(
+        "Category",
+        back_populates="group",
+        cascade="all, delete-orphan",
+        order_by="Category.sort_order",
+    )
 
 
 class Category(Base):
     __tablename__ = 'categories'
 
     category_id = Column(UUID, primary_key=True, default=uuid.uuid4)
-    name = Column(Text, nullable=False, unique=True)
-    parent_id = Column(UUID, ForeignKey('categories.category_id', ondelete="CASCADE"))
-    created_at = Column(TIMESTAMP,
-                        server_default=func.now(),
-                        nullable=False)
+    group_id = Column(
+        UUID,
+        ForeignKey("category_groups.category_group_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    type = Column(String, nullable=False, default="expense")  # income|expense|transfer
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
     # Relationships
+    group = relationship("CategoryGroup", back_populates="categories")
+
     transactions = relationship("Transaction", back_populates="category")
     budgets = relationship("Budget", back_populates="category")
-    parent = relationship("Category", remote_side=[category_id], back_populates="subcategories")
-    subcategories = relationship("Category", back_populates="parent")
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "name", name="uq_category_group_name"),
+    )
 
 
 class Transaction(Base):

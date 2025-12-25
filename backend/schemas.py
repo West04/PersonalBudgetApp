@@ -1,29 +1,69 @@
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, condecimal
 from datetime import date, datetime
-from typing import Union, Optional, List
+from typing import Optional, List, Literal
 
 DecimalAmount = condecimal(max_digits=10, decimal_places=2)
+
+# --- Category Group Schemas ---
+
+class CategoryGroupCreate(BaseModel):
+    name: str
+    sort_order: int = 0
+
+
+class CategoryGroupRead(BaseModel):
+    category_group_id: UUID
+    name: str
+    sort_order: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CategoryGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+# --- Category Schemas ---
+
+CategoryType = Literal["income", "expense", "transfer"]
 
 
 class CategoryCreate(BaseModel):
     name: str
-    parent_id: Union[UUID, None] = None
+    group_id: UUID
+    sort_order: int = 0
+    type: CategoryType = "expense"
+    is_active: bool = True
 
 
 class CategoryRead(BaseModel):
     category_id: UUID
+    group_id: UUID
     name: str
-    parent_id: Union[UUID, None] = None
+    sort_order: int
+    type: CategoryType
+    is_active: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class CategoryUpdate(BaseModel):
-    name: Union[str, None] = None
-    parent_id: Union[UUID, None] = None
+    name: Optional[str] = None
+    group_id: Optional[UUID] = None
+    sort_order: Optional[int] = None
+    type: Optional[CategoryType] = None
+    is_active: Optional[bool] = None
 
+
+# UI-friendly nested schema
+class CategoryGroupWithCategories(CategoryGroupRead):
+    categories: List[CategoryRead]
+
+
+# --- Plaid & Account Schemas ---
 
 class PlaidItemRead(BaseModel):
     id: UUID
@@ -52,11 +92,13 @@ class PlaidLinkTokenResponse(BaseModel):
     link_token: str
 
 
+# --- Transaction Schemas ---
+
 class TransactionCreate(BaseModel):
     plaid_transaction_id: str
     account_id: UUID
     category_id: Optional[UUID] = None
-    description: str
+    description: Optional[str] = None
     amount: DecimalAmount
     date: date
     datetime: Optional[datetime] = None
@@ -64,8 +106,8 @@ class TransactionCreate(BaseModel):
 
 
 class TransactionUpdate(BaseModel):
-    description: Union[str, None] = None
-    category_id: Union[UUID, None] = None
+    description: Optional[str] = None
+    category_id: Optional[UUID] = None
 
 
 class TransactionRead(BaseModel):
@@ -82,6 +124,8 @@ class TransactionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# --- Budget Schemas ---
+
 class BudgetCreate(BaseModel):
     budget_month: date
     planned_amount: DecimalAmount
@@ -89,8 +133,8 @@ class BudgetCreate(BaseModel):
 
 
 class BudgetUpdate(BaseModel):
-    planned_amount: Union[DecimalAmount, None] = None
-    budget_month: Union[date, None] = None
+    planned_amount: Optional[DecimalAmount] = None
+    budget_month: Optional[date] = None
 
 
 class BudgetRead(BaseModel):
