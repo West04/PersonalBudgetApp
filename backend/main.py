@@ -1,11 +1,21 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
-from .routers import categories, budgets, transactions, plaid
+from .database import engine
+from . import models
+from .routers import categories, budgets, transactions, plaid, summaries
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    models.Base.metadata.create_all(bind=engine)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.include_router(categories.router)
 app.include_router(budgets.router)
 app.include_router(transactions.router)
 app.include_router(plaid.router)
+app.include_router(summaries.router)
