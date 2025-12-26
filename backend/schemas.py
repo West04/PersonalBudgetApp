@@ -115,7 +115,7 @@ class TransactionRead(BaseModel):
     plaid_transaction_id: str
     account_id: UUID
     category_id: Optional[UUID] = None
-    description: str
+    description: Optional[str] = None
     amount: DecimalAmount
     date: date
     datetime: Optional[datetime] = None
@@ -144,3 +144,56 @@ class BudgetRead(BaseModel):
     category_id: UUID
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Summary Schemas ---
+
+class BudgetCategorySummary(BaseModel):
+    category_id: UUID
+    name: str
+    type: str  # income, expense, transfer
+    planned: DecimalAmount
+    actual: DecimalAmount
+    remaining: DecimalAmount
+    is_over_budget: bool
+
+class BudgetGroupSummary(BaseModel):
+    group_id: UUID
+    name: str
+    categories: List[BudgetCategorySummary]
+    total_planned: DecimalAmount
+    total_actual: DecimalAmount
+    total_remaining: DecimalAmount
+
+class BudgetSummaryResponse(BaseModel):
+    month: str
+    groups: List[BudgetGroupSummary]
+    total_income_planned: DecimalAmount
+    total_income_actual: DecimalAmount
+    total_expense_planned: DecimalAmount
+    total_expense_actual: DecimalAmount
+
+class DashboardGroupStat(BaseModel):
+    group_id: UUID
+    name: str
+    planned: DecimalAmount
+    actual: DecimalAmount
+
+class DashboardAccountSummary(BaseModel):
+    account_id: UUID
+    name: str
+    type: str
+    subtype: str
+    balance: DecimalAmount
+
+class DashboardSummaryResponse(BaseModel):
+    month: str
+    income_planned: DecimalAmount
+    income_actual: DecimalAmount
+    expense_planned: DecimalAmount
+    expense_actual: DecimalAmount
+    total_balance: DecimalAmount
+    to_be_assigned: DecimalAmount
+    groups: List[DashboardGroupStat]
+    accounts: List[DashboardAccountSummary]
+    recent_transactions: List[TransactionRead]
