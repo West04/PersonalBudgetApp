@@ -1,23 +1,22 @@
+from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
+
 from sqlalchemy.orm import Session
-from .. import models, schemas
+
+from .. import models
 from backend.security import encrypt_token
 
 
 # --- PlaidItem CRUD ---
 
 def create_plaid_item(db: Session, plaid_item_id: str, access_token: str) -> models.PlaidItem:
-    """
-    Creates and saves a new PlaidItem, encrypting the access token.
-    """
-
-    # Encrypt the access token before storing it
     encrypted_access_token = encrypt_token(access_token)
 
     db_item = models.PlaidItem(
         plaid_item_id=plaid_item_id,
         plaid_access_token_encrypted=encrypted_access_token,
-        transactions_cursor=None  # Cursor is null until first sync
+        transactions_cursor=None,
     )
     db.add(db_item)
     db.commit()
@@ -25,24 +24,11 @@ def create_plaid_item(db: Session, plaid_item_id: str, access_token: str) -> mod
     return db_item
 
 
-def get_plaid_item(db: Session, item_id: UUID) -> models.PlaidItem:
-    """
-    Gets a PlaidItem by its internal UUID.
-    """
-    return db.query(models.PlaidItem).filter(models.PlaidItem.id == item_id).first()
-
-
 def get_plaid_item_by_plaid_item_id(db: Session, plaid_item_id: str) -> models.PlaidItem:
-    """
-    Gets a PlaidItem by its Plaid-provided item_id.
-    """
     return db.query(models.PlaidItem).filter(models.PlaidItem.plaid_item_id == plaid_item_id).first()
 
 
 def update_transactions_cursor(db: Session, plaid_item_id: str, new_cursor: str) -> models.PlaidItem:
-    """
-    Updates the transactions cursor for a given PlaidItem.
-    """
     db_item = get_plaid_item_by_plaid_item_id(db, plaid_item_id)
     if db_item:
         db_item.transactions_cursor = new_cursor
@@ -52,20 +38,24 @@ def update_transactions_cursor(db: Session, plaid_item_id: str, new_cursor: str)
     return db_item
 
 
-# --- Account CRUD ---
+# --- Accounts CRUD ---
+
+def get_account_by_plaid_account_id(db: Session, plaid_account_id: str) -> models.Account:
+    return db.query(models.Account).filter(models.Account.plaid_account_id == plaid_account_id).first()
+
+
+def list_accounts_by_item(db: Session, item_id: UUID) -> list[models.Account]:
+    return db.query(models.Account).filter(models.Account.item_id == item_id).all()
+
 
 def create_account(db: Session, account: dict, item_id: UUID) -> models.Account:
-    """
-    Creates and saves a new Account linked to a PlaidItem.
-    'account' is a dictionary from the Plaid API /accounts/get response.
-    """
     db_account = models.Account(
         item_id=item_id,
-        plaid_account_id=account['account_id'],
-        name=account['name'],
-        mask=account['mask'],
-        type=account['type'],
-        subtype=account['subtype']
+        plaid_account_id=account["account_id"],
+        name=account["name"],
+        mask=account.get("mask"),
+        type=account["type"],
+        subtype=account.get("subtype"),
     )
     db.add(db_account)
     db.commit()
@@ -73,15 +63,55 @@ def create_account(db: Session, account: dict, item_id: UUID) -> models.Account:
     return db_account
 
 
-def get_account_by_plaid_account_id(db: Session, plaid_account_id: str) -> models.Account:
+def sync_accounts_and_balances(db: Session, client, access_token: str, item_id: UUID) -> int:
     """
-    Gets a local Account record by its Plaid-provided account_id.
+    FAST, safe to call often.
+    - fetch /accounts/get
+    - upsert account rows
+    - update persisted balances + last_updated
     """
-    return db.query(models.Account).filter(models.Account.plaid_account_id == plaid_account_id).first()
+    # Plaid SDK request object
+    from plaid.model.accounts_get_request import AccountsGetRequest
 
+    req = AccountsGetRequest(access_token=access_token)
+    resp = client.accounts_get(req)
 
-def list_accounts_by_item(db: Session, item_id: UUID) -> list[models.Account]:
-    """
-    Lists all local Account records for a given PlaidItem.
-    """
-    return db.query(models.Account).filter(models.Account.item_id == item_id).all()
+    now = datetime.utcnow()
+    updated = 0
+
+    for acct in resp.accounts:
+        data = acct.to_dict()
+        balances = data.get("balances") or {}
+
+        db_account = get_account_by_plaid_account_id(db, data["account_id"])
+
+        if db_account is None:
+            db_account = models.Account(
+                item_id=item_id,
+                plaid_account_id=data["account_id"],
+                name=data.get("name") or "Account",
+                mask=data.get("mask"),
+                type=data.get("type") or "unknown",
+                subtype=data.get("subtype"),
+                is_active=True,
+            )
+            db.add(db_account)
+
+        # identity fields
+        db_account.name = data.get("name") or db_account.name
+        db_account.mask = data.get("mask")
+        db_account.type = data.get("type") or db_account.type
+        db_account.subtype = data.get("subtype")
+
+        # balances
+        db_account.current_balance = Decimal(str(balances.get("current") or 0))
+        available = balances.get("available")
+        db_account.available_balance = Decimal(str(available)) if available is not None else None
+        db_account.currency = balances.get("iso_currency_code") or "USD"
+        db_account.balance_last_updated = now
+
+        db.add(db_account)
+        updated += 1
+
+    db.flush()
+    return updated
