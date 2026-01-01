@@ -13,7 +13,7 @@ COPY package.json package-lock.json ./
 RUN npm install
 
 # Copy the rest of the application's source code
-COPY .. .
+COPY ../.. .
 
 # Run the build script defined in package.json
 RUN npm run build
