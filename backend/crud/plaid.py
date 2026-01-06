@@ -28,6 +28,10 @@ def get_plaid_item_by_plaid_item_id(db: Session, plaid_item_id: str) -> models.P
     return db.query(models.PlaidItem).filter(models.PlaidItem.plaid_item_id == plaid_item_id).first()
 
 
+def get_plaid_item_by_id(db: Session, id: UUID) -> models.PlaidItem:
+    return db.query(models.PlaidItem).filter(models.PlaidItem.id == id).first()
+
+
 def update_transactions_cursor(db: Session, plaid_item_id: str, new_cursor: str) -> models.PlaidItem:
     db_item = get_plaid_item_by_plaid_item_id(db, plaid_item_id)
     if db_item:

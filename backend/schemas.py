@@ -242,4 +242,5 @@ class PlaidPublicTokenRequest(BaseModel):
 
 
 class PlaidSyncRequest(BaseModel):
-    plaid_item_id: str
+    plaid_item_id: Optional[str] = None
+    item_id: Optional[UUID] = None

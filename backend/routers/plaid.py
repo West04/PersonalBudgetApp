@@ -103,7 +103,13 @@ def sync_accounts(payload: schemas.PlaidSyncRequest, db: Session = Depends(get_d
     """
     FAST: Refresh account balances only (best UX).
     """
-    plaid_item = crud_plaid.get_plaid_item_by_plaid_item_id(db, payload.plaid_item_id)
+    if payload.item_id:
+        plaid_item = crud_plaid.get_plaid_item_by_id(db, payload.item_id)
+    elif payload.plaid_item_id:
+        plaid_item = crud_plaid.get_plaid_item_by_plaid_item_id(db, payload.plaid_item_id)
+    else:
+        raise HTTPException(status_code=400, detail="Must provide item_id or plaid_item_id")
+
     if not plaid_item:
         raise HTTPException(status_code=404, detail="Plaid Item not found")
 
@@ -133,7 +139,13 @@ def sync_transactions(payload: schemas.PlaidSyncRequest, db: Session = Depends(g
     HEAVY: Sync transaction updates from Plaid.
     Recommended: refresh balances first.
     """
-    plaid_item = crud_plaid.get_plaid_item_by_plaid_item_id(db, payload.plaid_item_id)
+    if payload.item_id:
+        plaid_item = crud_plaid.get_plaid_item_by_id(db, payload.item_id)
+    elif payload.plaid_item_id:
+        plaid_item = crud_plaid.get_plaid_item_by_plaid_item_id(db, payload.plaid_item_id)
+    else:
+        raise HTTPException(status_code=400, detail="Must provide item_id or plaid_item_id")
+
     if not plaid_item:
         raise HTTPException(status_code=404, detail="Plaid Item not found")
 
