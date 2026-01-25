@@ -1,11 +1,14 @@
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
+from os import getenv
+import requests
 
 from sqlalchemy.orm import Session
 
 from .. import models
 from backend.security import encrypt_token
+from ..crud import transaction as crud_transaction
 
 
 # --- PlaidItem CRUD ---
@@ -119,3 +122,73 @@ def sync_accounts_and_balances(db: Session, client, access_token: str, item_id: 
 
     db.flush()
     return updated
+
+
+def sync_transactions_from_plaid(db: Session, access_token: str, plaid_item_id: str, cursor: str) -> dict:
+    """
+    Syncs transactions from Plaid using raw HTTP requests (requests lib)
+    to avoid SDK type validation issues with cursors.
+    """
+    PLAID_ENVIRONMENT = getenv("PLAID_ENVIRONMENT", "Sandbox")
+    PLAID_BASE_URLS = {
+        "Sandbox": "https://sandbox.plaid.com",
+        "Development": "https://development.plaid.com",
+        "Production": "https://production.plaid.com"
+    }
+    PLAID_BASE = PLAID_BASE_URLS.get(PLAID_ENVIRONMENT, "https://sandbox.plaid.com")
+
+    headers = {
+        "Content-Type": "application/json",
+        "PLAID-CLIENT-ID": getenv("PLAID_CLIENT_ID"),
+        "PLAID-SECRET": getenv("PLAID_SECRET"),
+    }
+
+    added_count = 0
+    modified_count = 0
+    removed_count = 0
+    has_more = True
+
+    while has_more:
+        body = {
+            "access_token": access_token,
+            "count": 500  # Max per page
+        }
+        if cursor:
+            body["cursor"] = cursor
+
+        print(f"DEBUG: calling {PLAID_BASE}/transactions/sync with cursor='{cursor}'")
+        resp = requests.post(f"{PLAID_BASE}/transactions/sync", json=body, headers=headers, timeout=60)
+        resp.raise_for_status()
+
+        data = resp.json()
+
+        added = data["added"]
+        modified = data["modified"]
+        removed = data["removed"]
+
+        has_more = data["has_more"]
+        cursor = data["next_cursor"]
+
+        for tx_data in added:
+            crud_transaction.create_or_update_transaction(db, tx_data)
+            added_count += 1
+
+        for tx_data in modified:
+            crud_transaction.create_or_update_transaction(db, tx_data)
+            modified_count += 1
+
+        for tx_data in removed:
+            # 'removed' usually contains dicts with 'transaction_id'
+            crud_transaction.delete_transaction_by_plaid_id(db, tx_data["transaction_id"])
+            removed_count += 1
+
+    update_transactions_cursor(db, plaid_item_id, cursor)
+    db.commit()
+
+    return {
+        "message": "Sync successful",
+        "added": added_count,
+        "modified": modified_count,
+        "removed": removed_count,
+        "next_cursor": cursor,
+    }

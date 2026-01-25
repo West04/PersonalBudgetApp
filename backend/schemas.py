@@ -64,36 +64,82 @@ class CategoryGroupWithCategories(CategoryGroupRead):
     categories: List[CategoryRead]
 
 
+# --- Account Schemas ---
+
+class AccountCreate(BaseModel):
+    name: str
+    type: str
+    subtype: Optional[str] = None
+    current_balance: DecimalAmount = Decimal("0.00")
+    currency: str = "USD"
+    is_active: bool = True
+
+
+class AccountRead(BaseModel):
+    """
+    API contract uses account_id, but DB model uses Account.id.
+    We map Account.id -> account_id here.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    account_id: UUID = Field(validation_alias="id")
+
+    plaid_account_id: Optional[str] = None
+    item_id: Optional[UUID] = None
+
+    name: str
+    mask: Optional[str] = None
+    type: str
+    subtype: Optional[str] = None
+
+    current_balance: Decimal
+    available_balance: Optional[Decimal] = None
+    currency: str = "USD"
+    balance_last_updated: Optional[datetime] = None
+
+    is_active: bool = True
+    status: str = "connected"
+
+
+class AccountUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 # --- Transaction Schemas ---
 
 class TransactionCreate(BaseModel):
-    plaid_transaction_id: Optional[str] = None
     account_id: UUID
     category_id: Optional[UUID] = None
-    description: Optional[str] = None
+    description: str
     amount: DecimalAmount
     date: date
     datetime: Optional[datetime] = None
     pending: bool = False
+    plaid_transaction_id: Optional[str] = None
 
 
 class TransactionUpdate(BaseModel):
-    description: Optional[str] = None
     category_id: Optional[UUID] = None
+    description: Optional[str] = None
 
 
 class TransactionRead(BaseModel):
     transaction_id: UUID
-    plaid_transaction_id: Optional[str]
+    plaid_transaction_id: Optional[str] = None
     account_id: UUID
     category_id: Optional[UUID] = None
-    description: Optional[str] = None
+    description: str
     amount: DecimalAmount
     date: date
     datetime: Optional[datetime] = None
     pending: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TransactionDetailRead(TransactionRead):
+    pass
 
 
 class TransactionListResponse(BaseModel):
@@ -182,49 +228,7 @@ class DashboardSummaryResponse(BaseModel):
     to_be_assigned: DecimalAmount
     groups: List[DashboardGroupStat]
     accounts: List[DashboardAccountSummary]
-    recent_transactions: List[TransactionRead]
-
-class AccountCreate(BaseModel):
-    name: str
-    type: str
-    subtype: Optional[str] = None
-    current_balance: DecimalAmount = Decimal("0.00")
-    currency: str = "USD"
-    is_active: bool = True
-
-
-class AccountRead(BaseModel):
-    """
-    API contract uses account_id, but DB model uses Account.id.
-    We map Account.id -> account_id here.
-    """
-    model_config = ConfigDict(from_attributes=True)
-
-    account_id: UUID = Field(validation_alias="id")
-
-    plaid_account_id: Optional[str] = None
-    item_id: Optional[UUID] = None
-
-    name: str
-    mask: Optional[str] = None
-    type: str
-    subtype: Optional[str] = None
-
-    current_balance: Decimal
-    available_balance: Optional[Decimal] = None
-    currency: str = "USD"
-    balance_last_updated: Optional[datetime] = None
-
-    is_active: bool = True
-    status: str = "connected"
-
-
-class AccountUpdate(BaseModel):
-    name: Optional[str] = None
-    is_active: Optional[bool] = None
-
-
-# --- Plaid & Account Schemas ---
+    recent_transactions: List[TransactionDetailRead]
 
 class PlaidItemRead(BaseModel):
     id: UUID
