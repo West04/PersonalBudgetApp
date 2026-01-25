@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 from uuid import UUID
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from datetime import date
 
 from ..models import Transaction
@@ -10,13 +10,13 @@ from .plaid import get_account_by_plaid_account_id  # <-- Import this helper
 
 def get_transaction(db: Session, transaction_id: UUID) -> Optional[Transaction]:
     """Gets a single transaction by its primary key (UUID)"""
-    db_transaction = db.query(Transaction).filter(Transaction.transaction_id == transaction_id).first()
+    db_transaction = db.query(Transaction).options(joinedload(Transaction.account)).filter(Transaction.transaction_id == transaction_id).first()
     return db_transaction
 
 
 def get_transaction_by_plaid_id(db: Session, plaid_transaction_id: str) -> Optional[Transaction]:
     """Gets a single transaction by its Plaid ID"""
-    return db.query(Transaction).filter(Transaction.plaid_transaction_id == plaid_transaction_id).first()
+    return db.query(Transaction).options(joinedload(Transaction.account)).filter(Transaction.plaid_transaction_id == plaid_transaction_id).first()
 
 
 def list_transaction(
@@ -34,7 +34,7 @@ def list_transaction(
     Lists transactions with optional filters for account, category,
     search text, and a date range. Supports pagination.
     """
-    query = db.query(Transaction)
+    query = db.query(Transaction).options(joinedload(Transaction.account))
 
     if account_id is not None:
         query = query.filter(Transaction.account_id == account_id)

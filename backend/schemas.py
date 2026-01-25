@@ -134,6 +134,7 @@ class TransactionRead(BaseModel):
     date: date
     datetime: Optional[datetime] = None
     pending: bool
+    account: Optional[AccountRead] = None
 
     model_config = ConfigDict(from_attributes=True)
 
