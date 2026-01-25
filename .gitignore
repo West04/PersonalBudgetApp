@@ -55,8 +55,8 @@ instance/
 # ---------------------------------
 # PyCharm / IntelliJ
 .idea/*
-!.idea/codeStyles
-!.idea/inspectionProfiles
+.idea/codeStyles
+.idea/inspectionProfiles
 
 # VSCode
 .vscode/
@@ -66,3 +66,10 @@ instance/
 # ---------------------------------
 .DS_Store
 Thumbs.db
+
+
+# ---------------------------------
+# Nuxt Folder
+# ---------------------------------
+.nuxt
+node_modules
