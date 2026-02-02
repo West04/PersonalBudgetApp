@@ -2,14 +2,23 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import engine
+from .database import engine, SessionLocal
 from . import models
 from .routers import categories, budgets, transactions, plaid, summaries, accounts
+from .initial_data import init_db
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     models.Base.metadata.create_all(bind=engine)
+    
+    # Initialize default data
+    db = SessionLocal()
+    try:
+        init_db(db)
+    finally:
+        db.close()
+    
     yield
 
 

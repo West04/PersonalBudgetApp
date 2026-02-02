@@ -21,16 +21,10 @@
           <span v-if="!isCollapsed" class="label">Dashboard</span>
         </NuxtLink>
 
-        <div class="nav-group">
-          <NuxtLink to="/budget" class="nav-item">
-            <span class="icon" title="Budget">💰</span>
-            <span v-if="!isCollapsed" class="label">Budget</span>
-          </NuxtLink>
-          <NuxtLink v-if="!isCollapsed" to="/budget/planning" class="nav-item sub-item">
-            <span class="icon" title="Planning">📝</span>
-            <span class="label">Planning</span>
-          </NuxtLink>
-        </div>
+        <NuxtLink to="/budget" class="nav-item">
+          <span class="icon" title="Budget">💰</span>
+          <span v-if="!isCollapsed" class="label">Budget</span>
+        </NuxtLink>
 
         <NuxtLink to="/transactions" class="nav-item">
           <span class="icon" title="Transactions">💸</span>
