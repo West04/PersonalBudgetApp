@@ -21,19 +21,14 @@
           <span v-if="!isCollapsed" class="label">Dashboard</span>
         </NuxtLink>
 
-        <NuxtLink to="/budget" class="nav-item">
-          <span class="icon" title="Budget">💰</span>
-          <span v-if="!isCollapsed" class="label">Budget</span>
+        <NuxtLink to="/categories" class="nav-item">
+          <span class="icon" title="Categories">💰</span>
+          <span v-if="!isCollapsed" class="label">Categories</span>
         </NuxtLink>
 
         <NuxtLink to="/transactions" class="nav-item">
           <span class="icon" title="Transactions">💸</span>
           <span v-if="!isCollapsed" class="label">Transactions</span>
-        </NuxtLink>
-
-        <NuxtLink to="/categories" class="nav-item">
-          <span class="icon" title="Categories">🏷️</span>
-          <span v-if="!isCollapsed" class="label">Categories</span>
         </NuxtLink>
 
         <NuxtLink to="/accounts" class="nav-item">

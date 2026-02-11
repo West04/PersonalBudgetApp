@@ -249,3 +249,16 @@ class PlaidPublicTokenRequest(BaseModel):
 class PlaidSyncRequest(BaseModel):
     plaid_item_id: Optional[str] = None
     item_id: Optional[UUID] = None
+
+
+# --- Reorder Schemas ---
+
+class ReorderRequest(BaseModel):
+    """Request to reorder category groups by providing ordered list of IDs"""
+    order: List[UUID]
+
+
+class CategoryReorderRequest(BaseModel):
+    """Request to reorder categories within a group"""
+    group_id: UUID
+    order: List[UUID]

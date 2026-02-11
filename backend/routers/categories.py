@@ -100,6 +100,17 @@ def delete_category_group(
     return None
 
 
+@router.post("/category-groups/reorder", response_model=List[schemas.CategoryGroupWithCategories])
+def reorder_category_groups(
+    payload: schemas.ReorderRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk reorder category groups by providing an ordered list of group IDs.
+    """
+    return crud_category.reorder_category_groups(db=db, ordered_ids=payload.order)
+
+
 # ==========================================
 # Categories
 # ==========================================
@@ -186,3 +197,18 @@ def delete_category(
             detail='Category not found'
         )
     return None
+
+
+@router.post("/categories/reorder", response_model=List[schemas.CategoryRead])
+def reorder_categories(
+    payload: schemas.CategoryReorderRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Bulk reorder categories within a group by providing an ordered list of category IDs.
+    """
+    return crud_category.reorder_categories(
+        db=db,
+        group_id=payload.group_id,
+        ordered_ids=payload.order
+    )

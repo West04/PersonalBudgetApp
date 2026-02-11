@@ -106,3 +106,33 @@ def delete_category(db: Session, category_id: UUID) -> Optional[Category]:
     db.delete(db_category)
     db.commit()
     return db_category
+
+
+# --- Reorder Functions ---
+
+def reorder_category_groups(db: Session, ordered_ids: List[UUID]) -> List[CategoryGroup]:
+    """
+    Update sort_order for all category groups based on the provided order.
+    Returns the updated groups.
+    """
+    for index, group_id in enumerate(ordered_ids):
+        db_group = get_category_group(db, group_id)
+        if db_group:
+            db_group.sort_order = index
+            db.add(db_group)
+    db.commit()
+    return list_category_groups(db)
+
+
+def reorder_categories(db: Session, group_id: UUID, ordered_ids: List[UUID]) -> List[Category]:
+    """
+    Update sort_order for categories within a group based on the provided order.
+    Returns the updated categories.
+    """
+    for index, category_id in enumerate(ordered_ids):
+        db_category = get_category(db, category_id)
+        if db_category and db_category.group_id == group_id:
+            db_category.sort_order = index
+            db.add(db_category)
+    db.commit()
+    return list_categories(db, group_id=group_id)
