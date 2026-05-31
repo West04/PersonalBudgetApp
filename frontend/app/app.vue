@@ -36,6 +36,11 @@
           <span v-if="!isCollapsed" class="label">Accounts</span>
         </NuxtLink>
 
+        <NuxtLink to="/upload" class="nav-item">
+          <span class="icon" title="Upload">📤</span>
+          <span v-if="!isCollapsed" class="label">Upload</span>
+        </NuxtLink>
+
         <div class="spacer"></div>
 
         <NuxtLink to="/settings" class="nav-item">

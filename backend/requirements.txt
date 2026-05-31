@@ -6,3 +6,4 @@ python-dotenv
 plaid-python
 pydantic
 requests
+python-multipart

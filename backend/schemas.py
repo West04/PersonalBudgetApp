@@ -262,3 +262,31 @@ class CategoryReorderRequest(BaseModel):
     """Request to reorder categories within a group"""
     group_id: UUID
     order: List[UUID]
+
+
+# --- CSV Upload Schemas ---
+
+class CSVTransactionRow(BaseModel):
+    """A single parsed row from a CSV upload, with optional parse error."""
+    row_number: int
+    # Use str for date to avoid Pydantic v2 name-collision with the imported `date` type
+    transaction_date: Optional[str] = None  # ISO format YYYY-MM-DD
+    description: Optional[str] = None
+    amount: Optional[Decimal] = None
+    pending: Optional[bool] = None
+    parse_error: Optional[str] = None  # set if this row could not be parsed
+
+
+class CSVPreviewResponse(BaseModel):
+    """Response from the CSV preview endpoint."""
+    rows: List[CSVTransactionRow]
+    total_rows: int
+    valid_rows: int
+    error_rows: int
+
+
+class CSVImportResult(BaseModel):
+    """Result from the CSV confirm/import endpoint."""
+    imported: int
+    skipped: int        # duplicates that were silently skipped
+    errors: List[str]   # non-fatal row errors logged during import
