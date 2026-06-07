@@ -231,6 +231,19 @@
                         />
                         <span>Active</span>
                       </label>
+                      <div class="planned-input-group">
+                        <span class="planned-input-label">Planned</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          :value="getCategoryPlanned(category)"
+                          @blur="savePlannedAmount(category, ($event.target as HTMLInputElement).value)"
+                          @keydown.enter="($event.target as HTMLInputElement).blur()"
+                          class="inline-input planned-amount-input"
+                          placeholder="0.00"
+                        />
+                      </div>
                     </div>
                     <div class="category-edit-actions">
                       <button class="icon-btn delete-btn" @click="confirmDeleteCategory(category)" title="Delete category">
@@ -273,6 +286,7 @@ const API_BASE = '/api'
 
 // --- Types ---
 interface BudgetSummaryCategory {
+  budget_id: string | null
   category_id: string
   name: string
   type: string
@@ -540,6 +554,33 @@ const saveCategory = async (category: Category) => {
   } catch (err: any) {
     error.value = 'Failed to save category'
     await fetchData()
+  }
+}
+
+const savePlannedAmount = async (category: Category, rawValue: string) => {
+  const amount = parseFloat(rawValue) || 0
+  const budgetCat = getBudgetCategory(category.category_id)
+  try {
+    if (budgetCat?.budget_id) {
+      await $fetch(`${API_BASE}/budget/${budgetCat.budget_id}`, {
+        method: 'PUT',
+        body: { planned_amount: amount }
+      })
+    } else {
+      await $fetch(`${API_BASE}/budget`, {
+        method: 'POST',
+        body: {
+          category_id: category.category_id,
+          budget_month: `${selectedMonth.value}-01`,
+          planned_amount: amount
+        }
+      })
+    }
+    // Refresh summary so totals and budget_id update
+    const summaryRes = await $fetch<BudgetSummary>(`${API_BASE}/summary/budget`, { query: { month: selectedMonth.value } })
+    budgetSummary.value = summaryRes
+  } catch (err: any) {
+    error.value = 'Failed to save planned amount'
   }
 }
 
@@ -1030,6 +1071,22 @@ const formatCurrency = (amount: number | string) => {
 
 .active-toggle input {
   cursor: pointer;
+}
+
+.planned-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.planned-input-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.planned-amount-input {
+  width: 110px;
 }
 
 .category-edit-actions {

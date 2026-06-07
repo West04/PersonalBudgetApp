@@ -175,6 +175,7 @@ class BudgetRead(BaseModel):
 # --- Summary Schemas ---
 
 class BudgetCategorySummary(BaseModel):
+    budget_id: Optional[UUID] = None
     category_id: UUID
     name: str
     type: str  # income, expense, transfer

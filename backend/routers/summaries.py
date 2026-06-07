@@ -56,7 +56,7 @@ def get_budget_summary(
         .filter(models.Budget.budget_month == start_date)
         .all()
     )
-    budget_map = {b.category_id: (b.planned_amount or ZERO) for b in budgets}
+    budget_map = {b.category_id: b for b in budgets}
 
     # 3) Fetch Transaction actuals for this month, ignoring uncategorized
     trx_stats = (
@@ -90,7 +90,8 @@ def get_budget_summary(
         sorted_categories = sorted(group.categories, key=lambda c: c.sort_order)
 
         for cat in sorted_categories:
-            planned = budget_map.get(cat.category_id, ZERO)
+            budget_record = budget_map.get(cat.category_id)
+            planned = (budget_record.planned_amount or ZERO) if budget_record else ZERO
             raw_actual = actual_map.get(cat.category_id, ZERO)
 
             # Your system uses:
@@ -122,6 +123,7 @@ def get_budget_summary(
 
             cat_summaries.append(
                 schemas.BudgetCategorySummary(
+                    budget_id=budget_record.budget_id if budget_record else None,
                     category_id=cat.category_id,
                     name=cat.name,
                     type=cat.type,
