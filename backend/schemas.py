@@ -94,6 +94,7 @@ class AccountRead(BaseModel):
 
     current_balance: Decimal
     available_balance: Optional[Decimal] = None
+    starting_balance: Decimal = Decimal("0.00")
     currency: str = "USD"
     balance_last_updated: Optional[datetime] = None
 
@@ -104,6 +105,7 @@ class AccountRead(BaseModel):
 class AccountUpdate(BaseModel):
     name: Optional[str] = None
     is_active: Optional[bool] = None
+    starting_balance: Optional[Decimal] = None
 
 
 # --- Transaction Schemas ---
@@ -122,6 +124,7 @@ class TransactionCreate(BaseModel):
 class TransactionUpdate(BaseModel):
     category_id: Optional[UUID] = None
     description: Optional[str] = None
+    is_transfer: Optional[bool] = None
 
 
 class TransactionRead(BaseModel):
@@ -134,6 +137,7 @@ class TransactionRead(BaseModel):
     date: date
     datetime: Optional[datetime] = None
     pending: bool
+    is_transfer: bool = False
     account: Optional[AccountRead] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -231,6 +235,45 @@ class DashboardSummaryResponse(BaseModel):
     groups: List[DashboardGroupStat]
     accounts: List[DashboardAccountSummary]
     recent_transactions: List[TransactionDetailRead]
+
+# --- Credit Card Schemas ---
+
+class CreditCardTransactionRead(BaseModel):
+    transaction_id: UUID
+    description: str
+    amount: DecimalAmount
+    date: date
+    is_transfer: bool
+    category_id: Optional[UUID] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CreditCardAccountSummary(BaseModel):
+    account_id: UUID
+    account_name: str
+    starting_balance: Decimal
+    balance_owed: Decimal           # starting_balance + net of all transactions all-time
+    charges_this_month: Decimal     # sum of positive non-transfer transactions this month
+    payments_this_month: Decimal    # sum of payments received this month (negative txns)
+    transactions: List[CreditCardTransactionRead]
+
+
+class CreditCardSummaryResponse(BaseModel):
+    month: str
+    cards: List[CreditCardAccountSummary]
+
+
+class TransferCandidate(BaseModel):
+    credit_side: CreditCardTransactionRead
+    credit_account_name: str
+    debit_side: TransactionRead
+    debit_account_name: str
+
+
+class MarkTransfersRequest(BaseModel):
+    transaction_ids: List[UUID]
+
 
 class PlaidItemRead(BaseModel):
     id: UUID

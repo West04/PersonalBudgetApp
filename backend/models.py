@@ -74,6 +74,7 @@ class Transaction(Base):
     date = Column(DATE, nullable=False, index=True)
     datetime = Column(TIMESTAMP(timezone=True), nullable=True)
     pending = Column(Boolean, default=False, nullable=False)
+    is_transfer = Column(Boolean, default=False, nullable=False)
 
     category = relationship("Category", back_populates="transactions")
     account = relationship("Account", back_populates="transactions")
@@ -117,9 +118,10 @@ class Account(Base):
     type = Column(String, nullable=False)
     subtype = Column(String, nullable=True)
 
-    # ✅ Persisted balances (Plaid source of truth)
+    # Balances
     current_balance = Column(DECIMAL(12, 2), nullable=False, default=0)
     available_balance = Column(DECIMAL(12, 2), nullable=True)
+    starting_balance = Column(DECIMAL(12, 2), nullable=False, default=0)  # Seed balance for CSV-based accounts
     currency = Column(String, nullable=False, default="USD")
     balance_last_updated = Column(TIMESTAMP(timezone=True), nullable=True)
 

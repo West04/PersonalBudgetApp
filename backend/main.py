@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import engine, SessionLocal
 from . import models
-from .routers import categories, budgets, transactions, plaid, summaries, accounts, upload
+from .routers import categories, budgets, transactions, plaid, summaries, accounts, upload, credit_cards
 from .initial_data import init_db
 
 
@@ -40,3 +40,4 @@ app.include_router(plaid.router)
 app.include_router(summaries.router)
 app.include_router(accounts.router)
 app.include_router(upload.router)
+app.include_router(credit_cards.router)

@@ -567,7 +567,7 @@ const savePlannedAmount = async (category: Category, rawValue: string) => {
         body: { planned_amount: amount }
       })
     } else {
-      await $fetch(`${API_BASE}/budget`, {
+      await $fetch(`${API_BASE}/budget/`, {
         method: 'POST',
         body: {
           category_id: category.category_id,

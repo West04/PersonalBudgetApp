@@ -56,6 +56,8 @@ def update_account(account_id: UUID, payload: schemas.AccountUpdate, db: Session
         account.name = payload.name
     if payload.is_active is not None:
         account.is_active = payload.is_active
+    if payload.starting_balance is not None:
+        account.starting_balance = payload.starting_balance
 
     db.commit()
     db.refresh(account)
