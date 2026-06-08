@@ -124,69 +124,72 @@ def get_transfer_candidates(
     db: Session = Depends(get_db),
 ):
     """
-    Finds likely payment pairs: a negative transaction on a credit account
-    matched to a same-amount positive transaction on a non-credit account
-    within 2 days, where neither has been marked as a transfer yet.
+    Finds likely transfer pairs across any account types: a negative transaction
+    (inflow) on one account matched to a same-amount positive transaction (outflow)
+    on a different account within 2 days, where neither is already marked as a transfer.
+
+    Covers: credit card payments, checking→savings moves, and any other inter-account transfer.
     """
-    # All unmatched payments received on credit cards (negative amounts)
-    credit_payments = (
+    # All unmatched inflows (negative amounts) on any account
+    inflow_txns = (
         db.query(models.Transaction)
         .join(models.Account, models.Account.id == models.Transaction.account_id)
         .filter(
-            models.Account.type == "credit",
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False,
         )
         .all()
     )
 
-    # All unmatched outflows from non-credit accounts (positive amounts)
-    debit_outflows = (
+    # All unmatched outflows (positive amounts) on any account
+    outflow_txns = (
         db.query(models.Transaction)
         .join(models.Account, models.Account.id == models.Transaction.account_id)
         .filter(
-            models.Account.type != "credit",
             models.Transaction.amount > 0,
             models.Transaction.is_transfer == False,
         )
         .all()
     )
 
-    # Index debit outflows by amount for fast lookup
-    debit_by_amount: dict[Decimal, list[models.Transaction]] = {}
-    for t in debit_outflows:
+    # Index outflows by amount for fast lookup
+    outflow_by_amount: dict[Decimal, list[models.Transaction]] = {}
+    for t in outflow_txns:
         key = abs(Decimal(str(t.amount)))
-        debit_by_amount.setdefault(key, []).append(t)
+        outflow_by_amount.setdefault(key, []).append(t)
 
     candidates: List[schemas.TransferCandidate] = []
-    seen_debit_ids: set[UUID] = set()
+    seen_outflow_ids: set[UUID] = set()
 
-    for credit_txn in credit_payments:
-        match_amount = abs(Decimal(str(credit_txn.amount)))
-        possible_debits = debit_by_amount.get(match_amount, [])
+    for inflow_txn in inflow_txns:
+        match_amount = abs(Decimal(str(inflow_txn.amount)))
+        possible_outflows = outflow_by_amount.get(match_amount, [])
 
-        for debit_txn in possible_debits:
-            if debit_txn.transaction_id in seen_debit_ids:
+        for outflow_txn in possible_outflows:
+            # Must be a different account
+            if outflow_txn.account_id == inflow_txn.account_id:
                 continue
-            date_diff = abs((debit_txn.date - credit_txn.date).days)
+            if outflow_txn.transaction_id in seen_outflow_ids:
+                continue
+            date_diff = abs((outflow_txn.date - inflow_txn.date).days)
             if date_diff <= 2:
-                seen_debit_ids.add(debit_txn.transaction_id)
+                seen_outflow_ids.add(outflow_txn.transaction_id)
                 candidates.append(
                     schemas.TransferCandidate(
-                        credit_side=schemas.CreditCardTransactionRead(
-                            transaction_id=credit_txn.transaction_id,
-                            description=credit_txn.description,
-                            amount=credit_txn.amount,
-                            date=credit_txn.date,
-                            is_transfer=credit_txn.is_transfer,
-                            category_id=credit_txn.category_id,
+                        inflow_side=schemas.CreditCardTransactionRead(
+                            transaction_id=inflow_txn.transaction_id,
+                            description=inflow_txn.description,
+                            amount=inflow_txn.amount,
+                            date=inflow_txn.date,
+                            is_transfer=inflow_txn.is_transfer,
+                            category_id=inflow_txn.category_id,
                         ),
-                        credit_account_name=credit_txn.account.name,
-                        debit_side=schemas.TransactionRead.model_validate(debit_txn),
-                        debit_account_name=debit_txn.account.name,
+                        inflow_account_name=inflow_txn.account.name,
+                        outflow_side=schemas.TransactionRead.model_validate(outflow_txn),
+                        outflow_account_name=outflow_txn.account.name,
                     )
                 )
-                break  # one match per credit payment
+                break  # one match per inflow transaction
 
     return candidates
 

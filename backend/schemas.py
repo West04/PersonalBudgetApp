@@ -66,11 +66,23 @@ class CategoryGroupWithCategories(CategoryGroupRead):
 
 # --- Account Schemas ---
 
+AccountType = Literal["depository", "credit", "investment", "loan", "other"]
+
+ACCOUNT_SUBTYPES: dict[str, list[str]] = {
+    "depository": ["checking", "savings"],
+    "credit":     ["credit card"],
+    "investment": ["brokerage", "ira", "401k", "other"],
+    "loan":       ["mortgage", "auto", "student", "personal", "other"],
+    "other":      ["other"],
+}
+
+
 class AccountCreate(BaseModel):
     name: str
-    type: str
+    type: AccountType
     subtype: Optional[str] = None
     current_balance: DecimalAmount = Decimal("0.00")
+    starting_balance: DecimalAmount = Decimal("0.00")
     currency: str = "USD"
     is_active: bool = True
 
@@ -104,8 +116,11 @@ class AccountRead(BaseModel):
 
 class AccountUpdate(BaseModel):
     name: Optional[str] = None
+    type: Optional[AccountType] = None
+    subtype: Optional[str] = None
     is_active: Optional[bool] = None
     starting_balance: Optional[Decimal] = None
+    current_balance: Optional[Decimal] = None
 
 
 # --- Transaction Schemas ---
@@ -265,10 +280,10 @@ class CreditCardSummaryResponse(BaseModel):
 
 
 class TransferCandidate(BaseModel):
-    credit_side: CreditCardTransactionRead
-    credit_account_name: str
-    debit_side: TransactionRead
-    debit_account_name: str
+    inflow_side: CreditCardTransactionRead    # negative amount — money arriving at this account
+    inflow_account_name: str
+    outflow_side: TransactionRead             # positive amount — money leaving this account
+    outflow_account_name: str
 
 
 class MarkTransfersRequest(BaseModel):

@@ -57,19 +57,25 @@
             <div class="field">
               <label class="field-label">Type <span class="required">*</span></label>
               <select v-model="newAccount.type" class="select">
-                <option value="depository">Checking / Savings</option>
-                <option value="credit">Credit Card</option>
-                <option value="investment">Investment</option>
-                <option value="loan">Loan</option>
-                <option value="other">Other</option>
+                <option v-for="t in ACCOUNT_TYPES" :key="t.value" :value="t.value">
+                  {{ t.label }}
+                </option>
               </select>
             </div>
             <div class="field">
               <label class="field-label">Subtype</label>
-              <input v-model="newAccount.subtype" class="input" placeholder="e.g. checking" />
+              <select v-model="newAccount.subtype" class="select">
+                <option v-for="s in getSubtypes(newAccount.type)" :key="s.value" :value="s.value">
+                  {{ s.label }}
+                </option>
+              </select>
             </div>
             <div class="field">
               <label class="field-label">Starting Balance ($)</label>
+              <input v-model="newAccount.starting_balance" class="input" type="number" step="0.01" placeholder="0.00" />
+            </div>
+            <div class="field">
+              <label class="field-label">Current Balance ($)</label>
               <input v-model="newAccount.current_balance" class="input" type="number" step="0.01" placeholder="0.00" />
             </div>
           </div>
@@ -269,9 +275,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { ACCOUNT_TYPES, useAccountTypes } from '~/composables/useAccountTypes'
 
-const API_BASE = 'http://localhost:12344'
+const { getSubtypes, defaultSubtype } = useAccountTypes()
+
+const API_BASE = '/api'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -318,7 +327,12 @@ const stepLabels = ['Account', 'Upload', 'Preview', 'Done']
 const accounts = ref<Account[]>([])
 const accountsLoading = ref(true)
 const selectedAccountId = ref('')
-const newAccount = ref({ name: '', type: 'depository', subtype: '', current_balance: 0 })
+const newAccount = ref({ name: '', type: 'depository', subtype: 'checking', current_balance: 0, starting_balance: 0 })
+
+// Reset subtype when type changes
+watch(() => newAccount.value.type, (type) => {
+  newAccount.value.subtype = defaultSubtype(type)
+})
 const creatingAccount = ref(false)
 const createAccountError = ref('')
 
@@ -373,7 +387,7 @@ onMounted(async () => {
 async function fetchAccounts() {
   accountsLoading.value = true
   try {
-    const res = await fetch(`${API_BASE}/accounts`)
+    const res = await fetch(`${API_BASE}/accounts/`)
     accounts.value = await res.json()
   } finally {
     accountsLoading.value = false
@@ -384,14 +398,15 @@ async function createAccount() {
   creatingAccount.value = true
   createAccountError.value = ''
   try {
-    const res = await fetch(`${API_BASE}/accounts`, {
+    const res = await fetch(`${API_BASE}/accounts/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: newAccount.value.name,
         type: newAccount.value.type,
         subtype: newAccount.value.subtype || null,
-        current_balance: Number(newAccount.value.current_balance),
+        starting_balance: Number(newAccount.value.starting_balance) || 0,
+        current_balance: Number(newAccount.value.current_balance) || 0,
         currency: 'USD',
         is_active: true,
       }),
@@ -404,7 +419,7 @@ async function createAccount() {
     const created: Account = await res.json()
     accounts.value = [...accounts.value, created]
     selectedAccountId.value = created.account_id
-    newAccount.value = { name: '', type: 'depository', subtype: '', current_balance: 0 }
+    newAccount.value = { name: '', type: 'depository', subtype: 'checking', current_balance: 0, starting_balance: 0 }
   } catch (e: any) {
     createAccountError.value = e.message
   } finally {

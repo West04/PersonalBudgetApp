@@ -35,23 +35,23 @@
         <section v-if="candidates.length" class="transfer-panel">
           <div class="panel-header">
             <h2 class="panel-title">⚠️ Unreviewed Transfer Matches ({{ candidates.length }})</h2>
-            <p class="panel-sub">These look like credit card payments appearing on both accounts. Confirm pairs to mark them as transfers.</p>
+            <p class="panel-sub">These look like transfers appearing on both accounts (credit card payments, savings moves, etc.). Confirm pairs to mark them as transfers.</p>
           </div>
           <div class="candidate-list">
             <div v-for="(pair, idx) in candidates" :key="idx" class="candidate-row">
-              <div class="candidate-side debit">
-                <div class="cand-account">{{ pair.debit_account_name }}</div>
-                <div class="cand-desc">{{ pair.debit_side.description }}</div>
-                <div class="cand-meta">{{ formatDate(pair.debit_side.date) }}</div>
+              <div class="candidate-side outflow">
+                <div class="cand-account">{{ pair.outflow_account_name }}</div>
+                <div class="cand-desc">{{ pair.outflow_side.description }}</div>
+                <div class="cand-meta">{{ formatDate(pair.outflow_side.date) }}</div>
               </div>
               <div class="candidate-arrow">
-                <span class="amount-badge">{{ formatCurrency(Math.abs(Number(pair.debit_side.amount))) }}</span>
+                <span class="amount-badge">{{ formatCurrency(Math.abs(Number(pair.outflow_side.amount))) }}</span>
                 <span class="arrow">→</span>
               </div>
-              <div class="candidate-side credit">
-                <div class="cand-account">{{ pair.credit_account_name }}</div>
-                <div class="cand-desc">{{ pair.credit_side.description }}</div>
-                <div class="cand-meta">{{ formatDate(pair.credit_side.date) }}</div>
+              <div class="candidate-side inflow">
+                <div class="cand-account">{{ pair.inflow_account_name }}</div>
+                <div class="cand-desc">{{ pair.inflow_side.description }}</div>
+                <div class="cand-meta">{{ formatDate(pair.inflow_side.date) }}</div>
               </div>
               <div class="candidate-actions">
                 <button class="confirm-btn" @click="confirmTransfer(pair, idx)">✓ Confirm</button>
@@ -190,10 +190,10 @@ interface TransactionRead {
 }
 
 interface TransferCandidate {
-  credit_side: CreditCardTransaction
-  credit_account_name: string
-  debit_side: TransactionRead
-  debit_account_name: string
+  inflow_side: CreditCardTransaction
+  inflow_account_name: string
+  outflow_side: TransactionRead
+  outflow_account_name: string
 }
 
 // --- State ---
@@ -244,7 +244,7 @@ const confirmTransfer = async (pair: TransferCandidate, idx: number) => {
   try {
     await $fetch(`${API_BASE}/credit-cards/mark-transfers`, {
       method: 'POST',
-      body: { transaction_ids: [pair.credit_side.transaction_id, pair.debit_side.transaction_id] }
+      body: { transaction_ids: [pair.inflow_side.transaction_id, pair.outflow_side.transaction_id] }
     })
     candidates.value.splice(idx, 1)
     await fetchSummary()
@@ -390,8 +390,8 @@ const formatDate = (d: string) =>
   flex: 1;
   min-width: 0;
 }
-.candidate-side.debit { text-align: right; }
-.candidate-side.credit { text-align: left; }
+.candidate-side.outflow { text-align: right; }
+.candidate-side.inflow { text-align: left; }
 
 .cand-account {
   font-size: 0.75rem;
