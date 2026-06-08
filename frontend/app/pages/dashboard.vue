@@ -246,6 +246,7 @@ const calculatePercentage = (actual: number | string, planned: number | string) 
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* ← add this */
 }
 
 .card-header {
@@ -319,6 +320,7 @@ const calculatePercentage = (actual: number | string, planned: number | string) 
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-width: 0;
 }
 
 /* Group List Styles */
@@ -414,6 +416,7 @@ const calculatePercentage = (actual: number | string, planned: number | string) 
 
 .tx-desc {
   flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
