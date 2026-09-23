@@ -8,6 +8,10 @@ from uuid import UUID
 
 from .. import models, schemas
 from ..database import get_db
+from ..domain.reconciliation import (
+    ReconciliationTransaction,
+    detect_transfer_candidates,
+)
 
 router = APIRouter(prefix="/credit-cards", tags=["Credit Cards"])
 
@@ -152,44 +156,52 @@ def get_transfer_candidates(
         .all()
     )
 
-    # Index outflows by amount for fast lookup
-    outflow_by_amount: dict[Decimal, list[models.Transaction]] = {}
-    for t in outflow_txns:
-        key = abs(Decimal(str(t.amount)))
-        outflow_by_amount.setdefault(key, []).append(t)
+    inflow_by_id = {t.transaction_id: t for t in inflow_txns}
+    outflow_by_id = {t.transaction_id: t for t in outflow_txns}
 
-    candidates: List[schemas.TransferCandidate] = []
-    seen_outflow_ids: set[UUID] = set()
+    domain_inflows = [
+        ReconciliationTransaction(
+            transaction_id=t.transaction_id,
+            account_id=t.account_id,
+            amount=t.amount,
+            date=t.date,
+            is_transfer=t.is_transfer,
+        )
+        for t in inflow_txns
+    ]
 
-    for inflow_txn in inflow_txns:
-        match_amount = abs(Decimal(str(inflow_txn.amount)))
-        possible_outflows = outflow_by_amount.get(match_amount, [])
+    domain_outflows = [
+        ReconciliationTransaction(
+            transaction_id=t.transaction_id,
+            account_id=t.account_id,
+            amount=t.amount,
+            date=t.date,
+            is_transfer=t.is_transfer,
+        )
+        for t in outflow_txns
+    ]
 
-        for outflow_txn in possible_outflows:
-            # Must be a different account
-            if outflow_txn.account_id == inflow_txn.account_id:
-                continue
-            if outflow_txn.transaction_id in seen_outflow_ids:
-                continue
-            date_diff = abs((outflow_txn.date - inflow_txn.date).days)
-            if date_diff <= 2:
-                seen_outflow_ids.add(outflow_txn.transaction_id)
-                candidates.append(
-                    schemas.TransferCandidate(
-                        inflow_side=schemas.CreditCardTransactionRead(
-                            transaction_id=inflow_txn.transaction_id,
-                            description=inflow_txn.description,
-                            amount=inflow_txn.amount,
-                            date=inflow_txn.date,
-                            is_transfer=inflow_txn.is_transfer,
-                            category_id=inflow_txn.category_id,
-                        ),
-                        inflow_account_name=inflow_txn.account.name,
-                        outflow_side=schemas.TransactionRead.model_validate(outflow_txn),
-                        outflow_account_name=outflow_txn.account.name,
-                    )
-                )
-                break  # one match per inflow transaction
+    matches = detect_transfer_candidates(inflows=domain_inflows, outflows=domain_outflows)
+
+    candidates: list[schemas.TransferCandidate] = []
+    for c in matches:
+        inflow_txn = inflow_by_id[c.inflow.transaction_id]
+        outflow_txn = outflow_by_id[c.outflow.transaction_id]
+        candidates.append(
+            schemas.TransferCandidate(
+                inflow_side=schemas.CreditCardTransactionRead(
+                    transaction_id=inflow_txn.transaction_id,
+                    description=inflow_txn.description,
+                    amount=inflow_txn.amount,
+                    date=inflow_txn.date,
+                    is_transfer=inflow_txn.is_transfer,
+                    category_id=inflow_txn.category_id,
+                ),
+                inflow_account_name=inflow_txn.account.name,
+                outflow_side=schemas.TransactionRead.model_validate(outflow_txn),
+                outflow_account_name=outflow_txn.account.name,
+            )
+        )
 
     return candidates
 
