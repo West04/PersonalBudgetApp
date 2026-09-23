@@ -7,6 +7,11 @@ from decimal import Decimal
 
 from .. import models, schemas
 from ..database import get_db
+from ..domain.budgeting import (
+    CategoryBudgetInput,
+    GroupBudgetInput,
+    calculate_budget_summary,
+)
 
 router = APIRouter(
     prefix="/summary",
@@ -74,88 +79,59 @@ def get_budget_summary(
     )
     actual_map = {t.category_id: (t.total or ZERO) for t in trx_stats}
 
-    group_summaries: List[schemas.BudgetGroupSummary] = []
-
-    total_income_planned = ZERO
-    total_income_actual = ZERO
-    total_expense_planned = ZERO
-    total_expense_actual = ZERO
-
-    for group in groups:
-        cat_summaries: List[schemas.BudgetCategorySummary] = []
-        group_planned = ZERO
-        group_actual = ZERO
-        group_remaining = ZERO
-
-        sorted_categories = sorted(group.categories, key=lambda c: c.sort_order)
-
-        for cat in sorted_categories:
-            budget_record = budget_map.get(cat.category_id)
-            planned = (budget_record.planned_amount or ZERO) if budget_record else ZERO
-            raw_actual = actual_map.get(cat.category_id, ZERO)
-
-            # Your system uses:
-            # - Transaction.amount: Positive = outflow, Negative = inflow
-            # So income categories should show "actual income" as positive -> invert sign.
-            if cat.type == "income":
-                actual = -raw_actual if raw_actual else ZERO
-                remaining = planned - actual
-                is_over_budget = False  # income doesn't "over budget" in the same way
-                total_income_planned += planned
-                total_income_actual += actual
-
-            elif cat.type == "expense":
-                actual = raw_actual if raw_actual else ZERO
-                remaining = planned - actual
-                is_over_budget = remaining < ZERO
-                total_expense_planned += planned
-                total_expense_actual += actual
-
-            else:  # transfer
-                # Transfers typically excluded from high-level totals
-                actual = raw_actual if raw_actual else ZERO
-                remaining = planned - actual
-                is_over_budget = remaining < ZERO
-
-            group_planned += planned
-            group_actual += actual
-            group_remaining += remaining
-
-            cat_summaries.append(
-                schemas.BudgetCategorySummary(
-                    budget_id=budget_record.budget_id if budget_record else None,
+    domain_groups = [
+        GroupBudgetInput(
+            group_id=group.category_group_id,
+            name=group.name,
+            categories=[
+                CategoryBudgetInput(
                     category_id=cat.category_id,
                     name=cat.name,
                     type=cat.type,
-                    planned=planned,
-                    actual=actual,
-                    remaining=remaining,
-                    is_over_budget=is_over_budget,
+                    planned=(budget_map[cat.category_id].planned_amount or ZERO) if cat.category_id in budget_map else ZERO,
+                    raw_actual=actual_map.get(cat.category_id, ZERO),
+                    budget_id=budget_map[cat.category_id].budget_id if cat.category_id in budget_map else None,
                 )
-            )
-
-        group_summaries.append(
-            schemas.BudgetGroupSummary(
-                group_id=group.category_group_id,
-                name=group.name,
-                categories=cat_summaries,
-                total_planned=group_planned,
-                total_actual=group_actual,
-                total_remaining=group_remaining,
-            )
+                for cat in sorted(group.categories, key=lambda c: c.sort_order)
+            ],
         )
+        for group in groups
+    ]
 
-    # ✅ Unassigned / To be assigned (zero-based budgeting)
-    to_be_assigned = total_income_planned - total_expense_planned
+    budget_result = calculate_budget_summary(domain_groups)
+
+    group_summaries = [
+        schemas.BudgetGroupSummary(
+            group_id=g.group_id,
+            name=g.name,
+            categories=[
+                schemas.BudgetCategorySummary(
+                    budget_id=c.budget_id,
+                    category_id=c.category_id,
+                    name=c.name,
+                    type=c.type,
+                    planned=c.planned,
+                    actual=c.actual,
+                    remaining=c.remaining,
+                    is_over_budget=c.is_over_budget,
+                )
+                for c in g.categories
+            ],
+            total_planned=g.total_planned,
+            total_actual=g.total_actual,
+            total_remaining=g.total_remaining,
+        )
+        for g in budget_result.groups
+    ]
 
     return schemas.BudgetSummaryResponse(
         month=month,
         groups=group_summaries,
-        total_income_planned=total_income_planned,
-        total_income_actual=total_income_actual,
-        total_expense_planned=total_expense_planned,
-        total_expense_actual=total_expense_actual,
-        to_be_assigned=to_be_assigned,
+        total_income_planned=budget_result.total_income_planned,
+        total_income_actual=budget_result.total_income_actual,
+        total_expense_planned=budget_result.total_expense_planned,
+        total_expense_actual=budget_result.total_expense_actual,
+        to_be_assigned=budget_result.to_be_assigned,
     )
 
 
@@ -198,44 +174,35 @@ def get_dashboard_summary(
     )
     actual_map = {t.category_id: (t.total or ZERO) for t in trx_stats}
 
-    income_planned = ZERO
-    income_actual = ZERO
-    expense_planned = ZERO
-    expense_actual = ZERO
-
-    dashboard_groups: List[schemas.DashboardGroupStat] = []
-
-    for group in groups:
-        g_planned = ZERO
-        g_actual = ZERO
-
-        for cat in group.categories:
-            planned = budget_map.get(cat.category_id, ZERO)
-            raw_actual = actual_map.get(cat.category_id, ZERO)
-
-            if cat.type == "income":
-                actual = -raw_actual if raw_actual else ZERO
-                income_planned += planned
-                income_actual += actual
-            elif cat.type == "expense":
-                actual = raw_actual if raw_actual else ZERO
-                expense_planned += planned
-                expense_actual += actual
-            else:  # transfer
-                actual = raw_actual if raw_actual else ZERO
-                # Transfers excluded from totals
-
-            g_planned += planned
-            g_actual += actual
-
-        dashboard_groups.append(
-            schemas.DashboardGroupStat(
-                group_id=group.category_group_id,
-                name=group.name,
-                planned=g_planned,
-                actual=g_actual,
-            )
+    domain_groups = [
+        GroupBudgetInput(
+            group_id=group.category_group_id,
+            name=group.name,
+            categories=[
+                CategoryBudgetInput(
+                    category_id=cat.category_id,
+                    name=cat.name,
+                    type=cat.type,
+                    planned=budget_map.get(cat.category_id, ZERO),
+                    raw_actual=actual_map.get(cat.category_id, ZERO),
+                )
+                for cat in sorted(group.categories, key=lambda c: c.sort_order)
+            ],
         )
+        for group in groups
+    ]
+
+    budget_result = calculate_budget_summary(domain_groups)
+
+    dashboard_groups = [
+        schemas.DashboardGroupStat(
+            group_id=g.group_id,
+            name=g.name,
+            planned=g.total_planned,
+            actual=g.total_actual,
+        )
+        for g in budget_result.groups
+    ]
 
     # ✅ 4) Accounts Snapshot (Persisted Plaid balances)
     # Use Account.current_balance instead of summing transactions
@@ -279,12 +246,12 @@ def get_dashboard_summary(
 
     return schemas.DashboardSummaryResponse(
         month=month,
-        income_planned=income_planned,
-        income_actual=income_actual,
-        expense_planned=expense_planned,
-        expense_actual=expense_actual,
+        income_planned=budget_result.total_income_planned,
+        income_actual=budget_result.total_income_actual,
+        expense_planned=budget_result.total_expense_planned,
+        expense_actual=budget_result.total_expense_actual,
         total_balance=total_balance,
-        to_be_assigned=income_planned - expense_planned,
+        to_be_assigned=budget_result.to_be_assigned,
         groups=dashboard_groups,
         accounts=account_summaries,
         recent_transactions=recent_tx_reads,
