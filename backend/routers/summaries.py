@@ -6,15 +6,13 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from .. import models, schemas
-from ..access.budget_access import get_budgets_for_month
-from ..access.category_access import get_category_groups
-from ..access.transaction_access import get_actuals_by_category
 from ..database import get_db
 from ..domain.budgeting import (
     CategoryBudgetInput,
     GroupBudgetInput,
     calculate_budget_summary,
 )
+from ..managers import budget_summary_manager
 
 router = APIRouter(
     prefix="/summary",
@@ -48,38 +46,12 @@ def get_budget_summary(
     month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
     db: Session = Depends(get_db),
 ):
-    start_date, end_date = get_month_range(month)
+    try:
+        budget_month = datetime.strptime(month, "%Y-%m").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
 
-    # 1) Fetch Groups and Categories via ResourceAccess
-    groups = get_category_groups(db)
-
-    # 2) Fetch Budgets for this month via ResourceAccess
-    budgets = get_budgets_for_month(db, start_date)
-    budget_map = {b.category_id: b for b in budgets}
-
-    # 3) Fetch Transaction actuals for this month via ResourceAccess
-    actual_map = get_actuals_by_category(db, start_date, end_date)
-
-    domain_groups = [
-        GroupBudgetInput(
-            group_id=group.category_group_id,
-            name=group.name,
-            categories=[
-                CategoryBudgetInput(
-                    category_id=cat.category_id,
-                    name=cat.name,
-                    type=cat.type,
-                    planned=(budget_map[cat.category_id].planned_amount or ZERO) if cat.category_id in budget_map else ZERO,
-                    raw_actual=actual_map.get(cat.category_id, ZERO),
-                    budget_id=budget_map[cat.category_id].budget_id if cat.category_id in budget_map else None,
-                )
-                for cat in sorted(group.categories, key=lambda c: c.sort_order)
-            ],
-        )
-        for group in groups
-    ]
-
-    budget_result = calculate_budget_summary(domain_groups)
+    budget_result = budget_summary_manager.get_budget_summary(db, budget_month)
 
     group_summaries = [
         schemas.BudgetGroupSummary(
