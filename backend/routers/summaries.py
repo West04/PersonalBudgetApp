@@ -6,6 +6,9 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from .. import models, schemas
+from ..access.budget_access import get_budgets_for_month
+from ..access.category_access import get_category_groups
+from ..access.transaction_access import get_actuals_by_category
 from ..database import get_db
 from ..domain.budgeting import (
     CategoryBudgetInput,
@@ -47,37 +50,15 @@ def get_budget_summary(
 ):
     start_date, end_date = get_month_range(month)
 
-    # 1) Fetch Groups and Categories (Eager load categories; order by sort_order)
-    groups = (
-        db.query(models.CategoryGroup)
-        .options(selectinload(models.CategoryGroup.categories))
-        .order_by(models.CategoryGroup.sort_order)
-        .all()
-    )
+    # 1) Fetch Groups and Categories via ResourceAccess
+    groups = get_category_groups(db)
 
-    # 2) Fetch Budgets for this month
-    budgets = (
-        db.query(models.Budget)
-        .filter(models.Budget.budget_month == start_date)
-        .all()
-    )
+    # 2) Fetch Budgets for this month via ResourceAccess
+    budgets = get_budgets_for_month(db, start_date)
     budget_map = {b.category_id: b for b in budgets}
 
-    # 3) Fetch Transaction actuals for this month, ignoring uncategorized
-    trx_stats = (
-        db.query(
-            models.Transaction.category_id,
-            func.sum(models.Transaction.amount).label("total"),
-        )
-        .filter(
-            models.Transaction.date >= start_date,
-            models.Transaction.date < end_date,
-            models.Transaction.category_id.isnot(None),
-        )
-        .group_by(models.Transaction.category_id)
-        .all()
-    )
-    actual_map = {t.category_id: (t.total or ZERO) for t in trx_stats}
+    # 3) Fetch Transaction actuals for this month via ResourceAccess
+    actual_map = get_actuals_by_category(db, start_date, end_date)
 
     domain_groups = [
         GroupBudgetInput(
