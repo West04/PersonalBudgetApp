@@ -1,21 +1,22 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 from typing import List
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
 
 from .. import models, schemas
 from ..database import get_db
+from ..domain.credit_cards import (
+    CreditCardTransaction,
+    calculate_credit_card_state,
+)
 from ..domain.reconciliation import (
     ReconciliationTransaction,
     detect_transfer_candidates,
 )
 
 router = APIRouter(prefix="/credit-cards", tags=["Credit Cards"])
-
-ZERO = Decimal("0.00")
 
 
 def get_month_range(month_str: str) -> tuple[date, date]:
@@ -51,61 +52,42 @@ def get_credit_card_summary(
     cards: List[schemas.CreditCardAccountSummary] = []
 
     for account in credit_accounts:
-        # All-time net to calculate running balance owed
-        all_time_net = (
-            db.query(func.coalesce(func.sum(models.Transaction.amount), ZERO))
-            .filter(models.Transaction.account_id == account.id)
-            .scalar()
-        ) or ZERO
-
-        balance_owed = Decimal(str(account.starting_balance)) + Decimal(str(all_time_net))
-
-        # This month: charges (positive, non-transfer)
-        charges_this_month = (
-            db.query(func.coalesce(func.sum(models.Transaction.amount), ZERO))
-            .filter(
-                models.Transaction.account_id == account.id,
-                models.Transaction.amount > 0,
-                models.Transaction.is_transfer == False,
-                models.Transaction.date >= start_date,
-                models.Transaction.date < end_date,
-            )
-            .scalar()
-        ) or ZERO
-
-        # This month: payments received (negative amounts = money coming into the card)
-        payments_raw = (
-            db.query(func.coalesce(func.sum(models.Transaction.amount), ZERO))
-            .filter(
-                models.Transaction.account_id == account.id,
-                models.Transaction.amount < 0,
-                models.Transaction.date >= start_date,
-                models.Transaction.date < end_date,
-            )
-            .scalar()
-        ) or ZERO
-        payments_this_month = abs(Decimal(str(payments_raw)))
-
-        # Transactions this month for detail view
-        txns = (
+        account_txns = (
             db.query(models.Transaction)
-            .filter(
-                models.Transaction.account_id == account.id,
-                models.Transaction.date >= start_date,
-                models.Transaction.date < end_date,
-            )
+            .filter(models.Transaction.account_id == account.id)
             .order_by(models.Transaction.date.desc())
             .all()
         )
+
+        domain_txns = [
+            CreditCardTransaction(
+                amount=t.amount,
+                date=t.date,
+                is_transfer=t.is_transfer,
+            )
+            for t in account_txns
+        ]
+
+        state = calculate_credit_card_state(
+            starting_balance=account.starting_balance,
+            transactions=domain_txns,
+            period_start=start_date,
+            period_end=end_date,
+        )
+
+        monthly_txns = [
+            t for t in account_txns
+            if start_date <= t.date < end_date
+        ]
 
         cards.append(
             schemas.CreditCardAccountSummary(
                 account_id=account.id,
                 account_name=account.name,
-                starting_balance=Decimal(str(account.starting_balance)),
-                balance_owed=balance_owed,
-                charges_this_month=Decimal(str(charges_this_month)),
-                payments_this_month=payments_this_month,
+                starting_balance=state.starting_balance,
+                balance_owed=state.balance_owed,
+                charges_this_month=state.charges_this_month,
+                payments_this_month=state.payments_this_month,
                 transactions=[
                     schemas.CreditCardTransactionRead(
                         transaction_id=t.transaction_id,
@@ -115,7 +97,7 @@ def get_credit_card_summary(
                         is_transfer=t.is_transfer,
                         category_id=t.category_id,
                     )
-                    for t in txns
+                    for t in monthly_txns
                 ],
             )
         )
