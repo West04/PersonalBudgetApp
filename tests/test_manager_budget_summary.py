@@ -4,10 +4,8 @@ import pytest
 
 from backend import models
 from backend.domain.budgeting import BudgetSummaryResult
-from backend.managers.budget_summary_manager import (
-    determine_month_range,
-    get_budget_summary,
-)
+from backend.domain.dates import determine_month_range
+from backend.managers.budget_summary_manager import get_budget_summary
 
 
 def test_determine_month_range_mid_year():

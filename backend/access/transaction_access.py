@@ -2,15 +2,17 @@
 Resource access functions for Transaction PostgreSQL resources.
 """
 
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from .. import models
 
 ZERO = Decimal("0.00")
+DASHBOARD_RECENT_TRANSACTIONS_LIMIT = 10
 
 
 def get_actuals_by_category(
@@ -36,3 +38,25 @@ def get_actuals_by_category(
         .all()
     )
     return {t.category_id: (t.total or ZERO) for t in trx_stats}
+
+
+def get_recent_transactions_for_month(
+    db: Session,
+    start_date: date,
+    end_date: date,
+) -> Sequence[models.Transaction]:
+    """
+    Retrieves the 10 most recent transactions within [start_date, end_date),
+    ordered by date descending, with associated account eagerly loaded.
+    """
+    return (
+        db.query(models.Transaction)
+        .options(joinedload(models.Transaction.account))
+        .filter(
+            models.Transaction.date >= start_date,
+            models.Transaction.date < end_date,
+        )
+        .order_by(models.Transaction.date.desc())
+        .limit(DASHBOARD_RECENT_TRANSACTIONS_LIMIT)
+        .all()
+    )

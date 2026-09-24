@@ -21,20 +21,9 @@ from ..domain.budgeting import (
     GroupBudgetInput,
     calculate_budget_summary,
 )
+from ..domain.dates import determine_month_range
 
 ZERO = Decimal("0.00")
-
-
-def determine_month_range(budget_month: date) -> tuple[date, date]:
-    """
-    Determines the half-open interval [start_date, end_date) for a budget month.
-    """
-    start_date = date(budget_month.year, budget_month.month, 1)
-    if start_date.month == 12:
-        end_date = date(start_date.year + 1, 1, 1)
-    else:
-        end_date = date(start_date.year, start_date.month + 1, 1)
-    return start_date, end_date
 
 
 def get_budget_summary(

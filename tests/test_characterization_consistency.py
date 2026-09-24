@@ -101,6 +101,73 @@ def test_dashboard_vs_budget_summary_parity(client, db_session):
     # Total Balance in Dashboard: only active accounts (1500 + 3500 = 5000.00; inactive 999 excluded)
     assert Decimal(str(dash_data["total_balance"])) == Decimal("5000.00")
     assert len(dash_data["accounts"]) == 2
+    # Verify account order (name ascending)
+    assert dash_data["accounts"][0]["name"] == "Checking"
+    assert dash_data["accounts"][1]["name"] == "Savings"
 
-    # Recent transactions in Dashboard should include the 3 transactions
+    # Recent transactions in Dashboard should include the 3 transactions in descending date order
     assert len(dash_data["recent_transactions"]) == 3
+    assert dash_data["recent_transactions"][0]["date"] == "2026-06-10"
+    assert dash_data["recent_transactions"][1]["date"] == "2026-06-05"
+    assert dash_data["recent_transactions"][2]["date"] == "2026-06-01"
+    # Verify nested account data is populated on recent transactions
+    assert dash_data["recent_transactions"][0]["account"]["name"] == "Checking"
+
+
+def test_dashboard_detail_characteristics(client, db_session):
+    """
+    Characterize specific Dashboard behaviors:
+    1. Account balance fallback: current_balance = None falls back to 0.00.
+    2. Account ordering: active accounts ordered by name ascending.
+    3. Recent transactions limit: exactly 10 returned when >10 exist.
+    4. Recent transactions ordering: strictly date descending.
+    5. Recent transactions date filtering: transactions outside the requested month are excluded.
+    """
+    # 1. Accounts with alphabetical ordering and None current_balance
+    acct_b = models.Account(name="Beta Checking", type="depository", current_balance=None, is_active=True)
+    acct_a = models.Account(name="Alpha Savings", type="depository", current_balance=Decimal("250.00"), is_active=True)
+    acct_c = models.Account(name="Inactive Acct", type="depository", current_balance=Decimal("1000.00"), is_active=False)
+    db_session.add_all([acct_b, acct_a, acct_c])
+    db_session.commit()
+
+    # 2. Insert 12 transactions in June and 2 outside June
+    for i in range(1, 13):
+        db_session.add(
+            models.Transaction(
+                account_id=acct_a.id,
+                description=f"June Tx {i:02d}",
+                amount=Decimal("10.00"),
+                date=date(2026, 6, i)
+            )
+        )
+    # Outside June: May 31 and July 1
+    db_session.add(
+        models.Transaction(account_id=acct_a.id, description="May Tx", amount=Decimal("10.00"), date=date(2026, 5, 31))
+    )
+    db_session.add(
+        models.Transaction(account_id=acct_a.id, description="July Tx", amount=Decimal("10.00"), date=date(2026, 7, 1))
+    )
+    db_session.commit()
+
+    resp = client.get("/summary/dashboard?month=2026-06")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Verify accounts: only active, ordered by name ("Alpha Savings", then "Beta Checking")
+    assert len(data["accounts"]) == 2
+    assert data["accounts"][0]["name"] == "Alpha Savings"
+    assert Decimal(str(data["accounts"][0]["current_balance"])) == Decimal("250.00")
+    assert data["accounts"][1]["name"] == "Beta Checking"
+    assert Decimal(str(data["accounts"][1]["current_balance"])) == Decimal("0.00")
+
+    # Verify total_balance: 250.00 + 0.00 = 250.00 (inactive excluded)
+    assert Decimal(str(data["total_balance"])) == Decimal("250.00")
+
+    # Verify recent transactions: exactly 10 returned (out of 12 June txs), ordered date desc (June 12 down to June 3)
+    recent = data["recent_transactions"]
+    assert len(recent) == 10
+    assert recent[0]["description"] == "June Tx 12"
+    assert recent[0]["date"] == "2026-06-12"
+    assert recent[9]["description"] == "June Tx 03"
+    assert recent[9]["date"] == "2026-06-03"
+    assert recent[0]["account"]["name"] == "Alpha Savings"

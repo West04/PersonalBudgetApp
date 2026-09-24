@@ -1,97 +1,244 @@
 # Volatility Map & Decomposition Strategy
 
-## 1. Overview
-Rather than organizing the system around functional categories ("budgets", "categories", "transactions"), this volatility map decomposes the architecture along independent axes of change. Each significant area of volatility is identified, evaluated for its likelihood of change, and mapped to an architectural boundary.
+## 1. Overview & Core Principles
+
+Rather than organizing the codebase mechanically around functional entities ("budgets", "categories", "transactions") or layering every endpoint identically, this architecture decomposes the system along **observed, independent axes of volatility**.
+
+### Architectural Invariants:
+1. **Volatility-Driven Boundaries:** Components exist only to protect against demonstrated, independent reasons to change.
+2. **Workflow Managers:** A Manager is justified strictly when there is meaningful orchestration or sequencing across multiple activities.
+3. **Calculation Engines:** An Engine is justified strictly when there is an independently volatile business algorithm, heuristic, or calculation rule that can be expressed as a pure, infrastructure-free function.
+4. **ResourceAccess / Accessors:** Accessors own concrete interaction with PostgreSQL tables or external APIs (querying, filtering, eager loading, persistence). They replace generic repository patterns.
+5. **No Mechanical Layering:** Simple CRUD operations do **not** receive Managers or Engines. They follow a direct `Router -> Accessor` design.
+6. **No Domain-Noun Architecture:** Domain entities (Account, Category, Budget, Transaction) do not automatically become architecture layers (`AccountManager`, `CategoryEngine`, etc.).
 
 ---
 
 ## 2. Volatility Analysis Matrix
 
-| System Component | Core Responsibility | Axis of Volatility (What Changes?) | Volatility Rate | Cascading Blast Radius Today | Architectural Boundary Required? |
-|---|---|---|:---:|---|:---:|
-| **Plaid Integration Adapter** | Plaid API interaction, token exchange, cursor sync | Plaid API changes, webhook integration, new bank providers (MX, Teller) | **High** | `routers/plaid.py`, `crud/plaid.py`, `crud/transaction.py`, `models.py` | **Yes** (External Resource Adapter) |
-| **Bank Statement Parsers** | Parsing CSV/text exports, header mapping, sign normalization | New bank layouts (Chase, BoA), header adjustments, date formats, OFX/QIF support | **High** | `bank_statement_loader.py`, `routers/upload.py`, `schemas.py`, `upload.vue` | **Yes** (Ingestion Parser Boundary) |
-| **Transaction Ingestion & Deduplication** | Verifying duplicate entries, ensuring ingestion idempotency | Duplicate criteria (hash match, fuzzy description match, posting date window) | **Medium-High** | `routers/upload.py`, `crud/transaction.py`, `crud/plaid.py` | **Yes** (Ingestion Activity Boundary) |
-| **Zero-Based Budget Calculation Engine** | Pure mathematical calculations: ZBB actuals, remaining, `to_be_assigned` | Budget methodology changes, rollover balances, refund handling | **Medium** | Duplicated across `summaries.py` (`get_budget_summary` & `get_dashboard_summary`) | **Yes** (Domain Calculation Engine) |
-| **Transfer Reconciliation Engine** | Heuristic matching of inter-account transfer pairs | Matching heuristics, date tolerance, merchant keyword matching, split transfers | **Medium-High** | Trapped inside `routers/credit_cards.py` | **Yes** (Domain Reconciliation Engine) |
-| **Credit Card Debt Engine** | Calculating running debt balance, monthly charges, and payments | Statement cycle vs calendar month accounting, APR/interest tracking, payment minimums | **Medium** | `routers/credit_cards.py`, `credit-cards.vue` | **Yes** (Domain Liability Engine) |
-| **Category Taxonomy & Ordering** | Category group and category hierarchies, reordering, active flags | Sub-categories, category icon/color metadata, soft-delete archiving | **Low-Medium** | `routers/categories.py`, `crud/category.py`, `models.py`, `categories.vue` | **Yes** (Domain Entity Boundary) |
-| **Budget Planning & Allocation** | Monthly dollar allocation targets per category | Custom budget periods (bi-weekly), budget cloning, savings goal targets | **Medium** | `routers/budgets.py`, `crud/budget.py`, `models.py`, `categories.vue` | **Yes** (Domain Entity Boundary) |
-| **Account & Balance Management** | Account types, subtypes, balances, active status | Multi-currency support, balance reconciliation adjustments, snapshot history | **Low-Medium** | `routers/accounts.py`, `models.py`, `accounts.vue`, `useAccountTypes.ts` | **Yes** (Domain Entity Boundary) |
-| **Cryptographic Storage** | Encrypting and decrypting sensitive credentials | Replacing base64 with AES-GCM, Fernet, or KMS | **High** (Certain) | `security.py`, `crud/plaid.py`, `routers/plaid.py` | **Yes** (Security Utility Boundary) |
-| **Relational Data Persistence** | SQL queries, table schemas, transactional sessions | DB optimizations, connection pooling, Alembic migrations | **Low-Medium** | Scattered across all `routers/` and `crud/` modules | **Yes** (Data Access Boundary) |
-| **API Transport Layer** | FastAPI routing, serialization, HTTP status codes, CORS | Route restructuring, API versioning (`/api/v1`), adding authentication (JWT) | **Medium** | All router files in `backend/routers/` | **Yes** (Presentation Boundary) |
-| **Client UI Views** | Visual layout, responsive rendering, component styling | UI redesigns, styling overhauls, responsive layout adjustments | **High** | `frontend/app/pages/*`, `app.vue` | **Yes** (Client Presentation Boundary) |
+The following matrix documents only **observed volatility** and **confirmed roadmap items**.
+
+| System Responsibility | What Changes Independently? | Volatility Rate | Observed Evidence in Codebase | Justified Architecture Boundary |
+|---|---|:---:|---|---|
+| **Bank Statement Parsing** | Bank export headers, date formats, transaction sign conventions | **Medium-High** | USAA and Discover CSV formats have opposite sign conventions and different column headers | **Ingestion Parser / StatementLoader** (`backend/bank_statement_loader.py`) |
+| **Plaid API Integration** | External API endpoints, cursor-based sync protocol, credential decryption | **High** | Plaid API cursor typing quirk requiring raw HTTP requests; token storage security | **External ResourceAccess** (`plaid_access` / SDK client) |
+| **Zero-Based Budget (ZBB) Math** | Sign inversions, category remaining, group totals, `to_be_assigned` | **Medium** | Financial math was previously copy-pasted across `get_budget_summary` and `get_dashboard_summary` | **Pure Domain Engine** (`backend/domain/budgeting.py`) |
+| **Transfer Reconciliation Matching** | Pairing heuristics: exact absolute amount, opposing signs, different accounts, $\le 2$ days | **Medium-High** | Heuristic matching was trapped inside `routers/credit_cards.py` | **Pure Domain Engine** (`backend/domain/reconciliation.py`) |
+| **Credit Card Financial Metrics** | Calculating starting balance, `balance_owed`, monthly charges, monthly payments | **Medium** | Card balance calculations were trapped inside route handlers | **Pure Domain Engine** (`backend/domain/credit_cards.py`) |
+| **Budget Summary Orchestration** | Sequencing period determination, category fetching, budget allocations, actuals aggregation | **Medium** | Coordinates 3 accessors and the Budget Engine | **Workflow Manager** (`backend/managers/budget_summary_manager.py`) |
+| **Dashboard Summary Orchestration** | Composing budget health, active account balances snapshot, and 10 recent transactions | **Medium** | Assembles 3 disparate data concerns into a unified view | **Workflow Manager** (`backend/managers/dashboard_summary_manager.py`) |
+| **Relational Data Persistence** | SQLAlchemy query syntax, eager loading, session transactions | **Low-Medium** | Raw SQL queries scattered across route handlers | **Concrete ResourceAccess / Accessors** (`backend/access/`) |
+| **API Transport & Validation** | FastAPI path/query parsing, HTTP status codes, Pydantic response models | **Medium** | Route parameter validation and response serialization | **Presentation / Router Layer** (`backend/routers/`) |
+| **Client UI Views** | Visual layout, component hierarchy, responsive styling | **High** | Frontend views in Nuxt 4 / Vue 3 SPA | **Client Presentation Layer** (`frontend/app/pages/`) |
 
 ---
 
-## 3. Proposed Architectural Boundaries
+## 3. Explicitly Rejected & Speculative Drivers
+
+The following items are **speculative** and must **not** be used to justify architectural layers, interfaces, or configuration parameters:
+
+| Speculative Concept | Why Rejected as an Architectural Driver |
+|---|---|
+| **Alternative Bank Aggregators (MX, Teller)** | The application currently integrates exclusively with Plaid. Introducing an `IBankProvider` interface is premature generalization. |
+| **Hypothetical CSV Layouts (Chase, BoA, OFX/QIF)** | Only USAA and Discover statements are currently supported. Adding generic bank format parsers before real formats are needed adds dead code. |
+| **Fuzzy Duplicate Matching / Hash Deduplication** | Current deduplication is an exact 4-tuple match `(account_id, date, amount, description)`. Algorithmic scoring engines are overengineering. |
+| **Merchant-Keyword / Split-Transfer Matching** | Inter-account transfers currently use deterministic 1-to-1 pairing within 2 days. Heuristic pipeline frameworks are rejected. |
+| **Statement Cycles, APR Tracking, Minimum Payments** | Credit card accounting strictly tracks all-time net transactions and monthly charges/payments. Liability forecasting engines are speculative. |
+| **Nested Subcategories / Icon / Color Metadata** | Categories form a flat 2-level hierarchy (`CategoryGroup -> Category`). Tree structures and metadata engines are rejected. |
+| **Multi-Currency Ledgers / Forex Rates** | All accounts and calculations strictly operate in fixed-point USD decimals. Currency conversion engines are speculative. |
+| **Custom / Bi-Weekly Budget Periods** | Zero-based budgeting operates on standard calendar months. Configurable calendar engines are rejected. |
+| **Multi-User / JWT Authentication Infrastructure** | The system currently operates as a personal budget application without multi-tenant authentication boundaries. |
+| **Alternative Persistence Engines (MongoDB, DynamoDB)** | The application fundamentally relies on relational guarantees, foreign keys, and ACID transactions. Database abstraction layers are rejected. |
+
+---
+
+## 4. System Architecture & Component Interactions
 
 ```mermaid
 flowchart TD
-    subgraph Presentation ["Presentation Layer (Transport Volatility)"]
-        HTTP["FastAPI Routers<br/>(Thin Controllers: Validation & Transport)"]
-        UI["Nuxt 4 / Vue 3 SPA<br/>(Client UI Views & Composables)"]
+    subgraph Presentation ["Presentation Layer (FastAPI Routers)"]
+        RouterSummary["summaries.py<br/>(/summary/budget, /summary/dashboard)"]
+        RouterCC["credit_cards.py<br/>(/credit-cards/summary, candidates)"]
+        RouterCRUD["accounts.py, categories.py, budgets.py<br/>(Entity CRUD)"]
+        RouterUpload["upload.py<br/>(/upload/preview, /upload/confirm)"]
+        RouterPlaid["plaid.py<br/>(/plaid/sync_accounts, sync_transactions)"]
     end
 
-    subgraph Managers ["Activity & Workflow Managers (Use Case Volatility)"]
-        TxIngestMgr["Transaction Ingestion Manager<br/>(Deduplication & Ingestion Workflow)"]
-        ReconcileMgr["Transfer Reconciliation Manager<br/>(Candidate Detection & Approval)"]
-        BudgetPlanMgr["Budget Planning Manager<br/>(Allocation & Copying)"]
+    subgraph Managers ["Workflow Managers (Sequencing Volatility)"]
+        BudgetSummaryMgr["BudgetSummaryManager<br/>(Reference Vertical Slice)"]
+        DashSummaryMgr["DashboardSummaryManager<br/>(Approved Slice 2)"]
+        CCSummaryMgr["CreditCardSummaryManager<br/>(Planned)"]
+        ReconcileMgr["TransferReconciliationManager<br/>(Planned)"]
+        CSVImportMgr["CSVImportManager<br/>(Planned)"]
+        PlaidSyncMgr["PlaidSyncManager<br/>(Planned)"]
     end
 
-    subgraph Engines ["Domain Calculation Engines (Business Rules Volatility)"]
-        ZBBEngine["ZBB Calculation Engine<br/>(to_be_assigned, Actuals, Remaining)"]
-        CCDebtEngine["Credit Card Debt Engine<br/>(Running Balance Owed & Monthly Net)"]
+    subgraph Engines ["Domain Calculation Engines (Pure Business Rules)"]
+        ZBBEngine["Budget Engine<br/>(calculate_budget_summary)"]
+        CCEngine["Credit Card Engine<br/>(calculate_credit_card_state)"]
+        ReconcileEngine["Reconciliation Engine<br/>(detect_transfer_candidates)"]
     end
 
-    subgraph Adapters ["External & Security Adapters (External Protocol Volatility)"]
-        PlaidAdapter["Plaid Integration Adapter<br/>(SDK & Cursor Sync)"]
-        CSVParser["Bank Statement Parsers<br/>(USAA, Discover, Extensible)"]
-        CryptoService["Cryptographic Service<br/>(Token Encryption/Decryption)"]
+    subgraph Accessors ["ResourceAccess (Concrete Persistence & API Access)"]
+        BudgetAcc["budget_access.py"]
+        CatAcc["category_access.py"]
+        TxAcc["transaction_access.py"]
+        AcctAcc["account_access.py"]
+        PlaidAcc["plaid_access / SDK Client"]
+        CSVLoader["bank_statement_loader.py (USAA, Discover)"]
     end
 
-    subgraph Storage ["Data Access Layer (Persistence Volatility)"]
-        Repositories["Domain Repositories / Data Access<br/>(Accounts, Categories, Budgets, Transactions)"]
-        DB[(PostgreSQL 18)]
+    subgraph Resources ["External & Storage Resources"]
+        DB[(PostgreSQL)]
+        PlaidAPI["Plaid API"]
+        CSVFile["CSV Upload Stream"]
     end
 
-    UI --> HTTP
-    HTTP --> TxIngestMgr
-    HTTP --> ReconcileMgr
-    HTTP --> BudgetPlanMgr
-    HTTP --> ZBBEngine
-    HTTP --> CCDebtEngine
-    HTTP --> Repositories
+    %% Router to Manager
+    RouterSummary --> BudgetSummaryMgr
+    RouterSummary --> DashSummaryMgr
+    RouterCC --> CCSummaryMgr
+    RouterCC --> ReconcileMgr
+    RouterUpload --> CSVImportMgr
+    RouterPlaid --> PlaidSyncMgr
 
-    TxIngestMgr --> PlaidAdapter
-    TxIngestMgr --> CSVParser
-    TxIngestMgr --> Repositories
-    ReconcileMgr --> Repositories
-    BudgetPlanMgr --> Repositories
+    %% Simple CRUD bypasses Managers directly to Accessors
+    RouterCRUD --> AcctAcc
+    RouterCRUD --> CatAcc
+    RouterCRUD --> BudgetAcc
+    RouterCRUD --> TxAcc
 
-    PlaidAdapter --> CryptoService
-    Repositories --> DB
+    %% Manager internal wiring
+    BudgetSummaryMgr --> ZBBEngine
+    BudgetSummaryMgr --> CatAcc
+    BudgetSummaryMgr --> BudgetAcc
+    BudgetSummaryMgr --> TxAcc
+
+    DashSummaryMgr --> BudgetSummaryMgr
+    DashSummaryMgr --> AcctAcc
+    DashSummaryMgr --> TxAcc
+
+    CCSummaryMgr --> CCEngine
+    CCSummaryMgr --> AcctAcc
+    CCSummaryMgr --> TxAcc
+
+    ReconcileMgr --> ReconcileEngine
+    ReconcileMgr --> TxAcc
+
+    CSVImportMgr --> CSVLoader
+    CSVImportMgr --> AcctAcc
+    CSVImportMgr --> TxAcc
+
+    PlaidSyncMgr --> PlaidAcc
+    PlaidSyncMgr --> AcctAcc
+    PlaidSyncMgr --> TxAcc
+
+    %% Accessors to Resources
+    BudgetAcc --> DB
+    CatAcc --> DB
+    TxAcc --> DB
+    AcctAcc --> DB
+    PlaidAcc --> PlaidAPI
+    CSVLoader --> CSVFile
 ```
 
-### Boundary Justifications
-1. **Ingestion Adapters Boundary:** Protects internal data models from volatile third-party bank schemas, API deprecations, and varying CSV header formats.
-2. **Core Calculation Engine Boundary:** Isolates the mathematical formulas of Zero-Based Budgeting from HTTP transport and database queries, enabling consistent reporting across dashboard, budget views, and automated tests.
-3. **Transfer Reconciliation Engine Boundary:** Decouples transfer detection heuristics from credit cards and account storage, reflecting that inter-account transfers occur across all account types.
-4. **Data Access Boundary:** Eliminates scattered raw SQLAlchemy queries from routers, centralizing persistence and transactional boundaries.
-5. **Cryptographic Boundary:** Enables upgrading from base64 encoding to real encryption without touching ingestion workflows.
+### Key Structural Invariants:
+1. **Not Every Endpoint Uses Every Layer:** Direct `Router -> Accessor` is the standard, terminal pattern for CRUD.
+2. **Direct Manager Composition:** `DashboardSummaryManager` reuses `BudgetSummaryManager` directly to obtain zero-based budget metrics, eliminating calculation and query duplication.
+3. **Engines Remain Pure:** Calculation Engines have zero dependencies on SQLAlchemy, FastAPI, or Pydantic.
+4. **Accessors Own Query Mechanics:** Accessors encapsulate filtering, ordering, and eager loading, preventing lazy-loading bugs.
 
 ---
 
-## 4. Anti-Patterns & Overengineering to Avoid
+## 5. Ingestion Architecture: CSV vs. Plaid Disentanglement
 
-1. **Generic Repository Interfaces for Basic CRUD:**
-   Introducing `IRepository<T>` with specification patterns for simple models like `CategoryGroup` or `Account` creates gratuitous boilerplate. Concrete data access modules are preferred.
-2. **Pluggable Database Engine Abstraction:**
-   Abstracting the database layer to support document stores or multiple SQL engines is unnecessary; the application fundamentally depends on relational guarantees and fixed-point decimals.
-3. **Microservices / Distributed Message Queues:**
-   Deploying Kafka, RabbitMQ, or Celery for a personal budgeting application would introduce substantial operational overhead and failure modes without benefit.
-4. **Generic AST / DSL Rule Engine:**
-   Writing an extensible rule execution engine for transfer matching or categorization is overengineering. Clean, deterministic Python functions are straightforward to test and maintain.
-5. **Multi-Currency Conversion Systems:**
-   The application strictly operates in USD decimals. Introducing forex exchange rate feeds or currency ledgers would be premature generalization.
+Although both ingestion pipelines persist transactions to PostgreSQL, their operational characteristics and volatility axes are fundamentally different. They must **not** be unified into a generic transaction ingestion framework.
+
+### 5.1. CSV Statement Ingestion Pipeline
+- **Input Resource:** Stateless file stream (`UploadFile`).
+- **Processing Model:** Batch parsing via `BankStatementLoader` hierarchy (USAA, Discover).
+- **Identity Model:** No stable external transaction IDs.
+- **Deduplication Policy:** Exact 4-field tuple match `(account_id, date, amount, description)`.
+- **Event Lifecycle:** Two-phase (Preview $\rightarrow$ Confirm). Insert-only; duplicate rows are skipped; no deletion or modification events.
+- **Error Model:** Captures row-level parse errors gracefully without failing the entire file preview.
+
+### 5.2. Plaid Synchronization Pipeline
+- **Input Resource:** External Plaid REST API.
+- **Processing Model:** Stateful cursor-based pagination loop (`/transactions/sync`).
+- **Identity Model:** Exact, stable external IDs (`plaid_transaction_id`).
+- **Deduplication Policy:** Upsert on primary key / external ID match.
+- **Event Lifecycle:** Continuous state synchronization. Supports additions, modifications, and removals.
+- **Security Dependency:** Decrypts encrypted access tokens from `PlaidItem` storage before making external API requests.
+
+---
+
+## 6. Anti-Patterns & Overengineering to Avoid
+
+1. **Generic Repository Interfaces (`IRepository<T>`):**
+   Introducing generic repository abstractions, specification patterns, or Unit of Work frameworks for PostgreSQL is unnecessary boilerplate. Concrete Python functions in focused access modules (`account_access.py`, `transaction_access.py`) are preferred.
+2. **Manager-per-Domain-Entity Antipattern:**
+   Creating `AccountManager`, `CategoryManager`, or `BudgetManager` for basic CRUD operations adds zero architectural value. A Manager is justified strictly by workflow sequencing.
+3. **Engine-per-Feature Antipattern:**
+   Inventing pseudo-engines (e.g. `DashboardEngine`, `TransferConfirmationEngine`, `ReorderingEngine`) for simple sums, index increments, or boolean updates is overengineering.
+4. **DTO Layer Proliferation:**
+   Do not introduce parallel DTO types for every layer. Accessors return ORM persistence records to Managers; Managers map records into clean, immutable application dataclasses; Routers serialize application dataclasses to Pydantic responses.
+5. **Microservices / Distributed Message Brokers:**
+   Deploying Kafka, RabbitMQ, or Celery for a personal budgeting application would introduce substantial operational overhead without benefit.
+
+---
+
+## 7. Remaining Workflows Classification & Architectural Decisions
+
+Following the reference vertical slice (Budget Summary) and the approved Dashboard Summary design, the remaining application workflows are classified based on observed volatility:
+
+### 7.1. Classification Summary Matrix
+
+| Workflow | Manager? | Engine? | Accessor? | Target Pattern | Rationale |
+|---|:---:|:---:|:---:|---|---|
+| **Dashboard Summary** | **Yes** | **Reuse Budget Engine** | **Yes** | `Router -> Manager -> (BudgetSummaryManager + Accessors)` | Composes existing Budget Summary workflow, active accounts, and 10 recent transactions. |
+| **Credit-Card Summary** | **Yes** | **Reuse CC Engine** | **Yes** | `Router -> Manager -> (CreditCardEngine + Accessors)` | Coordinates active credit cards and historical ledger queries, eliminating router N+1 queries. |
+| **Transfer Candidate Search** | **Yes** | **Reuse Reconciliation Engine** | **Yes** | `Router -> Manager -> (ReconciliationEngine + Accessor)` | Coordinates querying unmatched inflows/outflows, invoking matching heuristics, and linking account details. |
+| **CSV Import & Deduplication** | **Yes** | **No Standalone Engine** | **Yes** | `Router -> Manager -> Accessors` | Coordinates account verification, loader parsing, exact duplicate checking, batch insert, and commit. |
+| **Plaid Account Sync** | **Yes** | **No Engine** | **Yes** | `Router -> Manager -> (PlaidAccessor + AccountAccess)` | External API call, credential decryption, and account/balance persistence. |
+| **Plaid Transaction Sync** | **Yes** | **No Engine** | **Yes** | `Router -> Manager -> (PlaidAccessor + TransactionAccess)` | Stateful cursor pagination loop, sign normalization, upsert/deletion mapping, cursor persistence. |
+| **Transfer Confirmation** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Single atomic boolean mutation (`is_transfer = True`). |
+| **Manual Transaction CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD and query filtering. |
+| **Account CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD. Moving raw SQL queries to `account_access.py`. |
+| **Category & Group CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD (already in `crud/category.py`). |
+| **Category & Group Reorder** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Batch updates of sequential integer `sort_order`. |
+| **Budget Allocation CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard monthly allocation entity CRUD. |
+| **Plaid Link-Token Creation** | **No** | **No Engine** | **Yes** | `Router -> Plaid Accessor` | Single external SDK call. |
+
+### 7.2. Category 1: Manager + Existing Engine Likely Justified Later
+- **Credit-Card Summary:** Will use a `CreditCardSummaryManager` orchestrating credit accounts and their transactions, reusing the existing, pure [`calculate_credit_card_state`](backend/domain/credit_cards.py).
+- **Transfer Candidate Search:** Will use a `TransferReconciliationManager` orchestrating unmatched inflow/outflow queries and account metadata, reusing the existing, pure [`detect_transfer_candidates`](backend/domain/reconciliation.py).
+
+### 7.3. Category 2: Manager Likely Justified, No Engine
+- **CSV Confirmation & Deduplication:** Multi-step pipeline (verify account $\rightarrow$ parse statement $\rightarrow$ deduplicate $\rightarrow$ batch insert $\rightarrow$ commit). The 4-field tuple deduplication rule is kept concrete in the access/manager boundary; an abstract engine is rejected.
+- **Plaid Account & Transaction Sync:** Complex external cursor pagination, credential decryption, and transactional state synchronization. No financial algorithms or business decisions exist; an engine is rejected.
+
+### 7.4. Category 3: No Manager and No Engine Currently Justified
+Direct **`Router -> Accessor`** is the terminal and correct VBD design for:
+- Transfer confirmation (`POST /credit-cards/mark-transfers`)
+- Manual transaction CRUD (`backend/routers/transactions.py`)
+- Account CRUD (`backend/routers/accounts.py`)
+- Category and CategoryGroup CRUD (`backend/routers/categories.py`)
+- Category and CategoryGroup reordering (`/category-groups/reorder`, `/categories/reorder`)
+- Budget allocation CRUD (`backend/routers/budgets.py`)
+- Plaid link-token creation (`POST /plaid/create_link_token`)
+
+> [!IMPORTANT]
+> **Deliberate VBD Architecture:**
+> The absence of a Manager or Engine for simple workflows is an intentional VBD decision, not incomplete architecture. Introducing Managers or Engines into these simple CRUD workflows would represent functional decomposition masquerading as VBD and create meaningless passthrough boilerplate.
+
+---
+
+## 8. Preserved Exclusions & Unresolved Domain Items
+
+The following items remain intentionally excluded from structural refactoring and must not be modified silently:
+1. `Transaction.description` database/schema nullability mismatch (Known Defect).
+2. Category-group cascade deletion backend inconsistency (Known Defect).
+3. Credit-card transfer inclusion in `balance_owed` vs exclusion from `charges_this_month` (Unresolved Domain Decision).
+4. Credit-card inclusion of future-dated transactions in current `balance_owed` (Unresolved Domain Decision).
+5. Transfer-matching greedy / insertion-order dependency without closest-date tie-breaking (Unresolved Domain Decision).
+6. Plaid token base64 storage upgrade to real cryptographic encryption (Security Migration).
