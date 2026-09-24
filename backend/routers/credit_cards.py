@@ -7,10 +7,9 @@ from uuid import UUID
 
 from .. import models, schemas
 from ..database import get_db
-from ..managers import credit_card_summary_manager
-from ..domain.reconciliation import (
-    ReconciliationTransaction,
-    detect_transfer_candidates,
+from ..managers import (
+    credit_card_summary_manager,
+    transfer_reconciliation_manager,
 )
 
 router = APIRouter(prefix="/credit-cards", tags=["Credit Cards"])
@@ -70,76 +69,50 @@ def get_transfer_candidates(
 
     Covers: credit card payments, checking→savings moves, and any other inter-account transfer.
     """
-    # All unmatched inflows (negative amounts) on any account
-    inflow_txns = (
-        db.query(models.Transaction)
-        .join(models.Account, models.Account.id == models.Transaction.account_id)
-        .filter(
-            models.Transaction.amount < 0,
-            models.Transaction.is_transfer == False,
-        )
-        .all()
-    )
+    candidates = transfer_reconciliation_manager.get_transfer_candidates(db)
 
-    # All unmatched outflows (positive amounts) on any account
-    outflow_txns = (
-        db.query(models.Transaction)
-        .join(models.Account, models.Account.id == models.Transaction.account_id)
-        .filter(
-            models.Transaction.amount > 0,
-            models.Transaction.is_transfer == False,
+    return [
+        schemas.TransferCandidate(
+            inflow_side=schemas.CreditCardTransactionRead(
+                transaction_id=c.inflow_side.transaction_id,
+                description=c.inflow_side.description,
+                amount=c.inflow_side.amount,
+                date=c.inflow_side.date,
+                is_transfer=c.inflow_side.is_transfer,
+                category_id=c.inflow_side.category_id,
+            ),
+            inflow_account_name=c.inflow_account_name,
+            outflow_side=schemas.TransactionRead(
+                transaction_id=c.outflow_side.transaction_id,
+                plaid_transaction_id=c.outflow_side.plaid_transaction_id,
+                account_id=c.outflow_side.account_id,
+                category_id=c.outflow_side.category_id,
+                description=c.outflow_side.description,
+                amount=c.outflow_side.amount,
+                date=c.outflow_side.date,
+                datetime=c.outflow_side.datetime,
+                pending=c.outflow_side.pending,
+                is_transfer=c.outflow_side.is_transfer,
+                account=schemas.AccountRead(
+                    id=c.outflow_side.account.id,
+                    plaid_account_id=c.outflow_side.account.plaid_account_id,
+                    item_id=c.outflow_side.account.item_id,
+                    name=c.outflow_side.account.name,
+                    mask=c.outflow_side.account.mask,
+                    type=c.outflow_side.account.type,
+                    subtype=c.outflow_side.account.subtype,
+                    current_balance=c.outflow_side.account.current_balance,
+                    available_balance=c.outflow_side.account.available_balance,
+                    starting_balance=c.outflow_side.account.starting_balance,
+                    currency=c.outflow_side.account.currency,
+                    balance_last_updated=c.outflow_side.account.balance_last_updated,
+                    is_active=c.outflow_side.account.is_active,
+                ) if c.outflow_side.account else None,
+            ),
+            outflow_account_name=c.outflow_account_name,
         )
-        .all()
-    )
-
-    inflow_by_id = {t.transaction_id: t for t in inflow_txns}
-    outflow_by_id = {t.transaction_id: t for t in outflow_txns}
-
-    domain_inflows = [
-        ReconciliationTransaction(
-            transaction_id=t.transaction_id,
-            account_id=t.account_id,
-            amount=t.amount,
-            date=t.date,
-            is_transfer=t.is_transfer,
-        )
-        for t in inflow_txns
+        for c in candidates
     ]
-
-    domain_outflows = [
-        ReconciliationTransaction(
-            transaction_id=t.transaction_id,
-            account_id=t.account_id,
-            amount=t.amount,
-            date=t.date,
-            is_transfer=t.is_transfer,
-        )
-        for t in outflow_txns
-    ]
-
-    matches = detect_transfer_candidates(inflows=domain_inflows, outflows=domain_outflows)
-
-    candidates: list[schemas.TransferCandidate] = []
-    for c in matches:
-        inflow_txn = inflow_by_id[c.inflow.transaction_id]
-        outflow_txn = outflow_by_id[c.outflow.transaction_id]
-        candidates.append(
-            schemas.TransferCandidate(
-                inflow_side=schemas.CreditCardTransactionRead(
-                    transaction_id=inflow_txn.transaction_id,
-                    description=inflow_txn.description,
-                    amount=inflow_txn.amount,
-                    date=inflow_txn.date,
-                    is_transfer=inflow_txn.is_transfer,
-                    category_id=inflow_txn.category_id,
-                ),
-                inflow_account_name=inflow_txn.account.name,
-                outflow_side=schemas.TransactionRead.model_validate(outflow_txn),
-                outflow_account_name=outflow_txn.account.name,
-            )
-        )
-
-    return candidates
 
 
 @router.post("/mark-transfers", status_code=204)

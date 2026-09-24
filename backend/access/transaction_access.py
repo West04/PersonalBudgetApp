@@ -5,6 +5,7 @@ Resource access functions for Transaction PostgreSQL resources.
 from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
+from typing import Optional
 from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
@@ -75,4 +76,54 @@ def get_transactions_for_account(
         .order_by(models.Transaction.date.desc())
         .all()
     )
+
+
+def get_unmatched_inflow_transactions(
+    db: Session,
+) -> Sequence[models.Transaction]:
+    """
+    Retrieves all unmatched negative transactions (amount < 0, is_transfer == False)
+    across all accounts, preserving current query shape and introducing no explicit ordering.
+    """
+    return (
+        db.query(models.Transaction)
+        .join(models.Account, models.Account.id == models.Transaction.account_id)
+        .filter(
+            models.Transaction.amount < 0,
+            models.Transaction.is_transfer == False,
+        )
+        .all()
+    )
+
+
+def get_unmatched_outflow_transactions(
+    db: Session,
+) -> Sequence[models.Transaction]:
+    """
+    Retrieves all unmatched positive transactions (amount > 0, is_transfer == False)
+    across all accounts, preserving current query shape and introducing no explicit ordering.
+    """
+    return (
+        db.query(models.Transaction)
+        .join(models.Account, models.Account.id == models.Transaction.account_id)
+        .filter(
+            models.Transaction.amount > 0,
+            models.Transaction.is_transfer == False,
+        )
+        .all()
+    )
+
+
+def get_account_for_transaction(
+    transaction: models.Transaction,
+) -> Optional[models.Account]:
+    """
+    Resolves the Account relationship associated with a Transaction.
+
+    Accessing transaction.account may trigger SQLAlchemy lazy loading.
+    Relationship loading remains a concrete persistence concern owned by
+    Transaction ResourceAccess.
+    """
+    return transaction.account
+
 

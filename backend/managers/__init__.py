@@ -12,6 +12,7 @@ from .dashboard_summary_manager import (
     DashboardSummaryResult,
     get_dashboard_summary,
 )
+from . import transfer_reconciliation_manager
 
 __all__ = [
     "get_budget_summary",
@@ -19,5 +20,6 @@ __all__ = [
     "get_dashboard_summary",
     "CreditCardSummaryResult",
     "DashboardSummaryResult",
+    "transfer_reconciliation_manager",
 ]
 

@@ -68,7 +68,7 @@ flowchart TD
         BudgetSummaryMgr["BudgetSummaryManager<br/>(Reference Vertical Slice)"]
         DashSummaryMgr["DashboardSummaryManager<br/>(Slice 2 Implemented & Verified)"]
         CCSummaryMgr["CreditCardSummaryManager<br/>(Slice 3 Implemented & Verified)"]
-        ReconcileMgr["TransferReconciliationManager<br/>(Planned)"]
+        ReconcileMgr["TransferReconciliationManager<br/>(Slice 4 Approved / Pending Implementation)"]
         CSVImportMgr["CSVImportManager<br/>(Planned)"]
         PlaidSyncMgr["PlaidSyncManager<br/>(Planned)"]
     end
@@ -197,7 +197,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 |---|:---:|:---:|:---:|---|---|
 | **Dashboard Summary** | **Yes** | **Reuse Budget Engine** | **Yes** | `Router -> Manager -> (BudgetSummaryManager + Accessors)` | Composes existing Budget Summary workflow, active accounts, and 10 recent transactions (Slice 2 Implemented & Verified; see [dashboard-summary.md](dashboard-summary.md)). |
 | **Credit-Card Summary** | **Yes** | **Reuse CC Engine** | **Yes** | `Router -> Manager -> (CreditCardEngine + Accessors)` | Coordinates active credit accounts, historical ledger queries, calculation engine execution, and monthly display selection (Slice 3 Implemented & Verified; see [credit-card-summary.md](credit-card-summary.md)). |
-| **Transfer Candidate Search** | **Yes** | **Reuse Reconciliation Engine** | **Yes** | `Router -> Manager -> (ReconciliationEngine + Accessor)` | Coordinates querying unmatched inflows/outflows, invoking matching heuristics, and linking account details. |
+| **Transfer Candidate Search** | **Yes** | **Reuse Reconciliation Engine** | **Yes** | `Router -> Manager -> (ReconciliationEngine + Accessor)` | Coordinates candidate-set retrieval, domain input mapping, pure Engine matching, match-to-record correlation, and response enrichment (Slice 4 Implemented & Verified; see [transfer-candidate-search.md](transfer-candidate-search.md)). |
 | **CSV Import & Deduplication** | **Yes** | **No Standalone Engine** | **Yes** | `Router -> Manager -> Accessors` | Coordinates account verification, loader parsing, exact duplicate checking, batch insert, and commit. |
 | **Plaid Account Sync** | **Yes** | **No Engine** | **Yes** | `Router -> Manager -> (PlaidAccessor + AccountAccess)` | External API call, credential decryption, and account/balance persistence. |
 | **Plaid Transaction Sync** | **Yes** | **No Engine** | **Yes** | `Router -> Manager -> (PlaidAccessor + TransactionAccess)` | Stateful cursor pagination loop, sign normalization, upsert/deletion mapping, cursor persistence. |
@@ -212,7 +212,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 ### 7.2. Category 1: Manager + Existing Engine
 - **Credit-Card Summary (Slice 3 Implemented & Verified):** Uses `CreditCardSummaryManager` orchestrating active credit accounts, historical transactions, calculation engine execution, and monthly display selection, reusing the existing, pure [`calculate_credit_card_state`](backend/domain/credit_cards.py). Documented in [credit-card-summary.md](credit-card-summary.md).
 
-- **Transfer Candidate Search:** Will use a `TransferReconciliationManager` orchestrating unmatched inflow/outflow queries and account metadata, reusing the existing, pure [`detect_transfer_candidates`](backend/domain/reconciliation.py).
+- **Transfer Candidate Search (Slice 4 Implemented & Verified):** Uses `TransferReconciliationManager` orchestrating candidate-set retrieval, domain input mapping, pure Engine matching, match-to-record correlation, and response enrichment, reusing the existing, pure [`detect_transfer_candidates`](backend/domain/reconciliation.py). Documented in [transfer-candidate-search.md](transfer-candidate-search.md).
 
 ### 7.3. Category 2: Manager Likely Justified, No Engine
 - **CSV Confirmation & Deduplication:** Multi-step pipeline (verify account $\rightarrow$ parse statement $\rightarrow$ deduplicate $\rightarrow$ batch insert $\rightarrow$ commit). The 4-field tuple deduplication rule is kept concrete in the access/manager boundary; an abstract engine is rejected.
@@ -241,5 +241,5 @@ The following items remain intentionally excluded from structural refactoring an
 2. Category-group cascade deletion backend inconsistency (Known Defect).
 3. Credit-card transfer inclusion in `balance_owed` vs exclusion from `charges_this_month` (Unresolved Domain Decision).
 4. Credit-card inclusion of future-dated transactions in current `balance_owed` (Unresolved Domain Decision).
-5. Transfer-matching greedy / insertion-order dependency without closest-date tie-breaking (Unresolved Domain Decision).
+5. Transfer-matching greedy matching on unspecified PostgreSQL row sequence without closest-date tie-breaking (Unresolved Domain Decision).
 6. Plaid token base64 storage upgrade to real cryptographic encryption (Security Migration).
