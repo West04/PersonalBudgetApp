@@ -78,3 +78,11 @@ node_modules
 # Agent Files
 # ---------------------------------
 AGENTS.md
+.agents/
+
+
+# ---------------------------------
+# Private Docs
+# ---------------------------------
+docs/checkpoints
+session_handoffs
