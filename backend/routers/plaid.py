@@ -21,6 +21,7 @@ from .. import schemas
 from ..crud import plaid as crud_plaid
 from ..crud import transaction as crud_transaction
 from ..database import get_db
+from ..managers import plaid_account_sync_manager
 from backend.security import decrypt_token
 
 load_dotenv()
@@ -103,32 +104,21 @@ def sync_accounts(payload: schemas.PlaidSyncRequest, db: Session = Depends(get_d
     """
     FAST: Refresh account balances only (best UX).
     """
-    if payload.item_id:
-        plaid_item = crud_plaid.get_plaid_item_by_id(db, payload.item_id)
-    elif payload.plaid_item_id:
-        plaid_item = crud_plaid.get_plaid_item_by_plaid_item_id(db, payload.plaid_item_id)
-    else:
-        raise HTTPException(status_code=400, detail="Must provide item_id or plaid_item_id")
-
-    if not plaid_item:
-        raise HTTPException(status_code=404, detail="Plaid Item not found")
-
     try:
-        access_token = decrypt_token(plaid_item.plaid_access_token_encrypted)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Error decrypting access token")
-
-    try:
-        updated = crud_plaid.sync_accounts_and_balances(
-            db=db,
-            client=client,
-            access_token=access_token,
-            item_id=plaid_item.id,
+        result = plaid_account_sync_manager.sync_plaid_accounts(
+            db,
+            item_id=payload.item_id,
+            plaid_item_id=payload.plaid_item_id,
         )
-        db.commit()
-        return {"status": "ok", "accounts_updated": updated}
-    except ApiException as e:
-        raise HTTPException(status_code=e.status, detail=e.body)
+        return {"status": "ok", "accounts_updated": result.accounts_updated}
+    except plaid_account_sync_manager.PlaidAccountSyncMissingIdentifierError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except plaid_account_sync_manager.PlaidAccountSyncItemNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except plaid_account_sync_manager.PlaidAccountSyncDecryptionError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except plaid_account_sync_manager.PlaidAccountSyncExternalApiError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
     except Exception as e:
         import traceback
         traceback.print_exc()
