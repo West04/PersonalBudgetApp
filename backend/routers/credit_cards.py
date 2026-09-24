@@ -7,28 +7,13 @@ from uuid import UUID
 
 from .. import models, schemas
 from ..database import get_db
-from ..domain.credit_cards import (
-    CreditCardTransaction,
-    calculate_credit_card_state,
-)
+from ..managers import credit_card_summary_manager
 from ..domain.reconciliation import (
     ReconciliationTransaction,
     detect_transfer_candidates,
 )
 
 router = APIRouter(prefix="/credit-cards", tags=["Credit Cards"])
-
-
-def get_month_range(month_str: str) -> tuple[date, date]:
-    try:
-        start_date = datetime.strptime(month_str, "%Y-%m").date()
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
-    if start_date.month == 12:
-        end_date = date(start_date.year + 1, 1, 1)
-    else:
-        end_date = date(start_date.year, start_date.month + 1, 1)
-    return start_date, end_date
 
 
 @router.get("/summary", response_model=schemas.CreditCardSummaryResponse)
@@ -40,69 +25,38 @@ def get_credit_card_summary(
     Returns spending summary per credit card account for the given month.
     balance_owed = starting_balance + net of ALL transactions on the account (all time).
     """
-    start_date, end_date = get_month_range(month)
+    try:
+        budget_month = datetime.strptime(month, "%Y-%m").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
 
-    credit_accounts = (
-        db.query(models.Account)
-        .filter(models.Account.type == "credit", models.Account.is_active == True)
-        .order_by(models.Account.name)
-        .all()
-    )
+    result = credit_card_summary_manager.get_credit_card_summary(db, budget_month)
 
-    cards: List[schemas.CreditCardAccountSummary] = []
-
-    for account in credit_accounts:
-        account_txns = (
-            db.query(models.Transaction)
-            .filter(models.Transaction.account_id == account.id)
-            .order_by(models.Transaction.date.desc())
-            .all()
+    cards = [
+        schemas.CreditCardAccountSummary(
+            account_id=card.account_id,
+            account_name=card.account_name,
+            starting_balance=card.state.starting_balance,
+            balance_owed=card.state.balance_owed,
+            charges_this_month=card.state.charges_this_month,
+            payments_this_month=card.state.payments_this_month,
+            transactions=[
+                schemas.CreditCardTransactionRead(
+                    transaction_id=t.transaction_id,
+                    description=t.description,
+                    amount=t.amount,
+                    date=t.date,
+                    is_transfer=t.is_transfer,
+                    category_id=t.category_id,
+                )
+                for t in card.transactions
+            ],
         )
-
-        domain_txns = [
-            CreditCardTransaction(
-                amount=t.amount,
-                date=t.date,
-                is_transfer=t.is_transfer,
-            )
-            for t in account_txns
-        ]
-
-        state = calculate_credit_card_state(
-            starting_balance=account.starting_balance,
-            transactions=domain_txns,
-            period_start=start_date,
-            period_end=end_date,
-        )
-
-        monthly_txns = [
-            t for t in account_txns
-            if start_date <= t.date < end_date
-        ]
-
-        cards.append(
-            schemas.CreditCardAccountSummary(
-                account_id=account.id,
-                account_name=account.name,
-                starting_balance=state.starting_balance,
-                balance_owed=state.balance_owed,
-                charges_this_month=state.charges_this_month,
-                payments_this_month=state.payments_this_month,
-                transactions=[
-                    schemas.CreditCardTransactionRead(
-                        transaction_id=t.transaction_id,
-                        description=t.description,
-                        amount=t.amount,
-                        date=t.date,
-                        is_transfer=t.is_transfer,
-                        category_id=t.category_id,
-                    )
-                    for t in monthly_txns
-                ],
-            )
-        )
+        for card in result.cards
+    ]
 
     return schemas.CreditCardSummaryResponse(month=month, cards=cards)
+
 
 
 @router.get("/transfer-candidates", response_model=List[schemas.TransferCandidate])

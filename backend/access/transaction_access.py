@@ -60,3 +60,19 @@ def get_recent_transactions_for_month(
         .limit(DASHBOARD_RECENT_TRANSACTIONS_LIMIT)
         .all()
     )
+
+
+def get_transactions_for_account(
+    db: Session,
+    account_id: UUID,
+) -> Sequence[models.Transaction]:
+    """
+    Retrieves all historical transactions for a specific account ordered by date descending.
+    """
+    return (
+        db.query(models.Transaction)
+        .filter(models.Transaction.account_id == account_id)
+        .order_by(models.Transaction.date.desc())
+        .all()
+    )
+

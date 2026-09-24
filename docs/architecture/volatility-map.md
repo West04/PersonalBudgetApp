@@ -66,8 +66,8 @@ flowchart TD
 
     subgraph Managers ["Workflow Managers (Sequencing Volatility)"]
         BudgetSummaryMgr["BudgetSummaryManager<br/>(Reference Vertical Slice)"]
-        DashSummaryMgr["DashboardSummaryManager<br/>(Approved Slice 2)"]
-        CCSummaryMgr["CreditCardSummaryManager<br/>(Planned)"]
+        DashSummaryMgr["DashboardSummaryManager<br/>(Slice 2 Implemented & Verified)"]
+        CCSummaryMgr["CreditCardSummaryManager<br/>(Slice 3 Implemented & Verified)"]
         ReconcileMgr["TransferReconciliationManager<br/>(Planned)"]
         CSVImportMgr["CSVImportManager<br/>(Planned)"]
         PlaidSyncMgr["PlaidSyncManager<br/>(Planned)"]
@@ -189,14 +189,14 @@ Although both ingestion pipelines persist transactions to PostgreSQL, their oper
 
 ## 7. Remaining Workflows Classification & Architectural Decisions
 
-Following the reference vertical slice (Budget Summary) and the approved Dashboard Summary design, the remaining application workflows are classified based on observed volatility:
+Following the reference vertical slice (Budget Summary) and the completed Dashboard Summary slice, the remaining application workflows are classified based on observed volatility:
 
 ### 7.1. Classification Summary Matrix
 
 | Workflow | Manager? | Engine? | Accessor? | Target Pattern | Rationale |
 |---|:---:|:---:|:---:|---|---|
-| **Dashboard Summary** | **Yes** | **Reuse Budget Engine** | **Yes** | `Router -> Manager -> (BudgetSummaryManager + Accessors)` | Composes existing Budget Summary workflow, active accounts, and 10 recent transactions. |
-| **Credit-Card Summary** | **Yes** | **Reuse CC Engine** | **Yes** | `Router -> Manager -> (CreditCardEngine + Accessors)` | Coordinates active credit cards and historical ledger queries, eliminating router N+1 queries. |
+| **Dashboard Summary** | **Yes** | **Reuse Budget Engine** | **Yes** | `Router -> Manager -> (BudgetSummaryManager + Accessors)` | Composes existing Budget Summary workflow, active accounts, and 10 recent transactions (Slice 2 Implemented & Verified; see [dashboard-summary.md](dashboard-summary.md)). |
+| **Credit-Card Summary** | **Yes** | **Reuse CC Engine** | **Yes** | `Router -> Manager -> (CreditCardEngine + Accessors)` | Coordinates active credit accounts, historical ledger queries, calculation engine execution, and monthly display selection (Slice 3 Implemented & Verified; see [credit-card-summary.md](credit-card-summary.md)). |
 | **Transfer Candidate Search** | **Yes** | **Reuse Reconciliation Engine** | **Yes** | `Router -> Manager -> (ReconciliationEngine + Accessor)` | Coordinates querying unmatched inflows/outflows, invoking matching heuristics, and linking account details. |
 | **CSV Import & Deduplication** | **Yes** | **No Standalone Engine** | **Yes** | `Router -> Manager -> Accessors` | Coordinates account verification, loader parsing, exact duplicate checking, batch insert, and commit. |
 | **Plaid Account Sync** | **Yes** | **No Engine** | **Yes** | `Router -> Manager -> (PlaidAccessor + AccountAccess)` | External API call, credential decryption, and account/balance persistence. |
@@ -209,8 +209,9 @@ Following the reference vertical slice (Budget Summary) and the approved Dashboa
 | **Budget Allocation CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard monthly allocation entity CRUD. |
 | **Plaid Link-Token Creation** | **No** | **No Engine** | **Yes** | `Router -> Plaid Accessor` | Single external SDK call. |
 
-### 7.2. Category 1: Manager + Existing Engine Likely Justified Later
-- **Credit-Card Summary:** Will use a `CreditCardSummaryManager` orchestrating credit accounts and their transactions, reusing the existing, pure [`calculate_credit_card_state`](backend/domain/credit_cards.py).
+### 7.2. Category 1: Manager + Existing Engine
+- **Credit-Card Summary (Slice 3 Implemented & Verified):** Uses `CreditCardSummaryManager` orchestrating active credit accounts, historical transactions, calculation engine execution, and monthly display selection, reusing the existing, pure [`calculate_credit_card_state`](backend/domain/credit_cards.py). Documented in [credit-card-summary.md](credit-card-summary.md).
+
 - **Transfer Candidate Search:** Will use a `TransferReconciliationManager` orchestrating unmatched inflow/outflow queries and account metadata, reusing the existing, pure [`detect_transfer_candidates`](backend/domain/reconciliation.py).
 
 ### 7.3. Category 2: Manager Likely Justified, No Engine

@@ -18,3 +18,16 @@ def get_active_accounts(db: Session) -> Sequence[models.Account]:
         .order_by(models.Account.name.asc())
         .all()
     )
+
+
+def get_active_credit_accounts(db: Session) -> Sequence[models.Account]:
+    """
+    Retrieves all active credit accounts ordered by name ascending.
+    """
+    return (
+        db.query(models.Account)
+        .filter(models.Account.type == "credit", models.Account.is_active == True)
+        .order_by(models.Account.name.asc())
+        .all()
+    )
+
