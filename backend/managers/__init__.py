@@ -13,6 +13,7 @@ from .dashboard_summary_manager import (
     get_dashboard_summary,
 )
 from . import transfer_reconciliation_manager
+from . import csv_import_manager
 
 __all__ = [
     "get_budget_summary",
@@ -21,5 +22,6 @@ __all__ = [
     "CreditCardSummaryResult",
     "DashboardSummaryResult",
     "transfer_reconciliation_manager",
+    "csv_import_manager",
 ]
 

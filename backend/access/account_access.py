@@ -3,9 +3,25 @@ Resource access functions for Account PostgreSQL resources.
 """
 
 from collections.abc import Sequence
+from typing import Optional
+from uuid import UUID
 from sqlalchemy.orm import Session
 
 from .. import models
+
+
+def get_account_by_id(
+    db: Session,
+    account_id: UUID,
+) -> Optional[models.Account]:
+    """
+    Retrieves an Account by primary key without active-status or type filtering.
+    """
+    return (
+        db.query(models.Account)
+        .filter(models.Account.id == account_id)
+        .first()
+    )
 
 
 def get_active_accounts(db: Session) -> Sequence[models.Account]:

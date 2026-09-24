@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..database import get_db
 from ..bank_statement_loader import get_loader
+from ..managers import csv_import_manager
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 
@@ -36,24 +37,6 @@ def _verify_account(account_id: UUID, db: Session) -> models.Account:
             detail=f"Account {account_id} not found",
         )
     return account
-
-
-def _is_duplicate(db: Session, txn: schemas.TransactionCreate) -> bool:
-    """
-    Returns True if an identical transaction already exists for this account.
-    Match criteria: same account_id + date + amount + description (case-insensitive).
-    """
-    existing = (
-        db.query(models.Transaction)
-        .filter(
-            models.Transaction.account_id == txn.account_id,
-            models.Transaction.date == txn.date,
-            models.Transaction.amount == txn.amount,
-            models.Transaction.description == txn.description,
-        )
-        .first()
-    )
-    return existing is not None
 
 
 async def _read_upload(file: UploadFile) -> bytes:
@@ -147,49 +130,33 @@ async def confirm_csv(
     Duplicate detection: a row is skipped (not errored) if a transaction with the
     same account_id, date, amount, and description already exists.
     """
-    _verify_account(account_id, db)
-
     raw = await _read_upload(file)
 
     try:
-        loader = get_loader(format, account_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-
-    try:
-        transactions = loader.load_from_bytes(raw)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-
-    imported = 0
-    skipped = 0
-    errors: list[str] = []
-
-    for txn in transactions:
-        try:
-            if _is_duplicate(db, txn):
-                skipped += 1
-                continue
-
-            db_txn = models.Transaction(
-                account_id=txn.account_id,
-                category_id=txn.category_id,
-                description=txn.description,
-                amount=txn.amount,
-                date=txn.date,
-                datetime=txn.datetime,
-                pending=txn.pending,
-                plaid_transaction_id=None,  # manual import — no Plaid ID
-            )
-            db.add(db_txn)
-            imported += 1
-        except Exception as exc:
-            errors.append(f"Row {txn.date} '{txn.description}': {exc}")
-
-    db.commit()
+        summary = csv_import_manager.confirm_csv_import(
+            db=db,
+            raw_bytes=raw,
+            account_id=account_id,
+            format_name=format,
+        )
+    except csv_import_manager.CSVImportAccountNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+    except csv_import_manager.CSVImportUnknownFormatError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except csv_import_manager.CSVImportParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
 
     return schemas.CSVImportResult(
-        imported=imported,
-        skipped=skipped,
-        errors=errors,
+        imported=summary.imported,
+        skipped=summary.skipped,
+        errors=list(summary.errors),
     )

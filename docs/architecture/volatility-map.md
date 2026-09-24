@@ -68,8 +68,8 @@ flowchart TD
         BudgetSummaryMgr["BudgetSummaryManager<br/>(Reference Vertical Slice)"]
         DashSummaryMgr["DashboardSummaryManager<br/>(Slice 2 Implemented & Verified)"]
         CCSummaryMgr["CreditCardSummaryManager<br/>(Slice 3 Implemented & Verified)"]
-        ReconcileMgr["TransferReconciliationManager<br/>(Slice 4 Approved / Pending Implementation)"]
-        CSVImportMgr["CSVImportManager<br/>(Planned)"]
+        ReconcileMgr["TransferReconciliationManager<br/>(Slice 4 Implemented & Verified)"]
+        CSVImportMgr["CSVImportManager<br/>(Slice 5 Implemented & Verified)"]
         PlaidSyncMgr["PlaidSyncManager<br/>(Planned)"]
     end
 
@@ -159,8 +159,8 @@ Although both ingestion pipelines persist transactions to PostgreSQL, their oper
 - **Processing Model:** Batch parsing via `BankStatementLoader` hierarchy (USAA, Discover).
 - **Identity Model:** No stable external transaction IDs.
 - **Deduplication Policy:** Exact 4-field tuple match `(account_id, date, amount, description)`.
-- **Event Lifecycle:** Two-phase (Preview $\rightarrow$ Confirm). Insert-only; duplicate rows are skipped; no deletion or modification events.
-- **Error Model:** Captures row-level parse errors gracefully without failing the entire file preview.
+- **Event Lifecycle:** Two user-facing operations: Preview and Confirm. Confirm reparses the raw upload independently and does not consume Preview state. Insert-only; duplicate rows are skipped; no deletion or modification events.
+- **Error Model:** Preview reports row-level parsing issues; Confirm fails whole-statement parsing with 422 before persistence, while persistence-loop row errors are accumulated non-fatally.
 
 ### 5.2. Plaid Synchronization Pipeline
 - **Input Resource:** External Plaid REST API.
@@ -198,7 +198,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 | **Dashboard Summary** | **Yes** | **Reuse Budget Engine** | **Yes** | `Router -> Manager -> (BudgetSummaryManager + Accessors)` | Composes existing Budget Summary workflow, active accounts, and 10 recent transactions (Slice 2 Implemented & Verified; see [dashboard-summary.md](dashboard-summary.md)). |
 | **Credit-Card Summary** | **Yes** | **Reuse CC Engine** | **Yes** | `Router -> Manager -> (CreditCardEngine + Accessors)` | Coordinates active credit accounts, historical ledger queries, calculation engine execution, and monthly display selection (Slice 3 Implemented & Verified; see [credit-card-summary.md](credit-card-summary.md)). |
 | **Transfer Candidate Search** | **Yes** | **Reuse Reconciliation Engine** | **Yes** | `Router -> Manager -> (ReconciliationEngine + Accessor)` | Coordinates candidate-set retrieval, domain input mapping, pure Engine matching, match-to-record correlation, and response enrichment (Slice 4 Implemented & Verified; see [transfer-candidate-search.md](transfer-candidate-search.md)). |
-| **CSV Import & Deduplication** | **Yes** | **No Standalone Engine** | **Yes** | `Router -> Manager -> Accessors` | Coordinates account verification, loader parsing, exact duplicate checking, batch insert, and commit. |
+| **CSV Confirmation & Deduplication** | **Yes** | **No Standalone Engine** | **Yes** | `Router -> CSVImportManager -> (AccountAccess + TransactionAccess + StatementLoader)` | Coordinates account verification, loader parsing, exact duplicate checking, batch insert, and commit (Slice 5 Implemented & Verified; see [csv-import-confirmation.md](csv-import-confirmation.md)). |
 | **Plaid Account Sync** | **Yes** | **No Engine** | **Yes** | `Router -> Manager -> (PlaidAccessor + AccountAccess)` | External API call, credential decryption, and account/balance persistence. |
 | **Plaid Transaction Sync** | **Yes** | **No Engine** | **Yes** | `Router -> Manager -> (PlaidAccessor + TransactionAccess)` | Stateful cursor pagination loop, sign normalization, upsert/deletion mapping, cursor persistence. |
 | **Transfer Confirmation** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Single atomic boolean mutation (`is_transfer = True`). |
@@ -215,7 +215,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 - **Transfer Candidate Search (Slice 4 Implemented & Verified):** Uses `TransferReconciliationManager` orchestrating candidate-set retrieval, domain input mapping, pure Engine matching, match-to-record correlation, and response enrichment, reusing the existing, pure [`detect_transfer_candidates`](backend/domain/reconciliation.py). Documented in [transfer-candidate-search.md](transfer-candidate-search.md).
 
 ### 7.3. Category 2: Manager Likely Justified, No Engine
-- **CSV Confirmation & Deduplication:** Multi-step pipeline (verify account $\rightarrow$ parse statement $\rightarrow$ deduplicate $\rightarrow$ batch insert $\rightarrow$ commit). The 4-field tuple deduplication rule is kept concrete in the access/manager boundary; an abstract engine is rejected.
+- **CSV Confirmation & Deduplication (Slice 5 Implemented & Verified):** Multi-step pipeline (verify account $\rightarrow$ parse statement $\rightarrow$ deduplicate $\rightarrow$ batch stage $\rightarrow$ commit), reusing the existing BankStatementLoader boundary without a new Engine. Documented in [csv-import-confirmation.md](csv-import-confirmation.md).
 - **Plaid Account & Transaction Sync:** Complex external cursor pagination, credential decryption, and transactional state synchronization. No financial algorithms or business decisions exist; an engine is rejected.
 
 ### 7.4. Category 3: No Manager and No Engine Currently Justified

@@ -3,7 +3,7 @@ Resource access functions for Transaction PostgreSQL resources.
 """
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -125,5 +125,57 @@ def get_account_for_transaction(
     Transaction ResourceAccess.
     """
     return transaction.account
+
+
+def csv_import_transaction_exists(
+    db: Session,
+    account_id: UUID,
+    transaction_date: date,
+    amount: Decimal,
+    description: str,
+) -> bool:
+    """
+    Checks if an identical transaction exists for the given account.
+    Matches exact account_id, date, amount, and description (case-sensitive).
+    """
+    return (
+        db.query(models.Transaction)
+        .filter(
+            models.Transaction.account_id == account_id,
+            models.Transaction.date == transaction_date,
+            models.Transaction.amount == amount,
+            models.Transaction.description == description,
+        )
+        .first()
+    ) is not None
+
+
+def stage_csv_import_transaction(
+    db: Session,
+    account_id: UUID,
+    transaction_date: date,
+    amount: Decimal,
+    description: str,
+    pending: bool = False,
+    category_id: Optional[UUID] = None,
+    transaction_datetime: Optional[datetime] = None,
+) -> models.Transaction:
+    """
+    Instantiates and stages a new manual CSV import Transaction in the session.
+    Explicitly sets plaid_transaction_id = None.
+    Does not flush or commit.
+    """
+    txn = models.Transaction(
+        account_id=account_id,
+        category_id=category_id,
+        description=description,
+        amount=amount,
+        date=transaction_date,
+        datetime=transaction_datetime,
+        pending=pending,
+        plaid_transaction_id=None,
+    )
+    db.add(txn)
+    return txn
 
 
