@@ -1,6 +1,6 @@
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, condecimal, Field
-from datetime import date, datetime
+from datetime import date, datetime, datetime as DateTime
 from typing import Optional, List, Literal
 from decimal import Decimal
 
@@ -131,7 +131,7 @@ class TransactionCreate(BaseModel):
     description: str
     amount: DecimalAmount
     date: date
-    datetime: Optional[datetime] = None
+    datetime: Optional[DateTime] = None
     pending: bool = False
     plaid_transaction_id: Optional[str] = None
 
@@ -150,7 +150,7 @@ class TransactionRead(BaseModel):
     description: str
     amount: DecimalAmount
     date: date
-    datetime: Optional[datetime] = None
+    datetime: Optional[DateTime] = None
     pending: bool
     is_transfer: bool = False
     account: Optional[AccountRead] = None

@@ -438,24 +438,21 @@ For each page received from Plaid, events are processed in strict sequential ord
 
 ---
 
-## 11. Known Defect: Datetime Validation in `TransactionCreate`
+## 11. Schema Datetime Validation Resolution (Slice 8)
 
-In [`backend/schemas.py`](../../backend/schemas.py), `TransactionCreate` defines:
+In [`backend/schemas.py`](../../backend/schemas.py), `TransactionCreate` and `TransactionRead` originally defined:
 ```python
 class TransactionCreate(BaseModel):
     ...
     datetime: Optional[datetime] = None
 ```
+Because the field name `datetime` matched the type name `datetime` within class scope, Python/Pydantic resolved `datetime` to `NoneType`, causing newly added or missing-modified Plaid transactions with non-null timestamps to fail with HTTP 500.
 
-### Defect Behavior (Characterized Invariant):
-Because the field name `datetime` matches the type name `datetime` within the same class scope, Python 3.12 / Pydantic resolves `datetime` to `NoneType`. Consequently:
-- If an `added` event contains a non-null ISO datetime string (e.g. `"2026-06-15T10:30:00Z"`), schema validation raises `ValidationError: Input should be None`, causing HTTP 500.
-- If an `added` event contains `datetime: null` or omits the field, validation succeeds.
-- In `modified` events, existing transactions are updated directly on the SQLAlchemy model without passing through `TransactionCreate`, so non-null datetime strings succeed.
-
-### Architectural Policy:
-- Under VBD rule 11 ("Do not mix known bug fixes into structural refactors"), this schema annotation defect is **preserved as characterized** during Slice 7.
-- Retaining legacy `create_or_update_transaction` ensures identical behavior until a dedicated cleanup slice modernizes `TransactionAccess` and schema annotations.
+### Resolution in Slice 8:
+- Disambiguated imported type as `DateTime` (`from datetime import date, datetime, datetime as DateTime`).
+- Updated `TransactionCreate` and `TransactionRead` annotations to `datetime: Optional[DateTime] = None`.
+- Pydantic now resolves the field to `Optional[datetime.datetime]`. Non-null ISO timestamps from Plaid events validate cleanly, persist to PostgreSQL `TIMESTAMP WITH TIME ZONE`, and serialize properly in reads.
+- Characterization coverage was updated to freeze and verify the corrected persistence and serialization behavior.
 
 ---
 
@@ -630,7 +627,7 @@ Protected by [`tests/test_characterization_plaid_transactions.py`](../../tests/t
 - Amount sign negation (`stored = -raw`);
 - Added events: new transaction insertion with per-event commit;
 - Added events: existing transaction collision updating mutable fields while preserving `category_id` and `is_transfer`;
-- Known datetime schema validation defect on `added` events;
+- Datetime schema validation resolution on `added` and `modified-missing` events (resolved in Slice 8);
 - Modified events: existing transaction update preserving `category_id`, `is_transfer`, and `account_id`;
 - Modified events: missing transaction falling back to insert;
 - Removed events: found transaction deleted with `db.commit()`;
@@ -645,7 +642,7 @@ Protected by [`tests/test_characterization_plaid_transactions.py`](../../tests/t
    - Extract `create_or_update_transaction` and `delete_transaction_by_plaid_id` from `backend/crud/transaction.py` into a focused `backend/access/transaction_access.py`.
    - Separate manual transaction CRUD from external Plaid transaction persistence.
    - Transition transaction commit ownership cleanly into the Manager.
-2. **Schema Annotation Fix:**
-   - Resolve class-scope `datetime: Optional[datetime]` name collision in `backend/schemas.py:TransactionCreate`.
+2. **Schema Annotation Fix (Resolved in Slice 8):**
+   - Resolved class-scope `datetime: Optional[DateTime]` name collision in `backend/schemas.py:TransactionCreate` and `TransactionRead`.
 3. **Plaid Token Encryption Migration:**
    - Replace Base64 placeholder in `backend/security.py` with real cryptographic encryption (e.g. Fernet) and migrate existing tokens.

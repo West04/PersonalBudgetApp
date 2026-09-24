@@ -962,14 +962,11 @@ def test_sync_transactions_added_new_row_fields_and_sign_inversion(client, db_se
     assert tx3.amount == Decimal("0.00")
 
 
-def test_sync_transactions_added_new_row_non_null_datetime_string_fails_due_to_pydantic_schema_defect(client, db_session):
+def test_sync_transactions_added_new_row_non_null_datetime_string_persists_successfully(client, db_session):
     """
-    Characterize known defect / quirk:
-    In backend/schemas.py, TransactionCreate defines 'datetime: Optional[datetime] = None'.
-    Because of a Python scope name-collision with the imported datetime type,
-    the annotation evaluates to NoneType.
-    Consequently, any newly added transaction from Plaid with a non-null datetime string
-    fails Pydantic validation when creating TransactionCreate, bubbling up to HTTP 500.
+    Verify that with TransactionCreate.datetime schema fix:
+    A newly added transaction from Plaid with a non-null datetime string
+    validates successfully, commits to PostgreSQL, and persists the UTC timestamp.
     """
     item, account = _setup_item_and_account(db_session, plaid_item_id="item_dt_defect")
 
@@ -999,8 +996,15 @@ def test_sync_transactions_added_new_row_non_null_datetime_string_fails_due_to_p
          patch("backend.access.plaid_transaction_access.requests.post", return_value=mock_http_resp):
         resp = client.post("/plaid/sync_transactions", json={"item_id": str(item.id)})
 
-    assert resp.status_code == 500
-    assert "Input should be None" in resp.json()["detail"]
+    assert resp.status_code == 200
+    assert resp.json()["added"] == 1
+
+    created_tx = db_session.query(models.Transaction).filter_by(plaid_transaction_id="tx_with_datetime_str").first()
+    assert created_tx is not None
+    assert created_tx.description == "Datetime Str Charge"
+    assert created_tx.amount == Decimal("-10.00")
+    assert created_tx.date == date(2026, 6, 15)
+    assert created_tx.datetime == datetime(2026, 6, 15, 10, 30, 0, tzinfo=timezone.utc)
 
 
 def test_sync_transactions_added_event_existing_id_updates_and_preserves_category_transfer(client, db_session):
