@@ -51,3 +51,38 @@ def test_no_hidden_filtering_or_status_fallback(db_session):
     assert retrieved2.id == item2.id
     # Non-matching identifier produces None, no fallback to the other item
     assert plaid_item_access.get_plaid_item_by_plaid_item_id(db_session, "item_strict_3") is None
+
+
+def test_stage_transactions_cursor_matching_item(db_session):
+    item = create_plaid_item(db_session, plaid_item_id="item_stage_001", access_token="tok_stage_001")
+    assert item.transactions_cursor is None
+
+    plaid_item_access.stage_transactions_cursor(db_session, "item_stage_001", "new_cur_123")
+    assert item.transactions_cursor == "new_cur_123"
+
+
+def test_stage_transactions_cursor_missing_item_noop(db_session):
+    # Should complete without error when plaid_item_id does not exist
+    plaid_item_access.stage_transactions_cursor(db_session, "nonexistent_plaid_item", "new_cur_123")
+
+
+def test_stage_transactions_cursor_no_commit_or_flush(db_session):
+    item = create_plaid_item(db_session, plaid_item_id="item_stage_noflush", access_token="tok_noflush")
+    assert item.transactions_cursor is None
+
+    plaid_item_access.stage_transactions_cursor(db_session, "item_stage_noflush", "uncommitted_cur")
+    # Verify rollback discards the staged change, proving no commit occurred
+    db_session.rollback()
+
+    reloaded = plaid_item_access.get_plaid_item_by_plaid_item_id(db_session, "item_stage_noflush")
+    assert reloaded.transactions_cursor is None
+
+
+def test_stage_transactions_cursor_exact_plaid_item_id_semantics(db_session):
+    item1 = create_plaid_item(db_session, plaid_item_id="item_exact_1", access_token="tok_ex_1")
+    item2 = create_plaid_item(db_session, plaid_item_id="item_exact_2", access_token="tok_ex_2")
+
+    plaid_item_access.stage_transactions_cursor(db_session, "item_exact_1", "cur_exact_1")
+    assert item1.transactions_cursor == "cur_exact_1"
+    assert item2.transactions_cursor is None
+

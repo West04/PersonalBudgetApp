@@ -15,14 +15,11 @@ from plaid.model.accounts_get_request import AccountsGetRequest
 from plaid.exceptions import ApiException
 from plaid.configuration import Configuration
 from plaid.api_client import ApiClient
-import requests
-
 from .. import schemas
 from ..crud import plaid as crud_plaid
-from ..crud import transaction as crud_transaction
 from ..database import get_db
 from ..managers import plaid_account_sync_manager
-from backend.security import decrypt_token
+from ..managers import plaid_transaction_sync_manager
 
 load_dotenv()
 
@@ -130,49 +127,34 @@ def sync_transactions(payload: schemas.PlaidSyncRequest, db: Session = Depends(g
     """
     HEAVY: Sync transaction updates from Plaid.
     Recommended: refresh balances first.
-    Uses raw HTTP request (via requests) instead of SDK to handle cursor=None safely.
     """
-    if payload.item_id:
-        plaid_item = crud_plaid.get_plaid_item_by_id(db, payload.item_id)
-    elif payload.plaid_item_id:
-        plaid_item = crud_plaid.get_plaid_item_by_plaid_item_id(db, payload.plaid_item_id)
-    else:
-        raise HTTPException(status_code=400, detail="Must provide item_id or plaid_item_id")
-
-    if not plaid_item:
-        raise HTTPException(status_code=404, detail="Plaid Item not found")
-
     try:
-        access_token = decrypt_token(plaid_item.plaid_access_token_encrypted)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Error decrypting access token")
-
-    cursor = plaid_item.transactions_cursor
-
-    try:
-        # ✅ Best UX: refresh balances before doing heavy sync
-        crud_plaid.sync_accounts_and_balances(
+        result = plaid_transaction_sync_manager.sync_plaid_transactions(
             db=db,
-            client=client,
-            access_token=access_token,
-            item_id=plaid_item.id,
+            item_id=payload.item_id,
+            plaid_item_id=payload.plaid_item_id,
         )
-
-        result = crud_plaid.sync_transactions_from_plaid(
-            db=db,
-            access_token=access_token,
-            plaid_item_id=plaid_item.plaid_item_id,
-            cursor=cursor
-        )
-
-        return result
-
-    except requests.exceptions.HTTPError as e:
-        print(f"Plaid HTTP Error: {e.response.text}")
-        raise HTTPException(status_code=e.response.status_code, detail=f"Plaid Sync Error: {e.response.text}")
-    except ApiException as e:
-        raise HTTPException(status_code=e.status, detail=e.body)
-    except Exception as e:
+        return {
+            "message": result.message,
+            "added": result.added,
+            "modified": result.modified,
+            "removed": result.removed,
+            "next_cursor": result.next_cursor,
+        }
+    except plaid_transaction_sync_manager.PlaidTransactionSyncMissingIdentifierError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except plaid_transaction_sync_manager.PlaidTransactionSyncItemNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except plaid_transaction_sync_manager.PlaidTransactionSyncDecryptionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except plaid_transaction_sync_manager.PlaidTransactionSyncAccountRefreshError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    except plaid_transaction_sync_manager.PlaidTransactionSyncHttpError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=f"Plaid Sync Error: {exc.detail}")
+    except plaid_transaction_sync_manager.PlaidTransactionSyncNetworkError as exc:
+        raise HTTPException(status_code=500, detail=exc.detail)
+    except Exception as exc:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(exc))
+
