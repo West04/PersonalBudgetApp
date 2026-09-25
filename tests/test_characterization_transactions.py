@@ -19,7 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import models, schemas
-from backend.crud import transaction as crud_transaction
+from backend.access import transaction_access
 from backend.main import app
 
 
@@ -404,12 +404,12 @@ def test_plaid_sync_modified_missing_row_datetime_populated_succeeds(client, db_
 
 
 # ---------------------------------------------------------------------------
-# 5. Direct Helper Behavior Matrix (crud_transaction.create_or_update_transaction)
+# 5. Direct Helper Behavior Matrix (transaction_access.stage_or_update_plaid_transaction)
 # ---------------------------------------------------------------------------
 
-def test_crud_create_or_update_transaction_direct_behavior_matrix(db_session):
+def test_stage_or_update_plaid_transaction_direct_behavior_matrix(db_session):
     """
-    Directly exercises crud_transaction.create_or_update_transaction(...)
+    Directly exercises transaction_access.stage_or_update_plaid_transaction(...)
     for all 5 branches of the behavior matrix:
     1. Plaid added / No local row / datetime=None -> create path -> succeeds
     2. Plaid added / No local row / datetime=non-null -> create path -> succeeds (Slice 8)
@@ -426,67 +426,79 @@ def test_crud_create_or_update_transaction_direct_behavior_matrix(db_session):
     db_session.commit()
 
     # 1. Added / No local / datetime=None
-    tx1 = crud_transaction.create_or_update_transaction(db_session, {
-        "transaction_id": "direct_tx_1",
-        "account_id": "direct_plaid_acc",
-        "name": "Tx 1 Added Null DT",
-        "amount": 10.0,
-        "date": date(2026, 6, 15),
-        "datetime": None,
-        "pending": False,
-    })
+    tx1 = transaction_access.stage_or_update_plaid_transaction(
+        db=db_session,
+        plaid_transaction_id="direct_tx_1",
+        account_id=account.id,
+        description="Tx 1 Added Null DT",
+        amount=Decimal("-10.00"),
+        transaction_date=date(2026, 6, 15),
+        transaction_datetime=None,
+        pending=False,
+    )
+    db_session.commit()
     assert tx1.datetime is None
     assert tx1.amount == Decimal("-10.00")
 
     # 2. Added / No local / datetime=non-null (Succeeds in Slice 8)
-    tx2 = crud_transaction.create_or_update_transaction(db_session, {
-        "transaction_id": "direct_tx_2",
-        "account_id": "direct_plaid_acc",
-        "name": "Tx 2 Added Pop DT",
-        "amount": 15.0,
-        "date": date(2026, 6, 15),
-        "datetime": "2026-06-15T10:00:00Z",
-        "pending": False,
-    })
+    tx2 = transaction_access.stage_or_update_plaid_transaction(
+        db=db_session,
+        plaid_transaction_id="direct_tx_2",
+        account_id=account.id,
+        description="Tx 2 Added Pop DT",
+        amount=Decimal("-15.00"),
+        transaction_date=date(2026, 6, 15),
+        transaction_datetime=datetime(2026, 6, 15, 10, 0, tzinfo=timezone.utc),
+        pending=False,
+    )
+    db_session.commit()
     assert tx2.datetime == datetime(2026, 6, 15, 10, 0, tzinfo=timezone.utc)
     assert tx2.amount == Decimal("-15.00")
 
     # 3. Added / Local row exists / datetime=non-null
-    tx3 = crud_transaction.create_or_update_transaction(db_session, {
-        "transaction_id": "direct_tx_1",
-        "account_id": "direct_plaid_acc",
-        "name": "Tx 1 Updated Via Added",
-        "amount": 20.0,
-        "date": date(2026, 6, 16),
-        "datetime": "2026-06-16T12:00:00Z",
-        "pending": False,
-    })
+    tx3 = transaction_access.stage_or_update_plaid_transaction(
+        db=db_session,
+        plaid_transaction_id="direct_tx_1",
+        account_id=account.id,
+        description="Tx 1 Updated Via Added",
+        amount=Decimal("-20.00"),
+        transaction_date=date(2026, 6, 16),
+        transaction_datetime=datetime(2026, 6, 16, 12, 0, tzinfo=timezone.utc),
+        pending=False,
+    )
+    db_session.commit()
     assert tx3.datetime == datetime(2026, 6, 16, 12, 0, tzinfo=timezone.utc)
+    assert tx3.amount == Decimal("-20.00")
 
     # 4. Modified / No local / datetime=non-null (Succeeds in Slice 8)
-    tx4 = crud_transaction.create_or_update_transaction(db_session, {
-        "transaction_id": "direct_tx_missing",
-        "account_id": "direct_plaid_acc",
-        "name": "Tx Missing Modified Pop DT",
-        "amount": 25.0,
-        "date": date(2026, 6, 15),
-        "datetime": "2026-06-15T14:00:00Z",
-        "pending": False,
-    })
+    tx4 = transaction_access.stage_or_update_plaid_transaction(
+        db=db_session,
+        plaid_transaction_id="direct_tx_missing",
+        account_id=account.id,
+        description="Tx Missing Modified Pop DT",
+        amount=Decimal("-25.00"),
+        transaction_date=date(2026, 6, 15),
+        transaction_datetime=datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc),
+        pending=False,
+    )
+    db_session.commit()
     assert tx4.datetime == datetime(2026, 6, 15, 14, 0, tzinfo=timezone.utc)
     assert tx4.amount == Decimal("-25.00")
 
     # 5. Modified / Local row exists / datetime=non-null
-    tx5 = crud_transaction.create_or_update_transaction(db_session, {
-        "transaction_id": "direct_tx_1",
-        "account_id": "direct_plaid_acc",
-        "name": "Tx 1 Updated Via Modified",
-        "amount": 30.0,
-        "date": date(2026, 6, 17),
-        "datetime": "2026-06-17T16:00:00Z",
-        "pending": False,
-    })
+    tx5 = transaction_access.stage_or_update_plaid_transaction(
+        db=db_session,
+        plaid_transaction_id="direct_tx_1",
+        account_id=account.id,
+        description="Tx 1 Updated Via Modified",
+        amount=Decimal("-30.00"),
+        transaction_date=date(2026, 6, 17),
+        transaction_datetime=datetime(2026, 6, 17, 16, 0, tzinfo=timezone.utc),
+        pending=False,
+    )
+    db_session.commit()
     assert tx5.datetime == datetime(2026, 6, 17, 16, 0, tzinfo=timezone.utc)
+    assert tx5.amount == Decimal("-30.00")
 
 
 # ---------------------------------------------------------------------------

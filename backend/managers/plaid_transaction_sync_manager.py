@@ -6,13 +6,19 @@ and final cursor commitment.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Optional
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any, Optional
 from uuid import UUID
 from sqlalchemy.orm import Session
 
-from ..access import account_access, plaid_access, plaid_item_access, plaid_transaction_access
-from ..crud import transaction as crud_transaction
+from ..access import (
+    account_access,
+    plaid_access,
+    plaid_item_access,
+    plaid_transaction_access,
+    transaction_access,
+)
 from ..security import decrypt_token
 
 
@@ -66,6 +72,33 @@ class PlaidTransactionSyncNetworkError(Exception):
         self.detail = detail
 
 
+def _process_upsert_event(db: Session, tx_data: dict[str, Any]) -> None:
+    remote_account_id = tx_data["account_id"]
+    account = account_access.get_account_by_plaid_account_id(db, remote_account_id)
+    if not account:
+        raise Exception(f"Account {remote_account_id} not found in database.")
+
+    raw_date = tx_data["date"]
+    tx_date = date.fromisoformat(raw_date) if isinstance(raw_date, str) else raw_date
+
+    raw_datetime = tx_data.get("datetime")
+    tx_datetime = datetime.fromisoformat(raw_datetime) if isinstance(raw_datetime, str) else raw_datetime
+
+    amount_for_budget = -Decimal(str(tx_data["amount"]))
+
+    transaction_access.stage_or_update_plaid_transaction(
+        db=db,
+        plaid_transaction_id=tx_data["transaction_id"],
+        account_id=account.id,
+        description=tx_data["name"],
+        amount=amount_for_budget,
+        transaction_date=tx_date,
+        transaction_datetime=tx_datetime,
+        pending=tx_data["pending"],
+    )
+    db.commit()
+
+
 def sync_plaid_transactions(
     db: Session,
     item_id: Optional[UUID] = None,
@@ -87,8 +120,9 @@ def sync_plaid_transactions(
          Catches PlaidTransactionHttpError -> raises PlaidTransactionSyncHttpError.
          Catches PlaidTransactionNetworkError -> raises PlaidTransactionSyncNetworkError.
        - Advances in-memory cursor to page.next_cursor before event iteration.
-       - Invokes legacy helpers for added, modified, and removed events.
-         (Legacy helpers execute internal per-event commits as characterized).
+       - For added events: resolves account via account_access, stages upsert via transaction_access, executes db.commit().
+       - For modified events: resolves account via account_access, stages upsert via transaction_access, executes db.commit().
+       - For removed events: stages deletion via transaction_access; if record found, executes db.commit().
     7. Stages final cursor via plaid_item_access.stage_transactions_cursor(db, plaid_item_id, cursor).
     8. Executes two-stage final commits:
        - db.commit()  # Equivalent to legacy cursor helper commit
@@ -162,15 +196,20 @@ def sync_plaid_transactions(
         cursor = page.next_cursor
 
         for tx_data in page.added:
-            crud_transaction.create_or_update_transaction(db, tx_data)
+            _process_upsert_event(db, tx_data)
             added_count += 1
 
         for tx_data in page.modified:
-            crud_transaction.create_or_update_transaction(db, tx_data)
+            _process_upsert_event(db, tx_data)
             modified_count += 1
 
         for tx_data in page.removed:
-            crud_transaction.delete_transaction_by_plaid_id(db, tx_data["transaction_id"])
+            deleted = transaction_access.stage_delete_transaction_by_plaid_id(
+                db=db,
+                plaid_transaction_id=tx_data["transaction_id"],
+            )
+            if deleted:
+                db.commit()
             removed_count += 1
 
     plaid_item_access.stage_transactions_cursor(

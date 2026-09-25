@@ -184,3 +184,58 @@ def test_stage_or_update_does_not_flush_or_commit(db_session):
     mock_db.add.assert_called_once_with(account)
     mock_db.flush.assert_not_called()
     mock_db.commit.assert_not_called()
+
+
+def test_get_account_by_plaid_account_id_found(db_session):
+    account = models.Account(
+        name="Plaid Target Account",
+        type="depository",
+        plaid_account_id="plaid_target_123",
+        current_balance=Decimal("250.00"),
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    retrieved = account_access.get_account_by_plaid_account_id(db_session, "plaid_target_123")
+    assert retrieved is not None
+    assert retrieved.id == account.id
+    assert retrieved.name == "Plaid Target Account"
+    assert retrieved.plaid_account_id == "plaid_target_123"
+
+
+def test_get_account_by_plaid_account_id_missing(db_session):
+    retrieved = account_access.get_account_by_plaid_account_id(db_session, "non_existent_plaid_id")
+    assert retrieved is None
+
+
+def test_get_account_by_plaid_account_id_exact_match(db_session):
+    account1 = models.Account(
+        name="Account 1",
+        type="depository",
+        plaid_account_id="acc_prefix",
+    )
+    account2 = models.Account(
+        name="Account 2",
+        type="depository",
+        plaid_account_id="acc_prefix_suffix",
+    )
+    db_session.add_all([account1, account2])
+    db_session.commit()
+
+    match1 = account_access.get_account_by_plaid_account_id(db_session, "acc_prefix")
+    assert match1 is not None
+    assert match1.id == account1.id
+
+    match2 = account_access.get_account_by_plaid_account_id(db_session, "acc_prefix_suffix")
+    assert match2 is not None
+    assert match2.id == account2.id
+
+
+def test_get_account_by_plaid_account_id_no_commit():
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = None
+
+    result = account_access.get_account_by_plaid_account_id(mock_db, "mock_plaid_id")
+    assert result is None
+    mock_db.commit.assert_not_called()
+    mock_db.flush.assert_not_called()

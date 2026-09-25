@@ -88,7 +88,6 @@ flowchart TD
         PlaidItemAcc["plaid_item_access.py"]
         PlaidAcc["plaid_access.py / SDK Client"]
         PlaidTxAcc["plaid_transaction_access.py<br/>(raw /transactions/sync)"]
-        LegacyTxCrud["crud/transaction.py<br/>(Transitional Plaid Persistence)"]
         CSVLoader["bank_statement_loader.py (USAA, Discover)"]
     end
 
@@ -142,7 +141,7 @@ flowchart TD
     PlaidTxSyncMgr --> PlaidAcc
     PlaidTxSyncMgr --> AcctAcc
     PlaidTxSyncMgr --> PlaidTxAcc
-    PlaidTxSyncMgr --> LegacyTxCrud
+    PlaidTxSyncMgr --> TxAcc
 
     %% Accessors to Resources
     BudgetAcc --> DB
@@ -150,7 +149,6 @@ flowchart TD
     TxAcc --> DB
     AcctAcc --> DB
     PlaidItemAcc --> DB
-    LegacyTxCrud --> DB
     PlaidAcc --> PlaidAPI
     PlaidTxAcc --> PlaidAPI
     CSVLoader --> CSVFile
@@ -184,13 +182,13 @@ Although both ingestion pipelines persist transactions to PostgreSQL, their oper
 - **Event Lifecycle:** Balance and metadata refresh for a linked institution. Stages records, performs explicit `db.flush()`, single final `db.commit()`, and returns `accounts_updated`.
 - **Security Dependency:** Decrypts stored access token via `security.decrypt_token`. Passes decoded token directly to external ResourceAccess.
 
-### 5.3. Plaid Transaction Sync Pipeline (Slice 7 Implemented & Verified)
+### 5.3. Plaid Transaction Sync Pipeline (Slice 7 & Slice 9 Implemented & Verified)
 - **Input Resource:** External Plaid REST API (`/transactions/sync` via raw HTTP requests library to bypass Plaid Python SDK cursor validation issues).
 - **Processing Model:** Stateful cursor-based pagination loop (`has_more` paging), coupled with pre-sync account balance refresh staged with `db.flush()` (commit piggybacking).
 - **Identity Model:** Exact, stable external IDs (`plaid_transaction_id`).
 - **Deduplication Policy:** Upsert on external ID match (`plaid_transaction_id`).
 - **Event Lifecycle:** Continuous ledger synchronization. Supports transaction additions (insert or update), modifications (in-place update preserving user fields `category_id` and `is_transfer`), and removals (deletion by external ID if present, commit-on-found); persists latest sync cursor after pagination loop completes.
-- **Transitional Architecture:** Coordinates `plaid_item_access.py`, `security.decrypt_token`, `plaid_access.py` (for account balance snapshots), `account_access.py`, `plaid_transaction_access.py` (dedicated raw HTTP /transactions/sync client), and transitional concrete persistence helpers (`backend/crud/transaction.py`). Documented in [plaid-transaction-sync.md](plaid-transaction-sync.md).
+- **VBD Architecture:** Coordinates `plaid_item_access.py`, `security.decrypt_token`, `plaid_access.py` (for account balance snapshots), `account_access.py`, `plaid_transaction_access.py` (dedicated raw HTTP /transactions/sync client), and `transaction_access.py` (PostgreSQL transaction persistence). Manager owns event-level commits. Documented in [plaid-transaction-sync.md](plaid-transaction-sync.md).
 
 ---
 
@@ -222,7 +220,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 | **Transfer Candidate Search** | **Yes** | **Reuse Reconciliation Engine** | **Yes** | `Router -> Manager -> (ReconciliationEngine + Accessor)` | Coordinates candidate-set retrieval, domain input mapping, pure Engine matching, match-to-record correlation, and response enrichment (Slice 4 Implemented & Verified; see [transfer-candidate-search.md](transfer-candidate-search.md)). |
 | **CSV Confirmation & Deduplication** | **Yes** | **No Standalone Engine** | **Yes** | `Router -> CSVImportManager -> (AccountAccess + TransactionAccess + StatementLoader)` | Coordinates account verification, loader parsing, exact duplicate checking, batch insert, and commit (Slice 5 Implemented & Verified; see [csv-import-confirmation.md](csv-import-confirmation.md)). |
 | **Plaid Account Sync** | **Yes** | **No Engine** | **Yes** | `Router -> PlaidAccountSyncManager -> (PlaidItemAccess + AccountAccess + PlaidAccess)` | External API call, credential decryption, and account/balance persistence (Slice 6 Implemented & Verified; see [plaid-account-sync.md](plaid-account-sync.md)). |
-| **Plaid Transaction Sync** | **Yes** | **No Engine** | **Yes** | `Router -> PlaidTransactionSyncManager -> (PlaidItemAccess + PlaidAccess + AccountAccess + PlaidTransactionAccess + Transitional Transaction Helpers)` | Coordinates balance refresh flush, cursor pagination loop, added/modified/removed processing, per-event commits, and cursor persistence (Slice 7 Implemented & Verified; see [plaid-transaction-sync.md](plaid-transaction-sync.md)). |
+| **Plaid Transaction Sync** | **Yes** | **No Engine** | **Yes** | `Router -> PlaidTransactionSyncManager -> (PlaidItemAccess + PlaidAccess + AccountAccess + PlaidTransactionAccess + TransactionAccess)` | Coordinates balance refresh flush, cursor pagination loop, added/modified/removed processing, event-level commits, and cursor persistence (Slice 7 & Slice 9 Implemented & Verified; see [plaid-transaction-sync.md](plaid-transaction-sync.md)). |
 | **Transfer Confirmation** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Single atomic boolean mutation (`is_transfer = True`). |
 | **Manual Transaction CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD and query filtering. |
 | **Account CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD. Moving raw SQL queries to `account_access.py`. |
@@ -239,7 +237,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 ### 7.3. Category 2: Manager Likely Justified, No Engine
 - **CSV Confirmation & Deduplication (Slice 5 Implemented & Verified):** Multi-step pipeline (verify account $\rightarrow$ parse statement $\rightarrow$ deduplicate $\rightarrow$ batch stage $\rightarrow$ commit), reusing the existing BankStatementLoader boundary without a new Engine. Documented in [csv-import-confirmation.md](csv-import-confirmation.md).
 - **Plaid Account Sync (Slice 6 Implemented & Verified):** Multi-step pipeline (validate identifiers $\rightarrow$ lookup PlaidItem $\rightarrow$ decrypt token $\rightarrow$ fetch accounts $\rightarrow$ stage/update local accounts $\rightarrow$ flush $\rightarrow$ commit), coordinating external Plaid SDK access, credential decoding, and account persistence without a standalone Engine. Documented in [plaid-account-sync.md](plaid-account-sync.md).
-- **Plaid Transaction Sync (Slice 7 Implemented & Verified):** Multi-step pipeline (validate identifiers $\rightarrow$ lookup PlaidItem $\rightarrow$ decrypt token $\rightarrow$ stage balance refresh $\rightarrow$ flush $\rightarrow$ paginated cursor loop $\rightarrow$ per-event commits $\rightarrow$ persist final cursor $\rightarrow$ commit cursor), coordinating raw HTTP Plaid transaction sync, external account fetching, account persistence, and legacy transaction helpers without an Engine. Documented in [plaid-transaction-sync.md](plaid-transaction-sync.md).
+- **Plaid Transaction Sync (Slice 7 & Slice 9 Implemented & Verified):** Multi-step pipeline (validate identifiers $\rightarrow$ lookup PlaidItem $\rightarrow$ decrypt token $\rightarrow$ stage balance refresh $\rightarrow$ flush $\rightarrow$ paginated cursor loop $\rightarrow$ event-level commits $\rightarrow$ persist final cursor $\rightarrow$ commit cursor), coordinating raw HTTP Plaid transaction sync, external account fetching, account persistence, and transaction resource access without an Engine. Documented in [plaid-transaction-sync.md](plaid-transaction-sync.md).
 
 ### 7.4. Category 3: No Manager and No Engine Currently Justified
 Direct **`Router -> Accessor`** is the terminal and correct VBD design for:

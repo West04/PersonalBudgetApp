@@ -50,6 +50,20 @@ def get_active_credit_accounts(db: Session) -> Sequence[models.Account]:
     )
 
 
+def get_account_by_plaid_account_id(
+    db: Session,
+    plaid_account_id: str,
+) -> Optional[models.Account]:
+    """
+    Retrieves an Account by exact plaid_account_id.
+    """
+    return (
+        db.query(models.Account)
+        .filter(models.Account.plaid_account_id == plaid_account_id)
+        .first()
+    )
+
+
 def stage_or_update_plaid_account(
     db: Session,
     item_id: UUID,

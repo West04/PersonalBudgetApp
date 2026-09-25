@@ -1,11 +1,13 @@
 from decimal import Decimal
 from datetime import date
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 import pytest
 import requests_mock
 
 from backend import models
-from backend.crud.plaid import sync_transactions_from_plaid, create_plaid_item
+from backend.crud.plaid import create_plaid_item
+from backend.managers.plaid_transaction_sync_manager import sync_plaid_transactions
 
 
 def test_plaid_sync_add_modify_remove_and_cursor(db_session):
@@ -86,22 +88,22 @@ def test_plaid_sync_add_modify_remove_and_cursor(db_session):
         "next_cursor": "cursor_token_page_2"
     }
 
-    with requests_mock.Mocker() as m:
+    with requests_mock.Mocker() as m, \
+         patch("backend.access.plaid_access.client.accounts_get") as mock_accts:
+        mock_accts.return_value = MagicMock(accounts=[])
         m.post("https://sandbox.plaid.com/transactions/sync", json=mock_payload)
 
-        # Call existing CRUD sync function
-        result = sync_transactions_from_plaid(
+        # Call sync manager
+        result = sync_plaid_transactions(
             db=db_session,
-            access_token="access-sandbox-token",
             plaid_item_id=plaid_item_id,
-            cursor="cursor_token_page_1"
         )
 
     # 3. Assert Results Summary
-    assert result["added"] == 1
-    assert result["modified"] == 1
-    assert result["removed"] == 1
-    assert result["next_cursor"] == "cursor_token_page_2"
+    assert result.added == 1
+    assert result.modified == 1
+    assert result.removed == 1
+    assert result.next_cursor == "cursor_token_page_2"
 
     # 4. Verify Database State
     # Check Added transaction

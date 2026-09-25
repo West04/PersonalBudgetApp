@@ -1,5 +1,5 @@
-# Plaid Transaction Sync Architecture Specification (Slice 7)
-## Status: Slice 7 Implemented & Verified
+# Plaid Transaction Sync Architecture Specification (Slice 7 & Slice 9)
+## Status: Slice 7 Implemented & Verified; Slice 9 (Transaction ResourceAccess Extraction) Implemented & Verified
 
 ---
 
@@ -18,7 +18,7 @@ PlaidTransactionSyncManager (backend/managers/plaid_transaction_sync_manager.py)
         ├── Plaid Account External Access (backend/access/plaid_access.py) ────────────────→ Plaid /accounts/get
         ├── Account ResourceAccess (backend/access/account_access.py) ────────────────────→ PostgreSQL
         ├── Plaid Transaction External Access (backend/access/plaid_transaction_access.py) → raw HTTP /transactions/sync
-        └── Transitional concrete persistence helper (backend/crud/transaction.py) ──────→ PostgreSQL
+        └── Transaction ResourceAccess (backend/access/transaction_access.py) ───────────→ PostgreSQL
 ```
 
 ### Key Architectural Boundaries:
@@ -27,8 +27,8 @@ PlaidTransactionSyncManager (backend/managers/plaid_transaction_sync_manager.py)
 3. **No Monolithic Sync Manager:** Account Sync (`/plaid/sync_accounts`) and Transaction Sync (`/plaid/sync_transactions`) are fundamentally different operational pipelines (stateless balance refresh vs. stateful cursor pagination). They are deliberately separate vertical slices and must not be combined into a generic `PlaidSyncManager`.
 4. **Decoupled from PlaidAccountSyncManager:** Although Transaction Sync refreshes balances before fetching transactions, it must **not** invoke `PlaidAccountSyncManager`. Standalone Account Sync commits immediately (`db.commit()`), whereas Transaction Sync stages updates with `db.flush()` so that balance updates roll back if transaction fetching fails.
 5. **Dedicated Raw HTTP External Access (`plaid_transaction_access.py`):** Transaction sync uses raw `requests.post` calls to bypass Plaid Python SDK cursor validation bugs. It must not be merged into `plaid_access.py` (which uses the official Plaid Python SDK).
-6. **Transitional Concrete Persistence Helper (`backend/crud/transaction.py`):** In Slice 7, transaction database operations are delegated to existing legacy helpers in `backend/crud/transaction.py` (`create_or_update_transaction`, `delete_transaction_by_plaid_id`). These are classified as **transitional concrete persistence helpers**, not as the final desired ResourceAccess architecture. A clean `TransactionAccess` abstraction and schema fix are deferred to a dedicated follow-up slice to prevent mixing bug fixes or broad persistence rewrites into Slice 7.
-7. **Transitional Commit Ownership:** The Manager owns event sequencing and determines when each legacy helper is invoked. The legacy transaction persistence helpers continue to own their existing internal per-event commits. Therefore, Slice 7 does not yet completely move transaction-boundary ownership into the Manager; this is deliberate transitional debt.
+6. **Transaction ResourceAccess (`backend/access/transaction_access.py`):** In Slice 9, Plaid transaction persistence is extracted out of legacy `backend/crud/transaction.py` and into `backend/access/transaction_access.py` (`stage_or_update_plaid_transaction`, `stage_delete_transaction_by_plaid_id`). `TransactionAccess` contains stage-only functions that do not commit or refresh.
+7. **Manager Commit Ownership:** `PlaidTransactionSyncManager` owns event-level `db.commit()` for added, modified, and found-removal events, while missing removals perform no commit.
 8. **Decoupled Router Error Knowledge:** The Router imports and catches only framework-free Manager/application errors. It contains zero knowledge of ResourceAccess errors (`PlaidAccessError`, `PlaidTransactionHttpError`, `PlaidTransactionNetworkError`), requests exceptions, or Plaid SDK exceptions.
 
 ---
@@ -82,15 +82,19 @@ while has_more:
     advance in-memory cursor to page.next_cursor
         ↓
     for each added:
-        invoke create_or_update_transaction (legacy helper executes internal db.commit())
+        resolve Account via AccountAccess (get_account_by_plaid_account_id)
+        stage upsert via TransactionAccess (stage_or_update_plaid_transaction) (NO commit)
+        db.commit()
         ↓
     for each modified:
-        invoke create_or_update_transaction (legacy helper executes internal db.commit())
+        resolve Account via AccountAccess (get_account_by_plaid_account_id)
+        stage upsert via TransactionAccess (stage_or_update_plaid_transaction) (NO commit)
+        db.commit()
         ↓
     for each removed:
-        invoke delete_transaction_by_plaid_id
-        if row found: legacy helper deletes and executes internal db.commit()
-        if row missing: no delete, NO event-level commit executed
+        stage delete via TransactionAccess (stage_delete_transaction_by_plaid_id) (NO commit)
+        if row found: db.commit()
+        if row missing: NO event-level commit executed
         ↓
     repeat while page.has_more is True
         ↓
@@ -247,7 +251,7 @@ Before syncing transactions, the workflow refreshes balances for all accounts as
 3. Manager executes `db.flush()` to send SQL updates to PostgreSQL without committing.
 
 ### Commit Piggybacking Invariant:
-- If transactions are processed (`added` > 0, `modified` > 0, or `removed` > 0 with matching row), the staged balance updates are committed along with the first transaction's internal `db.commit()`.
+- If transactions are processed (`added` > 0, `modified` > 0, or `removed` > 0 with matching row), the staged balance updates are committed along with the Manager-owned event-level `db.commit()`.
 - If zero transaction events occur across all pages, the staged balance updates are committed along with the final cursor `db.commit()`.
 - If an error occurs prior to the first commit (e.g. Plaid returns HTTP 400 on page 1), session teardown rolls back the staged balance updates.
 
@@ -375,7 +379,7 @@ If page 1 succeeds and commits transactions, but page 2 fails (e.g. Plaid return
 
 ## 10. Transaction Event Processing & Commit Semantics
 
-File: `backend/crud/transaction.py` (transitional concrete persistence helper)
+File: `backend/access/transaction_access.py` (Transaction ResourceAccess) & `backend/managers/plaid_transaction_sync_manager.py` (Manager)
 
 ### Event Processing Order:
 For each page received from Plaid, events are processed in strict sequential order:
@@ -384,56 +388,43 @@ For each page received from Plaid, events are processed in strict sequential ord
 3. `removed` list
 
 ### 1. `added` Events:
-- Lookup existing record: `get_transaction_by_plaid_id(db, tx_data["transaction_id"])`.
-- Lookup account: `get_account_by_plaid_account_id(db, tx_data["account_id"])`. If not found, raises Exception.
-- **If transaction does not exist:**
-  - Invert amount: `amount_for_budget = -tx_data["amount"]`.
-  - Validate and stage via `TransactionCreate`:
-    - `plaid_transaction_id = tx_data["transaction_id"]`
-    - `account_id = db_account.id`
-    - `category_id = None` (uncategorized)
-    - `description = tx_data["name"]`
-    - `amount = amount_for_budget`
-    - `date = tx_data["date"]`
-    - `datetime = tx_data.get("datetime")`
-    - `pending = tx_data["pending"]`
-  - Legacy helper adds to session, executes internal `db.commit()`, and refreshes model.
-- **If transaction already exists (collision / re-sync):**
-  - Update mutable fields: `description = tx_data["name"]`, `amount = -tx_data["amount"]`, `date = tx_data["date"]`, `datetime = tx_data.get("datetime")`, `pending = tx_data["pending"]`.
-  - **Preserve user fields:** `category_id`, `is_transfer`, `account_id`, `transaction_id`.
-  - Legacy helper adds to session, executes internal `db.commit()`, and refreshes model.
+- Lookup account: `account_access.get_account_by_plaid_account_id(db, tx_data["account_id"])`. If not found, raises Exception (`Account <id> not found in database.`).
+- Map field values in Manager: `amount_for_budget = -Decimal(str(tx_data["amount"]))`, parse ISO date/datetime if needed, `description = tx_data["name"]`, `pending = tx_data["pending"]`.
+- Stage upsert via `transaction_access.stage_or_update_plaid_transaction(...)`:
+  - If transaction does not exist: stages new `models.Transaction` (`category_id=None`, `is_transfer=False`).
+  - If transaction exists: updates mutable fields (`description`, `amount`, `date`, `datetime`, `pending`) while preserving user fields (`category_id`, `is_transfer`, `account_id`, `transaction_id`).
+  - `TransactionAccess` calls `db.add(txn)` and performs NO commit and NO refresh.
+- Manager executes `db.commit()`.
 - Increments `added_count`.
 
 ### 2. `modified` Events:
-- Lookup existing record: `get_transaction_by_plaid_id(db, tx_data["transaction_id"])`.
-- **If transaction exists:**
-  - Update mutable fields: `description = tx_data["name"]`, `amount = -tx_data["amount"]`, `date = tx_data["date"]`, `datetime = tx_data.get("datetime")`, `pending = tx_data["pending"]`.
-  - **Preserve user fields:** `category_id`, `is_transfer`, `account_id` (even if Plaid sends a different `account_id`), `transaction_id`.
-  - Legacy helper adds to session, executes internal `db.commit()`, and refreshes model.
-- **If transaction does not exist locally (out-of-order modify):**
-  - Fall back to creation path (same as `added`).
-  - Legacy helper executes internal `db.commit()`.
+- Lookup account: `account_access.get_account_by_plaid_account_id(db, tx_data["account_id"])`. If not found, raises Exception (`Account <id> not found in database.`).
+- Map field values in Manager: `amount_for_budget = -Decimal(str(tx_data["amount"]))`, parse ISO date/datetime if needed, `description = tx_data["name"]`, `pending = tx_data["pending"]`.
+- Stage upsert via `transaction_access.stage_or_update_plaid_transaction(...)`:
+  - If transaction exists: updates mutable fields while preserving user fields (`category_id`, `is_transfer`, `account_id`, `transaction_id`).
+  - If transaction does not exist locally (out-of-order modify): falls back to insert path (`category_id=None`, `is_transfer=False`).
+  - `TransactionAccess` calls `db.add(txn)` and performs NO commit and NO refresh.
+- Manager executes `db.commit()`.
 - Increments `modified_count`.
 
 ### 3. `removed` Events:
-- Lookup existing record: `get_transaction_by_plaid_id(db, tx_data["transaction_id"])`.
-- **If found (`R_found`):**
-  - `db.delete(db_transaction)`
-  - Legacy helper executes internal `db.commit()`.
-- **If not found (`R_missing`):**
-  - No database deletion occurs.
-  - **NO `db.commit()` is executed.**
+- Stage deletion via `transaction_access.stage_delete_transaction_by_plaid_id(db, tx_data["transaction_id"])`:
+  - If found (`R_found`): calls `db.delete(txn)` and returns `True`.
+  - If not found (`R_missing`): returns `False`.
+  - `TransactionAccess` performs NO commit.
+- If `True`: Manager executes `db.commit()`.
+- If `False`: Manager executes **NO `db.commit()`**.
 - Increments `removed_count` regardless of local presence.
 
 ### Per-Event Commit Summary Table:
 
 | Event Type | Local Match Found? | Database Action | Executes `db.commit()`? | Count Incremented? |
 |---|:---:|---|:---:|:---:|
-| `added` | No | Insert new `Transaction` | **Yes** (via legacy helper) | `added_count += 1` |
-| `added` | Yes | Update existing `Transaction` | **Yes** (via legacy helper) | `added_count += 1` |
-| `modified` | Yes | Update existing `Transaction` | **Yes** (via legacy helper) | `modified_count += 1` |
-| `modified` | No | Insert new `Transaction` | **Yes** (via legacy helper) | `modified_count += 1` |
-| `removed` | Yes | Delete existing `Transaction` | **Yes** (via legacy helper) | `removed_count += 1` |
+| `added` | No | Insert new `Transaction` | **Yes** (via Manager) | `added_count += 1` |
+| `added` | Yes | Update existing `Transaction` | **Yes** (via Manager) | `added_count += 1` |
+| `modified` | Yes | Update existing `Transaction` | **Yes** (via Manager) | `modified_count += 1` |
+| `modified` | No | Insert new `Transaction` | **Yes** (via Manager) | `modified_count += 1` |
+| `removed` | Yes | Delete existing `Transaction` | **Yes** (via Manager) | `removed_count += 1` |
 | `removed` | No | No-op | **No** | `removed_count += 1` |
 
 ---
@@ -538,8 +529,9 @@ def sync_plaid_transactions(
          Catches PlaidTransactionHttpError -> raises PlaidTransactionSyncHttpError.
          Catches PlaidTransactionNetworkError -> raises PlaidTransactionSyncNetworkError.
        - Advances in-memory cursor to page.next_cursor before event iteration.
-       - Invokes legacy helpers for added, modified, and removed events.
-         (Legacy helpers execute internal per-event commits as characterized).
+       - For added events: resolves account via account_access, stages upsert via transaction_access, executes db.commit().
+       - For modified events: resolves account via account_access, stages upsert via transaction_access, executes db.commit().
+       - For removed events: stages deletion via transaction_access; if record found, executes db.commit().
     7. Stages final cursor via plaid_item_access.stage_transactions_cursor(db, plaid_item.plaid_item_id, cursor).
     8. Executes two-stage final commits:
        - db.commit()  # Equivalent to legacy cursor helper commit
@@ -556,9 +548,9 @@ def sync_plaid_transactions(
 - **Plaid Raw HTTP Protocol:** Direct REST request, timeout, count, and cursor omission $\rightarrow$ [`backend/access/plaid_transaction_access.py`](../../backend/access/plaid_transaction_access.py).
 - **Workflow Sequencing:** Pagination loop, balance refresh staging, cursor progression, error translation, final commit timing $\rightarrow$ [`backend/managers/plaid_transaction_sync_manager.py`](../../backend/managers/plaid_transaction_sync_manager.py).
 - **PlaidItem Relational Storage:** PostgreSQL schema and cursor staging $\rightarrow$ [`backend/access/plaid_item_access.py`](../../backend/access/plaid_item_access.py).
-- **Account Relational Storage:** PostgreSQL schema and balance updates $\rightarrow$ [`backend/access/account_access.py`](../../backend/access/account_access.py).
+- **Account Relational Storage:** PostgreSQL schema, balance updates, and Plaid account lookup $\rightarrow$ [`backend/access/account_access.py`](../../backend/access/account_access.py).
 - **Plaid External Account Access:** Official Plaid SDK for accounts/get $\rightarrow$ [`backend/access/plaid_access.py`](../../backend/access/plaid_access.py).
-- **Transitional Concrete Persistence Helper:** Transitional relational transaction mutations $\rightarrow$ [`backend/crud/transaction.py`](../../backend/crud/transaction.py).
+- **Transaction ResourceAccess:** PostgreSQL transaction persistence, lookup, and staged mutations $\rightarrow$ [`backend/access/transaction_access.py`](../../backend/access/transaction_access.py).
 - **Credential Storage Utility:** Base64 placeholder decryption $\rightarrow$ [`backend/security.py`](../../backend/security.py).
 
 ### Speculative Volatility (Explicitly Rejected):
@@ -582,7 +574,7 @@ Manager -> PlaidItemAccess
 Manager -> PlaidAccess
 Manager -> AccountAccess
 Manager -> PlaidTransactionAccess
-Manager -> Legacy Transaction Persistence Helpers (crud/transaction.py)
+Manager -> TransactionAccess
 Manager -> security.decrypt_token
 Manager -> Session (application context)
 
@@ -638,10 +630,10 @@ Protected by [`tests/test_characterization_plaid_transactions.py`](../../tests/t
 
 ## 17. Deferred Follow-Up Slices
 
-1. **Transaction ResourceAccess Extraction:**
-   - Extract `create_or_update_transaction` and `delete_transaction_by_plaid_id` from `backend/crud/transaction.py` into a focused `backend/access/transaction_access.py`.
-   - Separate manual transaction CRUD from external Plaid transaction persistence.
-   - Transition transaction commit ownership cleanly into the Manager.
+1. **Transaction ResourceAccess Extraction (Resolved in Slice 9):**
+   - Extracted `stage_or_update_plaid_transaction` and `stage_delete_transaction_by_plaid_id` into `backend/access/transaction_access.py` and `get_account_by_plaid_account_id` into `backend/access/account_access.py`.
+   - Separated manual transaction CRUD from external Plaid transaction persistence.
+   - Transitioned event-level commit ownership cleanly into `PlaidTransactionSyncManager`.
 2. **Schema Annotation Fix (Resolved in Slice 8):**
    - Resolved class-scope `datetime: Optional[DateTime]` name collision in `backend/schemas.py:TransactionCreate` and `TransactionRead`.
 3. **Plaid Token Encryption Migration:**

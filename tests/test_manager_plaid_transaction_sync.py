@@ -222,15 +222,25 @@ def test_sync_transactions_multi_page_pagination():
 def test_sync_transactions_cursor_advanced_before_event_processing():
     db = MagicMock()
     item = _make_dummy_item(cursor="c0")
+    dummy_acc = MagicMock()
+    dummy_acc.id = uuid4()
 
     observed_cursor_in_event = []
 
-    def mock_event(db, tx_data):
-        # We verify that cursor in manager context already advanced
-        observed_cursor_in_event.append(tx_data["transaction_id"])
+    def mock_stage_tx(**kwargs):
+        observed_cursor_in_event.append(kwargs["plaid_transaction_id"])
+        return MagicMock()
 
     page = _make_dummy_page(
-        added=[{"transaction_id": "tx_add"}],
+        added=[{
+            "transaction_id": "tx_add",
+            "account_id": "acc_1",
+            "name": "Coffee",
+            "amount": 5.0,
+            "date": "2026-06-15",
+            "datetime": None,
+            "pending": False,
+        }],
         next_cursor="c1",
         has_more=False,
     )
@@ -238,20 +248,28 @@ def test_sync_transactions_cursor_advanced_before_event_processing():
     with patch("backend.access.plaid_item_access.get_plaid_item_by_id", return_value=item), \
          patch("backend.access.plaid_access.fetch_accounts_for_token", return_value=[]), \
          patch("backend.access.plaid_transaction_access.fetch_transactions_page", return_value=page), \
-         patch("backend.crud.transaction.create_or_update_transaction", side_effect=mock_event):
+         patch("backend.access.account_access.get_account_by_plaid_account_id", return_value=dummy_acc), \
+         patch("backend.access.transaction_access.stage_or_update_plaid_transaction", side_effect=mock_stage_tx):
         sync_plaid_transactions(db, item_id=item.id)
 
     assert observed_cursor_in_event == ["tx_add"]
 
 
-# 13 & 14 & 15. Added before modified before removed & legacy helpers called & counts
+# 13 & 14 & 15. Added before modified before removed & ResourceAccess helpers called & counts
 def test_sync_transactions_event_order_and_counts():
     db = MagicMock()
     item = _make_dummy_item()
+    dummy_acc = MagicMock()
+    dummy_acc.id = uuid4()
 
     page = _make_dummy_page(
-        added=[{"transaction_id": "tx_add_1"}, {"transaction_id": "tx_add_2"}],
-        modified=[{"transaction_id": "tx_mod_1"}],
+        added=[
+            {"transaction_id": "tx_add_1", "account_id": "acc_1", "name": "A1", "amount": 1.0, "date": "2026-06-15", "pending": False},
+            {"transaction_id": "tx_add_2", "account_id": "acc_1", "name": "A2", "amount": 2.0, "date": "2026-06-15", "pending": False},
+        ],
+        modified=[
+            {"transaction_id": "tx_mod_1", "account_id": "acc_1", "name": "M1", "amount": 3.0, "date": "2026-06-15", "pending": False},
+        ],
         removed=[{"transaction_id": "tx_del_1"}, {"transaction_id": "tx_del_2"}, {"transaction_id": "tx_del_3"}],
         next_cursor="c_final",
         has_more=False,
@@ -259,23 +277,26 @@ def test_sync_transactions_event_order_and_counts():
 
     call_sequence = []
 
-    def mock_create_or_update(db_arg, tx_data):
-        call_sequence.append(("create_or_update", tx_data["transaction_id"]))
+    def mock_upsert(**kwargs):
+        call_sequence.append(("upsert", kwargs["plaid_transaction_id"]))
+        return MagicMock()
 
-    def mock_delete(db_arg, plaid_tx_id):
-        call_sequence.append(("delete", plaid_tx_id))
+    def mock_delete(**kwargs):
+        call_sequence.append(("delete", kwargs["plaid_transaction_id"]))
+        return True
 
     with patch("backend.access.plaid_item_access.get_plaid_item_by_id", return_value=item), \
          patch("backend.access.plaid_access.fetch_accounts_for_token", return_value=[]), \
          patch("backend.access.plaid_transaction_access.fetch_transactions_page", return_value=page), \
-         patch("backend.crud.transaction.create_or_update_transaction", side_effect=mock_create_or_update), \
-         patch("backend.crud.transaction.delete_transaction_by_plaid_id", side_effect=mock_delete):
+         patch("backend.access.account_access.get_account_by_plaid_account_id", return_value=dummy_acc), \
+         patch("backend.access.transaction_access.stage_or_update_plaid_transaction", side_effect=mock_upsert), \
+         patch("backend.access.transaction_access.stage_delete_transaction_by_plaid_id", side_effect=mock_delete):
         result = sync_plaid_transactions(db, item_id=item.id)
 
     assert call_sequence == [
-        ("create_or_update", "tx_add_1"),
-        ("create_or_update", "tx_add_2"),
-        ("create_or_update", "tx_mod_1"),
+        ("upsert", "tx_add_1"),
+        ("upsert", "tx_add_2"),
+        ("upsert", "tx_mod_1"),
         ("delete", "tx_del_1"),
         ("delete", "tx_del_2"),
         ("delete", "tx_del_3"),
@@ -404,3 +425,164 @@ def test_sync_manager_does_not_call_plaid_account_sync_manager():
     source = inspect.getsource(plaid_transaction_sync_manager)
     assert "PlaidAccountSyncManager" not in source
     assert "plaid_account_sync_manager" not in source
+
+
+# 27. Commit after added event
+def test_sync_manager_commit_after_added():
+    db = MagicMock()
+    item = _make_dummy_item()
+    dummy_acc = MagicMock(id=uuid4())
+    page = _make_dummy_page(
+        added=[{"transaction_id": "tx_a", "account_id": "acc_1", "name": "Coffee", "amount": 5.0, "date": "2026-06-15", "pending": False}],
+        has_more=False,
+    )
+
+    commit_calls_before_end = []
+
+    with patch("backend.access.plaid_item_access.get_plaid_item_by_id", return_value=item), \
+         patch("backend.access.plaid_access.fetch_accounts_for_token", return_value=[]), \
+         patch("backend.access.plaid_transaction_access.fetch_transactions_page", return_value=page), \
+         patch("backend.access.account_access.get_account_by_plaid_account_id", return_value=dummy_acc), \
+         patch("backend.access.transaction_access.stage_or_update_plaid_transaction"):
+        db.commit.side_effect = lambda: commit_calls_before_end.append("commit")
+        sync_plaid_transactions(db, item_id=item.id)
+
+    # 1 event commit + 2 final cursor commits = 3 commits
+    assert len(commit_calls_before_end) == 3
+
+
+# 28. Commit after modified event
+def test_sync_manager_commit_after_modified():
+    db = MagicMock()
+    item = _make_dummy_item()
+    dummy_acc = MagicMock(id=uuid4())
+    page = _make_dummy_page(
+        modified=[{"transaction_id": "tx_m", "account_id": "acc_1", "name": "Coffee", "amount": 6.0, "date": "2026-06-15", "pending": False}],
+        has_more=False,
+    )
+
+    commit_calls_before_end = []
+
+    with patch("backend.access.plaid_item_access.get_plaid_item_by_id", return_value=item), \
+         patch("backend.access.plaid_access.fetch_accounts_for_token", return_value=[]), \
+         patch("backend.access.plaid_transaction_access.fetch_transactions_page", return_value=page), \
+         patch("backend.access.account_access.get_account_by_plaid_account_id", return_value=dummy_acc), \
+         patch("backend.access.transaction_access.stage_or_update_plaid_transaction"):
+        db.commit.side_effect = lambda: commit_calls_before_end.append("commit")
+        sync_plaid_transactions(db, item_id=item.id)
+
+    # 1 event commit + 2 final cursor commits = 3 commits
+    assert len(commit_calls_before_end) == 3
+
+
+# 29. Commit after found removal
+def test_sync_manager_commit_after_found_removal():
+    db = MagicMock()
+    item = _make_dummy_item()
+    page = _make_dummy_page(
+        removed=[{"transaction_id": "tx_del_found"}],
+        has_more=False,
+    )
+
+    commit_calls = []
+
+    with patch("backend.access.plaid_item_access.get_plaid_item_by_id", return_value=item), \
+         patch("backend.access.plaid_access.fetch_accounts_for_token", return_value=[]), \
+         patch("backend.access.plaid_transaction_access.fetch_transactions_page", return_value=page), \
+         patch("backend.access.transaction_access.stage_delete_transaction_by_plaid_id", return_value=True):
+        db.commit.side_effect = lambda: commit_calls.append("commit")
+        sync_plaid_transactions(db, item_id=item.id)
+
+    # 1 removal commit + 2 final cursor commits = 3 commits
+    assert len(commit_calls) == 3
+
+
+# 30. No commit for missing removal
+def test_sync_manager_no_commit_for_missing_removal():
+    db = MagicMock()
+    item = _make_dummy_item()
+    page = _make_dummy_page(
+        removed=[{"transaction_id": "tx_del_missing"}],
+        has_more=False,
+    )
+
+    commit_calls = []
+
+    with patch("backend.access.plaid_item_access.get_plaid_item_by_id", return_value=item), \
+         patch("backend.access.plaid_access.fetch_accounts_for_token", return_value=[]), \
+         patch("backend.access.plaid_transaction_access.fetch_transactions_page", return_value=page), \
+         patch("backend.access.transaction_access.stage_delete_transaction_by_plaid_id", return_value=False):
+        db.commit.side_effect = lambda: commit_calls.append("commit")
+        result = sync_plaid_transactions(db, item_id=item.id)
+
+    # 0 removal commit + 2 final cursor commits = exactly 2 commits
+    assert len(commit_calls) == 2
+    assert result.removed == 1
+
+
+# 31. Missing Account exact error text
+def test_sync_manager_missing_account_exact_error_text():
+    db = MagicMock()
+    item = _make_dummy_item()
+    page = _make_dummy_page(
+        added=[{"transaction_id": "tx_missing_acc", "account_id": "unknown_plaid_acc_999", "name": "Coffee", "amount": 5.0, "date": "2026-06-15"}],
+        has_more=False,
+    )
+
+    with patch("backend.access.plaid_item_access.get_plaid_item_by_id", return_value=item), \
+         patch("backend.access.plaid_access.fetch_accounts_for_token", return_value=[]), \
+         patch("backend.access.plaid_transaction_access.fetch_transactions_page", return_value=page), \
+         patch("backend.access.account_access.get_account_by_plaid_account_id", return_value=None):
+        with pytest.raises(Exception) as exc_info:
+            sync_plaid_transactions(db, item_id=item.id)
+
+    assert str(exc_info.value) == "Account unknown_plaid_acc_999 not found in database."
+
+
+# 32. Existing transaction changed remote account still requires remote Account lookup
+def test_sync_manager_changed_remote_account_still_looks_up_remote_account():
+    db = MagicMock()
+    item = _make_dummy_item()
+    dummy_acc = MagicMock(id=uuid4())
+    page = _make_dummy_page(
+        modified=[{"transaction_id": "tx_mod", "account_id": "new_remote_acc", "name": "Coffee", "amount": 5.0, "date": "2026-06-15", "pending": False}],
+        has_more=False,
+    )
+
+    with patch("backend.access.plaid_item_access.get_plaid_item_by_id", return_value=item), \
+         patch("backend.access.plaid_access.fetch_accounts_for_token", return_value=[]), \
+         patch("backend.access.plaid_transaction_access.fetch_transactions_page", return_value=page), \
+         patch("backend.access.account_access.get_account_by_plaid_account_id", return_value=dummy_acc) as mock_acc_lookup, \
+         patch("backend.access.transaction_access.stage_or_update_plaid_transaction") as mock_stage_tx:
+        sync_plaid_transactions(db, item_id=item.id)
+
+    mock_acc_lookup.assert_called_once_with(db, "new_remote_acc")
+    mock_stage_tx.assert_called_once()
+    assert mock_stage_tx.call_args[1]["account_id"] == dummy_acc.id
+
+
+# 33. Manager has no crud imports
+def test_sync_manager_no_crud_imports():
+    source = inspect.getsource(plaid_transaction_sync_manager)
+    assert "backend.crud" not in source
+    assert "crud_transaction" not in source
+    assert "from ..crud" not in source
+
+
+# 34. Missing pending in added or modified event raises KeyError / fails rather than defaulting
+def test_sync_manager_missing_pending_fails():
+    db = MagicMock()
+    item = _make_dummy_item()
+    dummy_acc = MagicMock(id=uuid4())
+    page = _make_dummy_page(
+        added=[{"transaction_id": "tx_nopending", "account_id": "acc_1", "name": "Coffee", "amount": 5.0, "date": "2026-06-15"}],
+        has_more=False,
+    )
+
+    with patch("backend.access.plaid_item_access.get_plaid_item_by_id", return_value=item), \
+         patch("backend.access.plaid_access.fetch_accounts_for_token", return_value=[]), \
+         patch("backend.access.plaid_transaction_access.fetch_transactions_page", return_value=page), \
+         patch("backend.access.account_access.get_account_by_plaid_account_id", return_value=dummy_acc):
+        with pytest.raises(KeyError):
+            sync_plaid_transactions(db, item_id=item.id)
+
