@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import schemas
-from ..crud import category as crud_category
+from ..access import category_access
 from ..database import get_db
 
 router = APIRouter(
@@ -24,7 +24,11 @@ def create_category_group(
     """
     Create a new category group.
     """
-    return crud_category.create_category_group(db=db, new_group=group)
+    return category_access.create_category_group(
+        db=db,
+        name=group.name,
+        sort_order=group.sort_order,
+    )
 
 
 @router.get("/category-groups", response_model=List[schemas.CategoryGroupWithCategories])
@@ -35,10 +39,9 @@ def list_category_groups(
     List all category groups, including their nested categories.
     Ordered by sort_order.
     """
-    # The CRUD returns pure CategoryGroup models.
     # Pydantic's 'from_attributes=True' in CategoryGroupWithCategories
     # will handle the 'categories' relationship automatically.
-    return crud_category.list_category_groups(db=db)
+    return category_access.get_category_groups(db=db)
 
 
 @router.get("/category-groups/{group_id}", response_model=schemas.CategoryGroupRead)
@@ -49,7 +52,7 @@ def read_category_group(
     """
     Get a specific category group by its ID.
     """
-    db_group = crud_category.get_category_group(db=db, group_id=group_id)
+    db_group = category_access.get_category_group_by_id(db=db, group_id=group_id)
     if db_group is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -67,10 +70,10 @@ def update_category_group(
     """
     Update a category group.
     """
-    updated = crud_category.update_category_group(
+    updated = category_access.update_category_group(
         db=db,
         group_id=group_id,
-        update_data=payload
+        update_data=payload.model_dump(exclude_unset=True),
     )
     if updated is None:
         raise HTTPException(
@@ -88,9 +91,9 @@ def delete_category_group(
     """
     Delete a category group.
     """
-    deleted = crud_category.delete_category_group(
+    deleted = category_access.delete_category_group(
         db=db,
-        group_id=group_id
+        group_id=group_id,
     )
     if deleted is None:
         raise HTTPException(
@@ -108,7 +111,7 @@ def reorder_category_groups(
     """
     Bulk reorder category groups by providing an ordered list of group IDs.
     """
-    return crud_category.reorder_category_groups(db=db, ordered_ids=payload.order)
+    return category_access.reorder_category_groups(db=db, ordered_ids=payload.order)
 
 
 # ==========================================
@@ -123,9 +126,14 @@ def create_category(
     """
     Create a new category.
     """
-    # We might want to validate that group_id exists,
-    # but the FK constraint will catch it (500 error instead of 404/400).
-    return crud_category.create_category(db=db, new_category=category)
+    return category_access.create_category(
+        db=db,
+        name=category.name,
+        group_id=category.group_id,
+        sort_order=category.sort_order,
+        type=category.type,
+        is_active=category.is_active,
+    )
 
 
 @router.get("/categories", response_model=List[schemas.CategoryRead])
@@ -136,7 +144,7 @@ def list_categories(
     """
     List categories. Optionally filter by group_id.
     """
-    return crud_category.list_categories(db=db, group_id=group_id)
+    return category_access.list_categories(db=db, group_id=group_id)
 
 
 @router.get("/categories/{category_id}", response_model=schemas.CategoryRead)
@@ -147,7 +155,7 @@ def read_category(
     """
     Get a specific category by its ID.
     """
-    db_category = crud_category.get_category(db=db, category_id=category_id)
+    db_category = category_access.get_category_by_id(db=db, category_id=category_id)
 
     if db_category is None:
         raise HTTPException(
@@ -160,17 +168,17 @@ def read_category(
 
 @router.put("/categories/{category_id}", response_model=schemas.CategoryRead, status_code=status.HTTP_200_OK)
 def update_category(
-        category_id: UUID,
-        payload: schemas.CategoryUpdate,
-        db: Session = Depends(get_db)
+    category_id: UUID,
+    payload: schemas.CategoryUpdate,
+    db: Session = Depends(get_db)
 ):
     """
     Update a specific category by its ID.
     """
-    updated = crud_category.update_category(
+    updated = category_access.update_category(
         db=db,
         category_id=category_id,
-        update_category=payload
+        update_data=payload.model_dump(exclude_unset=True),
     )
 
     if updated is None:
@@ -184,12 +192,12 @@ def update_category(
 
 @router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_category(
-        category_id: UUID,
-        db: Session = Depends(get_db)
+    category_id: UUID,
+    db: Session = Depends(get_db)
 ):
-    deleted = crud_category.delete_category(
+    deleted = category_access.delete_category(
         db=db,
-        category_id=category_id
+        category_id=category_id,
     )
     if deleted is None:
         raise HTTPException(
@@ -207,8 +215,8 @@ def reorder_categories(
     """
     Bulk reorder categories within a group by providing an ordered list of category IDs.
     """
-    return crud_category.reorder_categories(
+    return category_access.reorder_categories(
         db=db,
         group_id=payload.group_id,
-        ordered_ids=payload.order
+        ordered_ids=payload.order,
     )

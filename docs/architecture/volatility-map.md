@@ -61,7 +61,8 @@ flowchart TD
         RouterCC["credit_cards.py<br/>(/credit-cards/summary, candidates)"]
         RouterTx["transactions.py<br/>(Slice 10 Implemented & Verified)"]
         RouterAcct["accounts.py<br/>(Slice 11 Implemented & Verified)"]
-        RouterPendingCRUD["categories.py, budgets.py<br/>(Pending CRUD Migration)"]
+        RouterCat["categories.py<br/>(Slice 12 Implemented & Verified)"]
+        RouterPendingCRUD["budgets.py<br/>(Pending CRUD Migration)"]
         RouterUpload["upload.py<br/>(/upload/preview, /upload/confirm)"]
         RouterPlaid["plaid.py<br/>(/plaid/sync_accounts, sync_transactions)"]
     end
@@ -111,8 +112,8 @@ flowchart TD
     %% Implemented CRUD directly to Accessors
     RouterTx --> TxAcc
     RouterAcct --> AcctAcc
+    RouterCat --> CatAcc
     %% Pending CRUD migrations
-    RouterPendingCRUD -.-> CatAcc
     RouterPendingCRUD -.-> BudgetAcc
 
     %% Manager internal wiring
@@ -227,8 +228,8 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 | **Transfer Confirmation** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Single atomic boolean mutation (`is_transfer = True`). |
 | **Manual Transaction CRUD** | **No** | **No Engine** | **Yes** | `Router -> TransactionAccess` | Standard entity CRUD and query filtering (Slice 10 Implemented & Verified). Retired legacy `crud/transaction.py`. |
 | **Account CRUD** | **No** | **No Engine** | **Yes** | `Router -> AccountAccess` | Standard entity CRUD (Slice 11 Implemented & Verified). Raw queries moved to `account_access.py`. |
-| **Category & Group CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD (already in `crud/category.py`). |
-| **Category & Group Reorder** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Batch updates of sequential integer `sort_order`. |
+| **Category & Group CRUD** | **No** | **No Engine** | **Yes** | `Router -> CategoryAccess` | Standard entity CRUD (Slice 12 Implemented & Verified). Retired legacy `crud/category.py`. |
+| **Category & Group Reorder** | **No** | **No Engine** | **Yes** | `Router -> CategoryAccess` | Applies payload-index sort_order updates while preserving characterized handling of unknown, unlisted, cross-group, empty, and duplicate IDs (Slice 12 Implemented & Verified). |
 | **Budget Allocation CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard monthly allocation entity CRUD. |
 | **Plaid Link-Token Creation** | **No** | **No Engine** | **Yes** | `Router -> Plaid Accessor` | Single external SDK call. |
 
@@ -247,8 +248,8 @@ Direct **`Router -> Accessor`** is the terminal and correct VBD design for:
 - Transfer confirmation (`POST /credit-cards/mark-transfers`)
 - Manual transaction CRUD (`backend/routers/transactions.py -> backend/access/transaction_access.py`; Slice 10 Implemented & Verified)
 - Account CRUD (`backend/routers/accounts.py -> backend/access/account_access.py`; Slice 11 Implemented & Verified)
-- Category and CategoryGroup CRUD (`backend/routers/categories.py`)
-- Category and CategoryGroup reordering (`/category-groups/reorder`, `/categories/reorder`)
+- Category and CategoryGroup CRUD (`backend/routers/categories.py -> backend/access/category_access.py`; Slice 12 Implemented & Verified)
+- Category and CategoryGroup reordering (`/category-groups/reorder`, `/categories/reorder -> backend/access/category_access.py`; Slice 12 Implemented & Verified)
 - Budget allocation CRUD (`backend/routers/budgets.py`)
 - Plaid link-token creation (`POST /plaid/create_link_token`)
 
