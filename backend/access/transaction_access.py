@@ -2,10 +2,10 @@
 Resource access functions for Transaction PostgreSQL resources.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
@@ -252,5 +252,144 @@ def stage_delete_transaction_by_plaid_id(
         db.delete(txn)
         return True
     return False
+
+
+def get_transaction_by_id(
+    db: Session,
+    transaction_id: UUID,
+) -> Optional[models.Transaction]:
+    """
+    Retrieves a single transaction by primary key UUID with associated account eagerly loaded.
+    Does not commit or refresh.
+    """
+    return (
+        db.query(models.Transaction)
+        .options(joinedload(models.Transaction.account))
+        .filter(models.Transaction.transaction_id == transaction_id)
+        .first()
+    )
+
+
+def list_transactions(
+    db: Session,
+    account_id: Optional[UUID] = None,
+    category_id: Optional[UUID] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    uncategorized: Optional[bool] = None,
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """
+    Lists transactions with optional filters for account, category,
+    date range, uncategorized status, and description search text.
+    Preserves eager-loaded account, total count before pagination,
+    ordering by date DESC then transaction_id DESC, and pagination offset/limit.
+    Does not commit or refresh.
+    """
+    query = db.query(models.Transaction).options(joinedload(models.Transaction.account))
+
+    if account_id is not None:
+        query = query.filter(models.Transaction.account_id == account_id)
+    if category_id is not None:
+        query = query.filter(models.Transaction.category_id == category_id)
+    if start_date is not None:
+        query = query.filter(models.Transaction.date >= start_date)
+    if end_date is not None:
+        query = query.filter(models.Transaction.date <= end_date)
+    if uncategorized is True:
+        query = query.filter(models.Transaction.category_id == None)
+    if q:
+        query = query.filter(models.Transaction.description.ilike(f"%{q}%"))
+
+    total = query.count()
+    query = query.order_by(models.Transaction.date.desc(), models.Transaction.transaction_id.desc())
+    items = query.offset(offset).limit(limit).all()
+
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+def create_manual_transaction(
+    db: Session,
+    account_id: UUID,
+    category_id: Optional[UUID],
+    description: str,
+    amount: Decimal,
+    transaction_date: date,
+    transaction_datetime: Optional[datetime],
+    pending: bool,
+    plaid_transaction_id: Optional[str],
+) -> models.Transaction:
+    """
+    Creates, commits, and refreshes a new manual Transaction from scalar values.
+    Preserves model defaults for transaction_id (uuid4) and is_transfer (False).
+    Owns the standalone CRUD transaction boundary.
+    """
+    new_txn = models.Transaction(
+        account_id=account_id,
+        category_id=category_id,
+        description=description,
+        amount=amount,
+        date=transaction_date,
+        datetime=transaction_datetime,
+        pending=pending,
+        plaid_transaction_id=plaid_transaction_id,
+    )
+    db.add(new_txn)
+    db.commit()
+    db.refresh(new_txn)
+    return new_txn
+
+
+def update_manual_transaction(
+    db: Session,
+    transaction_id: UUID,
+    update_data: Mapping[str, Any],
+) -> Optional[models.Transaction]:
+    """
+    Updates mutable fields on a Transaction using an exclude_unset mapping from presentation.
+    Preserves eager-loaded account via get_transaction_by_id.
+    Commits, refreshes, and returns updated Transaction, or None if not found.
+    Owns the standalone CRUD transaction boundary.
+    """
+    transaction = get_transaction_by_id(db, transaction_id)
+    if transaction is None:
+        return None
+
+    for key, value in update_data.items():
+        setattr(transaction, key, value)
+
+    db.add(transaction)
+    db.commit()
+    db.refresh(transaction)
+    return transaction
+
+
+def delete_manual_transaction(
+    db: Session,
+    transaction_id: UUID,
+) -> Optional[models.Transaction]:
+    """
+    Deletes a transaction by primary key UUID, commits, and returns the deleted Transaction,
+    or None if not found.
+    Owns the standalone CRUD transaction boundary.
+    """
+    deleted = (
+        db.query(models.Transaction)
+        .filter(models.Transaction.transaction_id == transaction_id)
+        .first()
+    )
+    if deleted is None:
+        return None
+    db.delete(deleted)
+    db.commit()
+    return deleted
+
 
 

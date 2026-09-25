@@ -1,12 +1,12 @@
 from uuid import UUID
-from typing import Optional, List
+from typing import Optional
 from datetime import date
 
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import schemas, models
-from ..crud import transaction as crud_transaction
+from .. import schemas
+from ..access import transaction_access
 from ..database import get_db
 
 router = APIRouter(
@@ -41,7 +41,7 @@ def list_transactions(
     if limit > 200:
         limit = 200
 
-    return crud_transaction.list_transaction(
+    return transaction_access.list_transactions(
         db=db,
         account_id=account_id,
         category_id=category_id,
@@ -62,7 +62,7 @@ def read_transaction(
     """
     Get a specific transaction by its ID.
     """
-    db_transaction = crud_transaction.get_transaction(db=db, transaction_id=transaction_id)
+    db_transaction = transaction_access.get_transaction_by_id(db=db, transaction_id=transaction_id)
 
     if db_transaction is None:
         raise HTTPException(
@@ -80,27 +80,17 @@ def create_transaction(
     """
     Manually create a transaction.
     """
-    # Create the transaction model
-    # Note: we must assign a plaid_transaction_id if it's unique/indexed, 
-    # but we made it nullable. However, if we want to ensure uniqueness among 
-    # manual transactions if we ever populated it, we could leave it None.
-    # The DB model change made it nullable.
-    
-    new_txn = models.Transaction(
+    return transaction_access.create_manual_transaction(
+        db=db,
         account_id=payload.account_id,
         category_id=payload.category_id,
         description=payload.description,
         amount=payload.amount,
-        date=payload.date,
-        datetime=payload.datetime,
+        transaction_date=payload.date,
+        transaction_datetime=payload.datetime,
         pending=payload.pending,
-        plaid_transaction_id=payload.plaid_transaction_id # might be None
+        plaid_transaction_id=payload.plaid_transaction_id,
     )
-    
-    db.add(new_txn)
-    db.commit()
-    db.refresh(new_txn)
-    return new_txn
 
 
 @router.put("/{transaction_id}", response_model=schemas.TransactionRead, status_code=status.HTTP_200_OK)
@@ -112,14 +102,11 @@ def update_transaction(
     """
     Updates a specific transaction by its ID.
     """
-    # This endpoint is now used for *categorizing* a transaction
-    # or updating its description.
-    # The 'payload' will only accept 'category_id' and 'description'
-    # thanks to our updated TransactionUpdate schema.
-    updated = crud_transaction.update_transaction(
+    update_data = payload.model_dump(exclude_unset=True)
+    updated = transaction_access.update_manual_transaction(
         db=db,
         transaction_id=transaction_id,
-        payload=payload
+        update_data=update_data,
     )
 
     if updated is None:
@@ -138,7 +125,7 @@ def delete_transaction(
     """
     Delete a specific transaction by its ID.
     """
-    deleted = crud_transaction.delete_transaction(
+    deleted = transaction_access.delete_manual_transaction(
         db=db,
         transaction_id=transaction_id
     )

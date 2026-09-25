@@ -59,7 +59,7 @@ flowchart TD
     subgraph Presentation ["Presentation Layer (FastAPI Routers)"]
         RouterSummary["summaries.py<br/>(/summary/budget, /summary/dashboard)"]
         RouterCC["credit_cards.py<br/>(/credit-cards/summary, candidates)"]
-        RouterCRUD["accounts.py, categories.py, budgets.py<br/>(Entity CRUD)"]
+        RouterCRUD["accounts.py, categories.py, budgets.py, transactions.py<br/>(Entity CRUD)"]
         RouterUpload["upload.py<br/>(/upload/preview, /upload/confirm)"]
         RouterPlaid["plaid.py<br/>(/plaid/sync_accounts, sync_transactions)"]
     end
@@ -222,7 +222,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 | **Plaid Account Sync** | **Yes** | **No Engine** | **Yes** | `Router -> PlaidAccountSyncManager -> (PlaidItemAccess + AccountAccess + PlaidAccess)` | External API call, credential decryption, and account/balance persistence (Slice 6 Implemented & Verified; see [plaid-account-sync.md](plaid-account-sync.md)). |
 | **Plaid Transaction Sync** | **Yes** | **No Engine** | **Yes** | `Router -> PlaidTransactionSyncManager -> (PlaidItemAccess + PlaidAccess + AccountAccess + PlaidTransactionAccess + TransactionAccess)` | Coordinates balance refresh flush, cursor pagination loop, added/modified/removed processing, event-level commits, and cursor persistence (Slice 7 & Slice 9 Implemented & Verified; see [plaid-transaction-sync.md](plaid-transaction-sync.md)). |
 | **Transfer Confirmation** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Single atomic boolean mutation (`is_transfer = True`). |
-| **Manual Transaction CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD and query filtering. |
+| **Manual Transaction CRUD** | **No** | **No Engine** | **Yes** | `Router -> TransactionAccess` | Standard entity CRUD and query filtering (Slice 10 Implemented & Verified). Retired legacy `crud/transaction.py`. |
 | **Account CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD. Moving raw SQL queries to `account_access.py`. |
 | **Category & Group CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD (already in `crud/category.py`). |
 | **Category & Group Reorder** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Batch updates of sequential integer `sort_order`. |
@@ -242,7 +242,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 ### 7.4. Category 3: No Manager and No Engine Currently Justified
 Direct **`Router -> Accessor`** is the terminal and correct VBD design for:
 - Transfer confirmation (`POST /credit-cards/mark-transfers`)
-- Manual transaction CRUD (`backend/routers/transactions.py`)
+- Manual transaction CRUD (`backend/routers/transactions.py -> backend/access/transaction_access.py`; Slice 10 Implemented & Verified)
 - Account CRUD (`backend/routers/accounts.py`)
 - Category and CategoryGroup CRUD (`backend/routers/categories.py`)
 - Category and CategoryGroup reordering (`/category-groups/reorder`, `/categories/reorder`)

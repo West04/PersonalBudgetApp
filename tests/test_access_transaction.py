@@ -210,3 +210,284 @@ def test_stage_delete_does_not_commit():
     assert result_missing is False
     mock_db.delete.assert_not_called()
     mock_db.commit.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 5. Manual CRUD Accessor Operations (Slice 10)
+# ---------------------------------------------------------------------------
+
+# 5.1 get_transaction_by_id
+def test_get_transaction_by_id_found_and_eager_loads_account(db_session):
+    account = models.Account(name="Access Acct", type="depository")
+    db_session.add(account)
+    db_session.flush()
+
+    txn = models.Transaction(
+        account_id=account.id,
+        description="Access Target",
+        amount=Decimal("15.50"),
+        date=date(2026, 6, 10),
+    )
+    db_session.add(txn)
+    db_session.commit()
+
+    found = transaction_access.get_transaction_by_id(db_session, txn.transaction_id)
+    assert found is not None
+    assert found.transaction_id == txn.transaction_id
+    assert found.description == "Access Target"
+    # Account is eagerly loaded
+    assert found.account is not None
+    assert found.account.name == "Access Acct"
+
+
+def test_get_transaction_by_id_missing(db_session):
+    result = transaction_access.get_transaction_by_id(db_session, uuid4())
+    assert result is None
+
+
+def test_get_transaction_by_id_does_not_commit():
+    mock_db = MagicMock()
+    mock_existing = MagicMock(spec=models.Transaction)
+    mock_db.query.return_value.options.return_value.filter.return_value.first.return_value = mock_existing
+
+    res = transaction_access.get_transaction_by_id(mock_db, uuid4())
+    assert res == mock_existing
+    mock_db.commit.assert_not_called()
+    mock_db.refresh.assert_not_called()
+
+
+# 5.2 list_transactions
+def test_list_transactions_filters_ordering_pagination(db_session):
+    acc1 = models.Account(name="Acct 1", type="depository")
+    acc2 = models.Account(name="Acct 2", type="depository")
+    group = models.CategoryGroup(name="General")
+    db_session.add_all([acc1, acc2, group])
+    db_session.flush()
+
+    cat1 = models.Category(name="Dining", group_id=group.category_group_id, type="expense")
+    cat2 = models.Category(name="Gas", group_id=group.category_group_id, type="expense")
+    db_session.add_all([cat1, cat2])
+    db_session.commit()
+
+    t1 = models.Transaction(account_id=acc1.id, category_id=cat1.category_id, description="Coffee", amount=Decimal("4.00"), date=date(2026, 6, 1))
+    t2 = models.Transaction(account_id=acc1.id, category_id=cat2.category_id, description="Shell Gas", amount=Decimal("45.00"), date=date(2026, 6, 10))
+    t3 = models.Transaction(account_id=acc2.id, category_id=None, description="Burger Bar", amount=Decimal("12.00"), date=date(2026, 6, 15))
+    t4 = models.Transaction(account_id=acc2.id, category_id=cat1.category_id, description="Supermarket Coffee", amount=Decimal("18.00"), date=date(2026, 6, 20))
+    db_session.add_all([t1, t2, t3, t4])
+    db_session.commit()
+
+    # 1. Total before pagination & eager loaded account
+    res_all = transaction_access.list_transactions(db_session, limit=2, offset=1)
+    assert res_all["total"] == 4
+    assert res_all["limit"] == 2
+    assert res_all["offset"] == 1
+    assert len(res_all["items"]) == 2
+    # Eagerly loaded
+    assert res_all["items"][0].account is not None
+
+    # 2. Ordering: date DESC, transaction_id DESC
+    res_ordered = transaction_access.list_transactions(db_session, limit=10, offset=0)
+    items = res_ordered["items"]
+    assert items[0].transaction_id == t4.transaction_id
+    assert items[1].transaction_id == t3.transaction_id
+    assert items[2].transaction_id == t2.transaction_id
+    assert items[3].transaction_id == t1.transaction_id
+
+    # 3. Filters: account_id, category_id, dates, uncategorized, q
+    res_acc = transaction_access.list_transactions(db_session, account_id=acc1.id)
+    assert res_acc["total"] == 2
+
+    res_cat = transaction_access.list_transactions(db_session, category_id=cat1.category_id)
+    assert res_cat["total"] == 2
+
+    res_dates = transaction_access.list_transactions(db_session, start_date=date(2026, 6, 5), end_date=date(2026, 6, 16))
+    assert res_dates["total"] == 2
+
+    res_uncat = transaction_access.list_transactions(db_session, uncategorized=True)
+    assert res_uncat["total"] == 1
+    assert res_uncat["items"][0].transaction_id == t3.transaction_id
+
+    res_q = transaction_access.list_transactions(db_session, q="coffee")
+    assert res_q["total"] == 2
+
+
+# 5.3 create_manual_transaction
+def test_create_manual_transaction_commits_refreshes_and_preserves_defaults(db_session):
+    account = models.Account(name="Create Acc", type="depository")
+    db_session.add(account)
+    db_session.commit()
+
+    now_dt = datetime(2026, 6, 18, 14, 0, tzinfo=timezone.utc)
+    new_tx = transaction_access.create_manual_transaction(
+        db=db_session,
+        account_id=account.id,
+        category_id=None,
+        description="Manual Stored",
+        amount=Decimal("25.00"),
+        transaction_date=date(2026, 6, 18),
+        transaction_datetime=now_dt,
+        pending=False,
+        plaid_transaction_id="manual_plaid_tag",
+    )
+
+    # Invariants and fields
+    assert new_tx.transaction_id is not None
+    assert new_tx.account_id == account.id
+    assert new_tx.category_id is None
+    assert new_tx.description == "Manual Stored"
+    assert new_tx.amount == Decimal("25.00")
+    assert new_tx.date == date(2026, 6, 18)
+    assert new_tx.datetime == now_dt
+    assert new_tx.pending is False
+    assert new_tx.is_transfer is False  # model default
+    assert new_tx.plaid_transaction_id == "manual_plaid_tag"
+
+    # Confirmed committed in DB
+    db_session.expire_all()
+    reloaded = db_session.query(models.Transaction).filter_by(transaction_id=new_tx.transaction_id).one()
+    assert reloaded.description == "Manual Stored"
+
+
+def test_create_manual_transaction_mock_commit_and_refresh():
+    mock_db = MagicMock()
+    account_id = uuid4()
+    tx = transaction_access.create_manual_transaction(
+        db=mock_db,
+        account_id=account_id,
+        category_id=None,
+        description="Mock Create",
+        amount=Decimal("10.00"),
+        transaction_date=date(2026, 6, 1),
+        transaction_datetime=None,
+        pending=False,
+        plaid_transaction_id=None,
+    )
+    mock_db.add.assert_called_once_with(tx)
+    mock_db.commit.assert_called_once()
+    mock_db.refresh.assert_called_once_with(tx)
+
+
+# 5.4 update_manual_transaction
+def test_update_manual_transaction_mutations_and_preservation(db_session):
+    account = models.Account(name="Update Acc", type="depository")
+    group = models.CategoryGroup(name="Group")
+    db_session.add_all([account, group])
+    db_session.flush()
+
+    cat1 = models.Category(name="Cat 1", group_id=group.category_group_id, type="expense")
+    cat2 = models.Category(name="Cat 2", group_id=group.category_group_id, type="expense")
+    db_session.add_all([cat1, cat2])
+    db_session.commit()
+
+    txn = models.Transaction(
+        account_id=account.id,
+        category_id=cat1.category_id,
+        description="Original Tx",
+        amount=Decimal("50.00"),
+        date=date(2026, 6, 1),
+        is_transfer=False,
+    )
+    db_session.add(txn)
+    db_session.commit()
+
+    # 1. Update category
+    up1 = transaction_access.update_manual_transaction(
+        db=db_session,
+        transaction_id=txn.transaction_id,
+        update_data={"category_id": cat2.category_id},
+    )
+    assert up1 is not None
+    assert up1.category_id == cat2.category_id
+    assert up1.description == "Original Tx"  # preserved
+
+    # 2. Clear category (None)
+    up2 = transaction_access.update_manual_transaction(
+        db=db_session,
+        transaction_id=txn.transaction_id,
+        update_data={"category_id": None},
+    )
+    assert up2 is not None
+    assert up2.category_id is None
+
+    # 3. Update is_transfer and description
+    up3 = transaction_access.update_manual_transaction(
+        db=db_session,
+        transaction_id=txn.transaction_id,
+        update_data={"is_transfer": True, "description": "New Tx Desc"},
+    )
+    assert up3 is not None
+    assert up3.is_transfer is True
+    assert up3.description == "New Tx Desc"
+
+    # 4. Missing transaction -> None
+    up_missing = transaction_access.update_manual_transaction(
+        db=db_session,
+        transaction_id=uuid4(),
+        update_data={"description": "Ghost"},
+    )
+    assert up_missing is None
+
+
+def test_update_manual_transaction_mock_commit_and_refresh():
+    mock_db = MagicMock()
+    mock_tx = MagicMock(spec=models.Transaction)
+    mock_db.query.return_value.options.return_value.filter.return_value.first.return_value = mock_tx
+
+    res = transaction_access.update_manual_transaction(
+        db=mock_db,
+        transaction_id=uuid4(),
+        update_data={"description": "Updated"},
+    )
+    assert res == mock_tx
+    mock_db.add.assert_called_once_with(mock_tx)
+    mock_db.commit.assert_called_once()
+    mock_db.refresh.assert_called_once_with(mock_tx)
+
+
+# 5.5 delete_manual_transaction
+def test_delete_manual_transaction_found_and_missing(db_session):
+    account = models.Account(name="Delete Acc", type="depository")
+    db_session.add(account)
+    db_session.flush()
+
+    txn = models.Transaction(
+        account_id=account.id,
+        description="Delete Me",
+        amount=Decimal("10.00"),
+        date=date(2026, 6, 1),
+    )
+    db_session.add(txn)
+    db_session.commit()
+
+    # Found
+    deleted = transaction_access.delete_manual_transaction(db_session, txn.transaction_id)
+    assert deleted is not None
+    assert deleted.transaction_id == txn.transaction_id
+
+    # Verified removed from DB
+    db_session.expire_all()
+    assert db_session.query(models.Transaction).filter_by(transaction_id=txn.transaction_id).first() is None
+
+    # Missing
+    del_missing = transaction_access.delete_manual_transaction(db_session, uuid4())
+    assert del_missing is None
+
+
+def test_delete_manual_transaction_mock_commit():
+    mock_db = MagicMock()
+    mock_tx = MagicMock(spec=models.Transaction)
+    mock_db.query.return_value.filter.return_value.first.return_value = mock_tx
+
+    res = transaction_access.delete_manual_transaction(mock_db, uuid4())
+    assert res == mock_tx
+    mock_db.delete.assert_called_once_with(mock_tx)
+    mock_db.commit.assert_called_once()
+
+    # Missing
+    mock_db.reset_mock()
+    mock_db.query.return_value.filter.return_value.first.return_value = None
+    res_none = transaction_access.delete_manual_transaction(mock_db, uuid4())
+    assert res_none is None
+    mock_db.delete.assert_not_called()
+    mock_db.commit.assert_not_called()
+
