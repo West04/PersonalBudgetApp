@@ -59,7 +59,9 @@ flowchart TD
     subgraph Presentation ["Presentation Layer (FastAPI Routers)"]
         RouterSummary["summaries.py<br/>(/summary/budget, /summary/dashboard)"]
         RouterCC["credit_cards.py<br/>(/credit-cards/summary, candidates)"]
-        RouterCRUD["accounts.py, categories.py, budgets.py, transactions.py<br/>(Entity CRUD)"]
+        RouterTx["transactions.py<br/>(Slice 10 Implemented & Verified)"]
+        RouterAcct["accounts.py<br/>(Slice 11 Implemented & Verified)"]
+        RouterPendingCRUD["categories.py, budgets.py<br/>(Pending CRUD Migration)"]
         RouterUpload["upload.py<br/>(/upload/preview, /upload/confirm)"]
         RouterPlaid["plaid.py<br/>(/plaid/sync_accounts, sync_transactions)"]
     end
@@ -71,7 +73,7 @@ flowchart TD
         ReconcileMgr["TransferReconciliationManager<br/>(Slice 4 Implemented & Verified)"]
         CSVImportMgr["CSVImportManager<br/>(Slice 5 Implemented & Verified)"]
         PlaidAccountSyncMgr["PlaidAccountSyncManager<br/>(Slice 6 Implemented & Verified)"]
-        PlaidTxSyncMgr["PlaidTransactionSyncManager<br/>(Slice 7 Implemented & Verified)"]
+        PlaidTxSyncMgr["PlaidTransactionSyncManager<br/>(Slice 7 & Slice 9 Implemented & Verified)"]
     end
 
     subgraph Engines ["Domain Calculation Engines (Pure Business Rules)"]
@@ -106,11 +108,12 @@ flowchart TD
     RouterPlaid --> PlaidAccountSyncMgr
     RouterPlaid --> PlaidTxSyncMgr
 
-    %% Simple CRUD bypasses Managers directly to Accessors
-    RouterCRUD --> AcctAcc
-    RouterCRUD --> CatAcc
-    RouterCRUD --> BudgetAcc
-    RouterCRUD --> TxAcc
+    %% Implemented CRUD directly to Accessors
+    RouterTx --> TxAcc
+    RouterAcct --> AcctAcc
+    %% Pending CRUD migrations
+    RouterPendingCRUD -.-> CatAcc
+    RouterPendingCRUD -.-> BudgetAcc
 
     %% Manager internal wiring
     BudgetSummaryMgr --> ZBBEngine
@@ -223,7 +226,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 | **Plaid Transaction Sync** | **Yes** | **No Engine** | **Yes** | `Router -> PlaidTransactionSyncManager -> (PlaidItemAccess + PlaidAccess + AccountAccess + PlaidTransactionAccess + TransactionAccess)` | Coordinates balance refresh flush, cursor pagination loop, added/modified/removed processing, event-level commits, and cursor persistence (Slice 7 & Slice 9 Implemented & Verified; see [plaid-transaction-sync.md](plaid-transaction-sync.md)). |
 | **Transfer Confirmation** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Single atomic boolean mutation (`is_transfer = True`). |
 | **Manual Transaction CRUD** | **No** | **No Engine** | **Yes** | `Router -> TransactionAccess` | Standard entity CRUD and query filtering (Slice 10 Implemented & Verified). Retired legacy `crud/transaction.py`. |
-| **Account CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD. Moving raw SQL queries to `account_access.py`. |
+| **Account CRUD** | **No** | **No Engine** | **Yes** | `Router -> AccountAccess` | Standard entity CRUD (Slice 11 Implemented & Verified). Raw queries moved to `account_access.py`. |
 | **Category & Group CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard entity CRUD (already in `crud/category.py`). |
 | **Category & Group Reorder** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Batch updates of sequential integer `sort_order`. |
 | **Budget Allocation CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard monthly allocation entity CRUD. |
@@ -243,7 +246,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 Direct **`Router -> Accessor`** is the terminal and correct VBD design for:
 - Transfer confirmation (`POST /credit-cards/mark-transfers`)
 - Manual transaction CRUD (`backend/routers/transactions.py -> backend/access/transaction_access.py`; Slice 10 Implemented & Verified)
-- Account CRUD (`backend/routers/accounts.py`)
+- Account CRUD (`backend/routers/accounts.py -> backend/access/account_access.py`; Slice 11 Implemented & Verified)
 - Category and CategoryGroup CRUD (`backend/routers/categories.py`)
 - Category and CategoryGroup reordering (`/category-groups/reorder`, `/categories/reorder`)
 - Budget allocation CRUD (`backend/routers/budgets.py`)

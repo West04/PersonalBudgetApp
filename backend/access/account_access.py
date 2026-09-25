@@ -2,10 +2,10 @@
 Resource access functions for Account PostgreSQL resources.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 from sqlalchemy.orm import Session
 
@@ -117,4 +117,105 @@ def stage_or_update_plaid_account(
 
     db.add(account)
     return account
+
+
+def get_all_accounts_ordered(
+    db: Session,
+) -> Sequence[models.Account]:
+    """
+    Retrieves all accounts (active and inactive, manual and Plaid-linked)
+    ordered by type ascending, then name ascending.
+    """
+    return (
+        db.query(models.Account)
+        .order_by(
+            models.Account.type,
+            models.Account.name.asc(),
+        )
+        .all()
+    )
+
+
+def create_manual_account(
+    db: Session,
+    name: str,
+    account_type: str,
+    subtype: Optional[str] = None,
+    current_balance: Decimal = Decimal("0.00"),
+    starting_balance: Decimal = Decimal("0.00"),
+    currency: str = "USD",
+    is_active: bool = True,
+) -> models.Account:
+    """
+    Creates and persists a new manual account with plaid_account_id=None and item_id=None.
+    Owns commit and refresh for standalone CRUD persistence.
+    """
+    account = models.Account(
+        name=name,
+        type=account_type,
+        subtype=subtype,
+        current_balance=current_balance,
+        starting_balance=starting_balance,
+        currency=currency,
+        is_active=is_active,
+        plaid_account_id=None,
+        item_id=None,
+    )
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+    return account
+
+
+def update_manual_account(
+    db: Session,
+    account_id: UUID,
+    update_data: Mapping[str, Any],
+) -> Optional[models.Account]:
+    """
+    Updates whitelisted scalar fields of an account if present and not None.
+    Preserves existing values for omitted or explicitly null fields.
+    Returns None if account does not exist.
+    Owns commit and refresh for standalone CRUD persistence.
+    """
+    account = get_account_by_id(db, account_id)
+    if account is None:
+        return None
+
+    allowed_fields = (
+        "name",
+        "type",
+        "subtype",
+        "is_active",
+        "starting_balance",
+        "current_balance",
+    )
+    for field in allowed_fields:
+        if field in update_data:
+            value = update_data[field]
+            if value is not None:
+                setattr(account, field, value)
+
+    db.commit()
+    db.refresh(account)
+    return account
+
+
+def delete_account(
+    db: Session,
+    account_id: UUID,
+) -> bool:
+    """
+    Deletes an account by primary key.
+    Returns False if account does not exist, True on successful deletion.
+    Owns commit for standalone CRUD persistence.
+    """
+    account = get_account_by_id(db, account_id)
+    if account is None:
+        return False
+
+    db.delete(account)
+    db.commit()
+    return True
+
 
