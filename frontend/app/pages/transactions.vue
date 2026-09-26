@@ -31,7 +31,7 @@
           <label>Account</label>
           <select v-model="selectedAccount" class="filter-input">
             <option value="">All Accounts</option>
-            <option v-for="acc in accounts" :key="acc.id" :value="acc.id">
+            <option v-for="acc in accounts" :key="acc.account_id" :value="acc.account_id">
               {{ acc.name }}
             </option>
           </select>
