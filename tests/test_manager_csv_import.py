@@ -1,5 +1,5 @@
 from dataclasses import FrozenInstanceError, is_dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from unittest.mock import MagicMock, call, patch
 from uuid import uuid4
 import pytest
@@ -307,3 +307,84 @@ def test_manager_has_no_fastapi_or_pydantic_dependencies():
     assert "fastapi" not in mgr_source.lower()
     assert "pydantic" not in mgr_source.lower()
     assert "HTTPException" not in mgr_source
+
+
+# ---------------------------------------------------------------------------
+# Row Error Tolerant Behavior
+# ---------------------------------------------------------------------------
+
+def test_manager_confirm_invalid_date_tolerates_and_imports_valid_rows(db_session):
+    """
+    Verify tolerant behavior: When a statement contains a malformed date row,
+    confirm_csv_import imports valid rows, records row errors, and commits the batch.
+    """
+    account = models.Account(
+        name="USAA Checking",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_bad_date = (
+        b"Date,Description,Category,Amount,Status\n"
+        b"2026-06-01,VALID ROW 1,Food,-10.00,posted\n"
+        b"2026-99-99,BAD DATE ROW,Food,-20.00,posted\n"
+        b"2026-06-03,VALID ROW 2,Food,-30.00,posted\n"
+    )
+
+    summary = confirm_csv_import(
+        db=db_session,
+        raw_bytes=csv_bad_date,
+        account_id=account.id,
+        format_name="usaa",
+    )
+
+    assert summary.imported == 2
+    assert summary.skipped == 0
+    assert len(summary.errors) == 1
+    assert "Row 2: " in summary.errors[0]
+
+    count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert count == 2
+
+
+def test_manager_confirm_invalid_amount_tolerates_and_imports_valid_rows(db_session):
+    """
+    Verify tolerant behavior: When a statement contains a non-numeric amount row,
+    confirm_csv_import imports valid rows, records row errors, and commits the batch.
+    """
+    account = models.Account(
+        name="USAA Checking",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_bad_amount = (
+        b"Date,Description,Category,Amount,Status\n"
+        b"2026-06-01,VALID ROW 1,Food,-10.00,posted\n"
+        b"2026-06-02,BAD AMOUNT ROW,Food,NOT_A_NUMBER,posted\n"
+        b"2026-06-03,VALID ROW 2,Food,-30.00,posted\n"
+    )
+
+    summary = confirm_csv_import(
+        db=db_session,
+        raw_bytes=csv_bad_amount,
+        account_id=account.id,
+        format_name="usaa",
+    )
+
+    assert summary.imported == 2
+    assert summary.skipped == 0
+    assert len(summary.errors) == 1
+    assert "Row 2: " in summary.errors[0]
+
+    count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert count == 2
+

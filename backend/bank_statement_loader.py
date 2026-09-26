@@ -1,13 +1,21 @@
 import csv
+from dataclasses import dataclass
 import io
 from uuid import UUID, uuid4
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import Optional
 
 from backend.schemas import TransactionCreate
+
+
+@dataclass(frozen=True)
+class ParsedStatement:
+    valid_transactions: tuple[TransactionCreate, ...]
+    row_errors: tuple[str, ...]
+
 
 
 class BankStatementLoader(ABC):
@@ -52,6 +60,41 @@ class BankStatementLoader(ABC):
     def load_from_bytes(self, raw: bytes, encoding: str = "utf-8-sig") -> list[TransactionCreate]:
         """Load transactions from raw bytes (e.g. from FastAPI UploadFile.read())."""
         return self.load_from_text(raw.decode(encoding))
+
+    def load_records_tolerant(self, raw_bytes: bytes, encoding: str = "utf-8-sig") -> ParsedStatement:
+        """
+        Parse CSV bytes into valid TransactionCreate objects and row-level errors.
+
+        Raises ValueError if required header columns are missing.
+        Catches (ValueError, InvalidOperation, AttributeError, TypeError) per row and records them in row_errors.
+        """
+        text = raw_bytes.decode(encoding)
+        stream = io.StringIO(text)
+        reader = csv.DictReader(stream)
+
+        if reader.fieldnames is not None:
+            missing_columns = [
+                col for col in self.column_map if col not in reader.fieldnames
+            ]
+            if missing_columns:
+                raise ValueError(f"Missing columns: {missing_columns}")
+
+        valid_transactions: list[TransactionCreate] = []
+        row_errors: list[str] = []
+
+        for i, raw_row in enumerate(reader, start=1):
+            try:
+                normalized_row = self.normalize_row(raw_row)
+                txn = self.transform_row(normalized_row)
+                if txn:
+                    valid_transactions.append(txn)
+            except (ValueError, InvalidOperation, AttributeError, TypeError) as exc:
+                row_errors.append(f"Row {i}: {exc}")
+
+        return ParsedStatement(
+            valid_transactions=tuple(valid_transactions),
+            row_errors=tuple(row_errors),
+        )
 
     def _parse_stream(self, stream) -> list[TransactionCreate]:
         transactions = []

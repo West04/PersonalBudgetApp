@@ -73,16 +73,16 @@ def confirm_csv_import(
 
     # 3. Statement parsing
     try:
-        transactions = loader.load_from_bytes(raw_bytes)
+        parsed = loader.load_records_tolerant(raw_bytes)
     except ValueError as exc:
         raise CSVImportParseError(str(exc)) from exc
 
     # 4. Import loop
     imported = 0
     skipped = 0
-    errors: list[str] = []
+    errors: list[str] = list(parsed.row_errors)
 
-    for txn in transactions:
+    for txn in parsed.valid_transactions:
         try:
             if transaction_access.csv_import_transaction_exists(
                 db,

@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 from datetime import date
 import pytest
@@ -119,3 +119,225 @@ def test_get_loader_factory():
 
     with pytest.raises(ValueError, match="Unknown format 'chase'"):
         get_loader("chase", account_id)
+
+
+# ---------------------------------------------------------------------------
+# Row Parse Error Characterization (Current Behavior)
+# ---------------------------------------------------------------------------
+
+def test_usaa_loader_malformed_date_raises_value_error():
+    """
+    Characterize current behavior: USAALoader.load_from_text raises ValueError
+    when a row contains an invalid date, aborting before parsing subsequent rows.
+    """
+    loader = USAALoader(account_id=uuid4())
+    csv_content = (
+        "Date,Description,Category,Amount,Status\n"
+        "2026-06-01,VALID ROW 1,Food,-10.00,posted\n"
+        "2026-99-99,BAD DATE,Food,-20.00,posted\n"
+        "2026-06-03,VALID ROW 2,Food,-30.00,posted\n"
+    )
+    with pytest.raises(ValueError, match="does not match format '%Y-%m-%d'"):
+        loader.load_from_text(csv_content)
+
+
+def test_usaa_loader_malformed_amount_raises_invalid_operation():
+    """
+    Characterize current behavior: USAALoader.load_from_text raises decimal.InvalidOperation
+    when a row contains a non-numeric amount.
+    """
+    loader = USAALoader(account_id=uuid4())
+    csv_content = (
+        "Date,Description,Category,Amount,Status\n"
+        "2026-06-01,VALID ROW 1,Food,-10.00,posted\n"
+        "2026-06-02,BAD AMOUNT,Food,NOT_A_NUMBER,posted\n"
+        "2026-06-03,VALID ROW 2,Food,-30.00,posted\n"
+    )
+    with pytest.raises(InvalidOperation):
+        loader.load_from_text(csv_content)
+
+
+def test_discover_loader_malformed_date_raises_value_error():
+    """
+    Characterize current behavior: DiscoverLoader.load_from_text raises ValueError
+    when a row contains an invalid date format.
+    """
+    loader = DiscoverLoader(account_id=uuid4())
+    csv_content = (
+        "Trans. Date,Description,Amount,Category\n"
+        "06/01/2026,VALID ROW 1,15.00,Merchandise\n"
+        "99/99/2026,BAD DATE,25.00,Merchandise\n"
+        "06/03/2026,VALID ROW 2,35.00,Merchandise\n"
+    )
+    with pytest.raises(ValueError, match="does not match format '%m/%d/%Y'"):
+        loader.load_from_text(csv_content)
+
+
+def test_discover_loader_malformed_amount_raises_invalid_operation():
+    """
+    Characterize current behavior: DiscoverLoader.load_from_text raises decimal.InvalidOperation
+    when a row contains a non-numeric amount.
+    """
+    loader = DiscoverLoader(account_id=uuid4())
+    csv_content = (
+        "Trans. Date,Description,Amount,Category\n"
+        "06/01/2026,VALID ROW 1,15.00,Merchandise\n"
+        "06/02/2026,BAD AMOUNT,INVALID_AMT,Merchandise\n"
+        "06/03/2026,VALID ROW 2,35.00,Merchandise\n"
+    )
+    with pytest.raises(InvalidOperation):
+        loader.load_from_text(csv_content)
+
+
+# ---------------------------------------------------------------------------
+# Tolerant Loader Tests (load_records_tolerant)
+# ---------------------------------------------------------------------------
+
+def test_usaa_loader_tolerant_mixed_valid_and_errors():
+    """Verify load_records_tolerant parses valid rows and isolates errors for USAA."""
+    loader = USAALoader(account_id=uuid4())
+    csv_bytes = (
+        b"Date,Description,Category,Amount,Status\n"
+        b"2026-06-01,VALID ROW 1,Food,-10.00,posted\n"
+        b"2026-99-99,BAD DATE,Food,-20.00,posted\n"
+        b"2026-06-03,VALID ROW 2,Food,-30.00,posted\n"
+        b"2026-06-04,BAD AMOUNT,Food,NOT_NUM,posted\n"
+    )
+    parsed = loader.load_records_tolerant(csv_bytes)
+    assert len(parsed.valid_transactions) == 2
+    assert len(parsed.row_errors) == 2
+    assert parsed.valid_transactions[0].description == "VALID ROW 1"
+    assert parsed.valid_transactions[1].description == "VALID ROW 2"
+    assert "Row 2: " in parsed.row_errors[0]
+    assert "Row 4: " in parsed.row_errors[1]
+
+
+def test_discover_loader_tolerant_mixed_valid_and_errors():
+    """Verify load_records_tolerant parses valid rows and isolates errors for Discover."""
+    loader = DiscoverLoader(account_id=uuid4())
+    csv_bytes = (
+        b"Trans. Date,Description,Amount,Category\n"
+        b"06/01/2026,VALID ROW 1,15.00,Merchandise\n"
+        b"99/99/2026,BAD DATE,25.00,Merchandise\n"
+        b"06/03/2026,VALID ROW 2,35.00,Merchandise\n"
+        b"06/04/2026,BAD AMOUNT,NOT_NUM,Merchandise\n"
+    )
+    parsed = loader.load_records_tolerant(csv_bytes)
+    assert len(parsed.valid_transactions) == 2
+    assert len(parsed.row_errors) == 2
+    assert parsed.valid_transactions[0].description == "VALID ROW 1"
+    assert parsed.valid_transactions[1].description == "VALID ROW 2"
+    assert "Row 2: " in parsed.row_errors[0]
+    assert "Row 4: " in parsed.row_errors[1]
+
+
+def test_loader_tolerant_all_valid():
+    """Verify load_records_tolerant returns empty row_errors when all rows are valid."""
+    loader = USAALoader(account_id=uuid4())
+    csv_bytes = (
+        b"Date,Description,Category,Amount,Status\n"
+        b"2026-06-01,ROW 1,Food,-10.00,posted\n"
+        b"2026-06-02,ROW 2,Food,-20.00,posted\n"
+    )
+    parsed = loader.load_records_tolerant(csv_bytes)
+    assert len(parsed.valid_transactions) == 2
+    assert parsed.row_errors == ()
+
+
+def test_loader_tolerant_all_malformed():
+    """Verify load_records_tolerant returns empty valid_transactions when all rows are malformed."""
+    loader = USAALoader(account_id=uuid4())
+    csv_bytes = (
+        b"Date,Description,Category,Amount,Status\n"
+        b"2026-99-99,BAD DATE,Food,-10.00,posted\n"
+        b"2026-06-02,BAD AMOUNT,Food,NOT_NUM,posted\n"
+    )
+    parsed = loader.load_records_tolerant(csv_bytes)
+    assert parsed.valid_transactions == ()
+    assert len(parsed.row_errors) == 2
+    assert "Row 1: " in parsed.row_errors[0]
+    assert "Row 2: " in parsed.row_errors[1]
+
+
+def test_loader_tolerant_missing_headers_raises_value_error():
+    """Verify load_records_tolerant raises ValueError upfront when required headers are missing."""
+    loader = USAALoader(account_id=uuid4())
+    csv_bytes = (
+        b"Date,Description,Category,Amount\n"
+        b"2026-06-01,ROW 1,Food,-10.00\n"
+    )
+    with pytest.raises(ValueError, match=r"Missing columns: \['Status'\]"):
+        loader.load_records_tolerant(csv_bytes)
+
+
+# ---------------------------------------------------------------------------
+# Ragged / Short Row Characterization & Tolerant Tests
+# ---------------------------------------------------------------------------
+
+def test_usaa_loader_strict_ragged_row_raises_attribute_error():
+    """
+    Characterize strict behavior: USAALoader.load_from_text raises AttributeError
+    when a row is ragged (missing columns causes DictReader to set values to None).
+    """
+    loader = USAALoader(account_id=uuid4())
+    csv_content = (
+        "Date,Description,Category,Amount,Status\n"
+        "2026-06-01,STORE,Food,-10.00\n"
+    )
+    with pytest.raises(AttributeError, match="'NoneType' object has no attribute 'strip'"):
+        loader.load_from_text(csv_content)
+
+
+def test_discover_loader_strict_ragged_row_raises_attribute_error():
+    """
+    Characterize strict behavior: DiscoverLoader.load_from_text raises AttributeError
+    when a row is ragged (missing columns causes DictReader to set values to None).
+    """
+    loader = DiscoverLoader(account_id=uuid4())
+    csv_content = (
+        "Trans. Date,Description,Amount,Category\n"
+        "06/01/2026,STORE,10.00\n"
+    )
+    with pytest.raises(AttributeError, match="'NoneType' object has no attribute 'strip'"):
+        loader.load_from_text(csv_content)
+
+
+def test_usaa_loader_tolerant_ragged_rows():
+    """Verify load_records_tolerant isolates ragged-row AttributeErrors and imports valid rows."""
+    loader = USAALoader(account_id=uuid4())
+    csv_bytes = (
+        b"Date,Description,Category,Amount,Status\n"
+        b"2026-06-01,VALID ROW 1,Food,-10.00,posted\n"
+        b"2026-06-02,RAGGED MISSING STATUS,Food,-20.00\n"
+        b"2026-06-03,RAGGED MISSING AMOUNT AND STATUS,Food\n"
+        b"2026-06-04,VALID ROW 2,Food,-40.00,posted\n"
+    )
+    parsed = loader.load_records_tolerant(csv_bytes)
+    assert len(parsed.valid_transactions) == 2
+    assert len(parsed.row_errors) == 2
+    assert parsed.valid_transactions[0].description == "VALID ROW 1"
+    assert parsed.valid_transactions[1].description == "VALID ROW 2"
+    assert "Row 2: " in parsed.row_errors[0]
+    assert "Row 3: " in parsed.row_errors[1]
+
+
+def test_discover_loader_tolerant_ragged_rows():
+    """Verify load_records_tolerant isolates ragged-row AttributeErrors for Discover."""
+    loader = DiscoverLoader(account_id=uuid4())
+    csv_bytes = (
+        b"Trans. Date,Description,Amount,Category\n"
+        b"06/01/2026,VALID ROW 1,15.00,Merchandise\n"
+        b"06/02/2026,RAGGED MISSING CATEGORY,25.00\n"
+        b"06/03/2026,RAGGED MISSING AMOUNT AND CATEGORY\n"
+        b"06/04/2026,VALID ROW 2,45.00,Merchandise\n"
+    )
+    parsed = loader.load_records_tolerant(csv_bytes)
+    assert len(parsed.valid_transactions) == 2
+    assert len(parsed.row_errors) == 2
+    assert parsed.valid_transactions[0].description == "VALID ROW 1"
+    assert parsed.valid_transactions[1].description == "VALID ROW 2"
+    assert "Row 2: " in parsed.row_errors[0]
+    assert "Row 3: " in parsed.row_errors[1]
+
+
+

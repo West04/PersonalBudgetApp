@@ -1,5 +1,5 @@
 from io import BytesIO
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import date
 from uuid import uuid4
 import pytest
@@ -360,3 +360,404 @@ def test_csv_confirm_zero_amount_transaction(client, db_session):
 
     tx = db_session.query(models.Transaction).filter(models.Transaction.account_id == account.id).first()
     assert tx.amount == Decimal("0.00")
+
+
+# ---------------------------------------------------------------------------
+# Confirm Row Parse Error Tolerant Tests
+# ---------------------------------------------------------------------------
+
+
+def test_csv_confirm_mixed_valid_and_invalid_date_persists_valid_rows(client, db_session):
+    """
+    Verify tolerant behavior: USAA statement with valid rows and an invalid date row
+    imports the valid rows, records the row error, and commits the batch.
+    """
+    account = models.Account(
+        name="Checking",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_content = (
+        "Date,Description,Category,Amount,Status\n"
+        "2026-06-01,VALID ROW 1,Food,-15.00,posted\n"
+        "2026-99-99,BROKEN DATE ROW,Food,-20.00,posted\n"
+        "2026-06-03,VALID ROW 2,Auto,-35.00,posted\n"
+    )
+    files = {"file": ("statement.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    data = {"account_id": str(account.id), "format": "usaa"}
+
+    resp = client.post("/upload/confirm", data=data, files=files)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imported"] == 2
+    assert body["skipped"] == 0
+    assert len(body["errors"]) == 1
+    assert "Row 2: " in body["errors"][0]
+
+    count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert count == 2
+
+
+def test_csv_confirm_mixed_valid_and_invalid_amount_persists_valid_rows(client, db_session):
+    """
+    Verify tolerant behavior: USAA statement with valid rows and a non-numeric amount row
+    imports the valid rows, records the row error, and commits the batch.
+    """
+    account = models.Account(
+        name="Checking",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_content = (
+        "Date,Description,Category,Amount,Status\n"
+        "2026-06-01,VALID ROW 1,Food,-15.00,posted\n"
+        "2026-06-02,BROKEN AMOUNT ROW,Food,NOT_A_NUMBER,posted\n"
+        "2026-06-03,VALID ROW 2,Auto,-35.00,posted\n"
+    )
+    files = {"file": ("statement.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    data = {"account_id": str(account.id), "format": "usaa"}
+
+    resp = client.post("/upload/confirm", data=data, files=files)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imported"] == 2
+    assert body["skipped"] == 0
+    assert len(body["errors"]) == 1
+    assert "Row 2: " in body["errors"][0]
+
+    count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert count == 2
+
+
+def test_csv_confirm_all_malformed_dates_returns_200_with_errors_persists_zero(client, db_session):
+    """
+    Verify tolerant behavior: When all data rows in a CSV have malformed dates,
+    POST /upload/confirm returns HTTP 200 with imported=0 and all errors recorded.
+    """
+    account = models.Account(
+        name="Checking",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_content = (
+        "Date,Description,Category,Amount,Status\n"
+        "bad-date-1,ROW 1,Food,-10.00,posted\n"
+        "bad-date-2,ROW 2,Food,-20.00,posted\n"
+    )
+    files = {"file": ("statement.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    data = {"account_id": str(account.id), "format": "usaa"}
+
+    resp = client.post("/upload/confirm", data=data, files=files)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imported"] == 0
+    assert body["skipped"] == 0
+    assert len(body["errors"]) == 2
+    assert "Row 1: " in body["errors"][0]
+    assert "Row 2: " in body["errors"][1]
+
+    count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert count == 0
+
+
+def test_csv_confirm_valid_duplicate_and_malformed_skips_duplicate_persists_new_valid(client, db_session):
+    """
+    Verify tolerant behavior: A file with a duplicate valid row, a malformed row,
+    and a new valid row skips the duplicate, records the error, and persists the new valid row.
+    """
+    account = models.Account(
+        name="Checking",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    # Pre-existing transaction
+    existing = models.Transaction(
+        account_id=account.id,
+        date=date(2026, 6, 1),
+        amount=Decimal("15.00"),
+        description="EXISTING COFFEE",
+        pending=False,
+    )
+    db_session.add(existing)
+    db_session.commit()
+
+    csv_content = (
+        "Date,Description,Category,Amount,Status\n"
+        "2026-06-01,EXISTING COFFEE,Food,-15.00,posted\n"
+        "2026-99-99,BROKEN ROW,Food,-20.00,posted\n"
+        "2026-06-03,NEW VALID ROW,Auto,-35.00,posted\n"
+    )
+    files = {"file": ("statement.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    data = {"account_id": str(account.id), "format": "usaa"}
+
+    resp = client.post("/upload/confirm", data=data, files=files)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imported"] == 1
+    assert body["skipped"] == 1
+    assert len(body["errors"]) == 1
+    assert "Row 2: " in body["errors"][0]
+
+    txns = db_session.query(models.Transaction).filter_by(account_id=account.id).all()
+    assert len(txns) == 2
+
+
+def test_csv_confirm_discover_mixed_valid_and_invalid_date_persists_valid_rows(client, db_session):
+    """
+    Verify tolerant behavior: Discover statement with an invalid date row
+    imports valid rows, records row errors, and commits the batch.
+    """
+    account = models.Account(
+        name="Discover Card",
+        type="credit",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_content = (
+        "Trans. Date,Description,Amount,Category\n"
+        "06/01/2026,TARGET STORE,50.00,Merchandise\n"
+        "99/99/2026,BAD DATE ROW,25.00,Merchandise\n"
+        "06/03/2026,WHOLE FOODS,75.00,Supermarkets\n"
+    )
+    files = {"file": ("statement.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    data = {"account_id": str(account.id), "format": "discover"}
+
+    resp = client.post("/upload/confirm", data=data, files=files)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imported"] == 2
+    assert body["skipped"] == 0
+    assert len(body["errors"]) == 1
+    assert "Row 2: " in body["errors"][0]
+
+    count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert count == 2
+
+
+def test_csv_confirm_discover_mixed_valid_and_invalid_amount_persists_valid_rows(client, db_session):
+    """
+    Verify tolerant behavior: Discover statement with a non-numeric amount row
+    imports valid rows, records row errors, and commits the batch.
+    """
+    account = models.Account(
+        name="Discover Card",
+        type="credit",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_content = (
+        "Trans. Date,Description,Amount,Category\n"
+        "06/01/2026,TARGET STORE,50.00,Merchandise\n"
+        "06/02/2026,BAD AMOUNT ROW,NOT_NUM,Merchandise\n"
+        "06/03/2026,WHOLE FOODS,75.00,Supermarkets\n"
+    )
+    files = {"file": ("statement.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    data = {"account_id": str(account.id), "format": "discover"}
+
+    resp = client.post("/upload/confirm", data=data, files=files)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imported"] == 2
+    assert body["skipped"] == 0
+    assert len(body["errors"]) == 1
+    assert "Row 2: " in body["errors"][0]
+
+    count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert count == 2
+
+
+def test_csv_confirm_usaa_ragged_rows_persists_valid(client, db_session):
+    """
+    Verify tolerant behavior: USAA statement with a short/ragged row missing columns
+    imports valid rows, records the ragged row error, and commits the batch.
+    """
+    account = models.Account(
+        name="Checking",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_content = (
+        "Date,Description,Category,Amount,Status\n"
+        "2026-06-01,VALID ROW 1,Food,-10.00,posted\n"
+        "2026-06-02,RAGGED ROW,Food,-20.00\n"
+        "2026-06-03,VALID ROW 2,Auto,-30.00,posted\n"
+    )
+    files = {"file": ("statement.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    data = {"account_id": str(account.id), "format": "usaa"}
+
+    resp = client.post("/upload/confirm", data=data, files=files)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imported"] == 2
+    assert body["skipped"] == 0
+    assert len(body["errors"]) == 1
+    assert "Row 2: " in body["errors"][0]
+    assert "'NoneType' object has no attribute 'strip'" in body["errors"][0]
+
+    count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert count == 2
+
+
+def test_csv_confirm_discover_ragged_rows_persists_valid(client, db_session):
+    """
+    Verify tolerant behavior: Discover statement with a short/ragged row missing columns
+    imports valid rows, records the ragged row error, and commits the batch.
+    """
+    account = models.Account(
+        name="Discover Card",
+        type="credit",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_content = (
+        "Trans. Date,Description,Amount,Category\n"
+        "06/01/2026,TARGET STORE,50.00,Merchandise\n"
+        "06/02/2026,RAGGED DISCOVER ROW\n"
+        "06/03/2026,WHOLE FOODS,75.00,Supermarkets\n"
+    )
+    files = {"file": ("statement.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    data = {"account_id": str(account.id), "format": "discover"}
+
+    resp = client.post("/upload/confirm", data=data, files=files)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imported"] == 2
+    assert body["skipped"] == 0
+    assert len(body["errors"]) == 1
+    assert "Row 2: " in body["errors"][0]
+    assert "'NoneType' object has no attribute 'strip'" in body["errors"][0]
+
+    count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert count == 2
+
+
+def test_csv_confirm_ragged_rows_preview_consistency(client, db_session):
+    """
+    Verify Preview and Confirm identify the exact same row errors on ragged CSV inputs.
+    """
+    account = models.Account(
+        name="Checking",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_bytes = (
+        b"Date,Description,Category,Amount,Status\n"
+        b"2026-06-01,VALID ROW 1,Food,-10.00,posted\n"
+        b"2026-06-02,RAGGED MISSING STATUS,Food,-20.00\n"
+        b"2026-06-03,VALID ROW 2,Auto,-30.00,posted\n"
+    )
+    files_preview = {"file": ("statement.csv", BytesIO(csv_bytes), "text/csv")}
+    files_confirm = {"file": ("statement.csv", BytesIO(csv_bytes), "text/csv")}
+    data = {"account_id": str(account.id), "format": "usaa"}
+
+    prev_resp = client.post("/upload/preview", data=data, files=files_preview)
+    assert prev_resp.status_code == 200
+    prev_json = prev_resp.json()
+    assert prev_json["total_rows"] == 3
+    assert prev_json["valid_rows"] == 2
+    assert prev_json["error_rows"] == 1
+    assert prev_json["rows"][1]["row_number"] == 2
+    assert "'NoneType' object has no attribute 'strip'" in prev_json["rows"][1]["parse_error"]
+
+    conf_resp = client.post("/upload/confirm", data=data, files=files_confirm)
+    assert conf_resp.status_code == 200
+    conf_json = conf_resp.json()
+    assert conf_json["imported"] == 2
+    assert conf_json["skipped"] == 0
+    assert len(conf_json["errors"]) == 1
+    assert "Row 2: " in conf_json["errors"][0]
+    assert "'NoneType' object has no attribute 'strip'" in conf_json["errors"][0]
+
+
+def test_csv_confirm_ragged_rows_duplicate_reimport_preserves_count(client, db_session):
+    """
+    Verify re-importing a file containing ragged rows skips valid duplicates and preserves count.
+    """
+    account = models.Account(
+        name="Checking",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_bytes = (
+        b"Date,Description,Category,Amount,Status\n"
+        b"2026-06-01,VALID ROW 1,Food,-10.00,posted\n"
+        b"2026-06-02,RAGGED MISSING STATUS,Food,-20.00\n"
+        b"2026-06-03,VALID ROW 2,Auto,-30.00,posted\n"
+    )
+    data = {"account_id": str(account.id), "format": "usaa"}
+
+    # First import: 2 imported, 1 error
+    resp1 = client.post(
+        "/upload/confirm",
+        data=data,
+        files={"file": ("statement.csv", BytesIO(csv_bytes), "text/csv")},
+    )
+    assert resp1.status_code == 200
+    b1 = resp1.json()
+    assert b1["imported"] == 2
+    assert b1["skipped"] == 0
+    assert len(b1["errors"]) == 1
+
+    # Second import: 0 imported, 2 skipped, 1 error
+    resp2 = client.post(
+        "/upload/confirm",
+        data=data,
+        files={"file": ("statement.csv", BytesIO(csv_bytes), "text/csv")},
+    )
+    assert resp2.status_code == 200
+    b2 = resp2.json()
+    assert b2["imported"] == 0
+    assert b2["skipped"] == 2
+    assert len(b2["errors"]) == 1
+
+    count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert count == 2
+
+
