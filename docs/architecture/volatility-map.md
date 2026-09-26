@@ -62,7 +62,7 @@ flowchart TD
         RouterTx["transactions.py<br/>(Slice 10 Implemented & Verified)"]
         RouterAcct["accounts.py<br/>(Slice 11 Implemented & Verified)"]
         RouterCat["categories.py<br/>(Slice 12 Implemented & Verified)"]
-        RouterPendingCRUD["budgets.py<br/>(Pending CRUD Migration)"]
+        RouterBudget["budgets.py<br/>(Slice 13 Implemented & Verified)"]
         RouterUpload["upload.py<br/>(/upload/preview, /upload/confirm)"]
         RouterPlaid["plaid.py<br/>(/plaid/sync_accounts, sync_transactions)"]
     end
@@ -113,8 +113,7 @@ flowchart TD
     RouterTx --> TxAcc
     RouterAcct --> AcctAcc
     RouterCat --> CatAcc
-    %% Pending CRUD migrations
-    RouterPendingCRUD -.-> BudgetAcc
+    RouterBudget --> BudgetAcc
 
     %% Manager internal wiring
     BudgetSummaryMgr --> ZBBEngine
@@ -230,7 +229,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 | **Account CRUD** | **No** | **No Engine** | **Yes** | `Router -> AccountAccess` | Standard entity CRUD (Slice 11 Implemented & Verified). Raw queries moved to `account_access.py`. |
 | **Category & Group CRUD** | **No** | **No Engine** | **Yes** | `Router -> CategoryAccess` | Standard entity CRUD (Slice 12 Implemented & Verified). Retired legacy `crud/category.py`. |
 | **Category & Group Reorder** | **No** | **No Engine** | **Yes** | `Router -> CategoryAccess` | Applies payload-index sort_order updates while preserving characterized handling of unknown, unlisted, cross-group, empty, and duplicate IDs (Slice 12 Implemented & Verified). |
-| **Budget Allocation CRUD** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Standard monthly allocation entity CRUD. |
+| **Budget Allocation CRUD** | **No** | **No Engine** | **Yes** | `Router -> BudgetAccess` | Standard monthly allocation entity CRUD (Slice 13 Implemented & Verified). Concrete persistence moved to `budget_access.py`. |
 | **Plaid Link-Token Creation** | **No** | **No Engine** | **Yes** | `Router -> Plaid Accessor` | Single external SDK call. |
 
 ### 7.2. Category 1: Manager + Existing Engine
@@ -250,8 +249,15 @@ Direct **`Router -> Accessor`** is the terminal and correct VBD design for:
 - Account CRUD (`backend/routers/accounts.py -> backend/access/account_access.py`; Slice 11 Implemented & Verified)
 - Category and CategoryGroup CRUD (`backend/routers/categories.py -> backend/access/category_access.py`; Slice 12 Implemented & Verified)
 - Category and CategoryGroup reordering (`/category-groups/reorder`, `/categories/reorder -> backend/access/category_access.py`; Slice 12 Implemented & Verified)
-- Budget allocation CRUD (`backend/routers/budgets.py`)
+- Budget allocation CRUD (`backend/routers/budgets.py -> backend/access/budget_access.py`; Slice 13 Implemented & Verified)
 - Plaid link-token creation (`POST /plaid/create_link_token`)
+
+> [!NOTE]
+> **Shared ResourceAccess for Multiple Callers:**
+> Notice that `budget_access.py` supports multiple callers:
+> - `BudgetSummaryManager -> BudgetAccess` (monthly summary retrieval via `get_budgets_for_month`)
+> - `Budget CRUD Router -> BudgetAccess` (manual allocation CRUD via `create_budget`, `list_budgets`, etc.)
+> Both need concrete PostgreSQL Budget persistence and query behavior. Sharing the concrete Accessor does not imply their workflows should be merged; Budget Summary maintains its workflow Manager and calculation Engine, while Budget CRUD terminates directly at the Accessor.
 
 > [!IMPORTANT]
 > **Deliberate VBD Architecture:**
