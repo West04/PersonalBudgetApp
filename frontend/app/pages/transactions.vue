@@ -148,9 +148,20 @@ import { ref, computed, watch } from 'vue'
 const API_BASE = '/api'
 
 // --- State ---
-const currentMonth = ref(new Date().toISOString().slice(0, 7)) // YYYY-MM
+const route = useRoute()
+
+const initialAccountId = typeof route.query.account_id === 'string' && route.query.account_id
+  ? route.query.account_id
+  : ''
+
+const MONTH_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/
+const initialMonth = typeof route.query.month === 'string' && MONTH_REGEX.test(route.query.month)
+  ? route.query.month
+  : new Date().toISOString().slice(0, 7)
+
+const currentMonth = ref(initialMonth) // YYYY-MM
 const searchQuery = ref('')
-const selectedAccount = ref('')
+const selectedAccount = ref(initialAccountId)
 const selectedCategory = ref('')
 const uncategorizedOnly = ref(false)
 const limit = ref(50)

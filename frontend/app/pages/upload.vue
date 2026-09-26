@@ -263,7 +263,12 @@
 
       <div class="result-actions">
         <NuxtLink
-          :to="`/transactions?account_id=${selectedAccountId}`"
+          :to="{
+            path: '/transactions',
+            query: targetMonth
+              ? { account_id: selectedAccountId, month: targetMonth }
+              : { account_id: selectedAccountId },
+          }"
           class="btn btn--primary"
         >
           View Transactions →
@@ -370,6 +375,18 @@ const importResult = ref<CSVImportResult>({ imported: 0, skipped: 0, errors: [] 
 const selectedAccountName = computed(() => {
   const acct = accounts.value.find(a => a.account_id === selectedAccountId.value)
   return acct?.name ?? ''
+})
+
+const targetMonth = computed(() => {
+  const dates = preview.value?.rows
+    ?.filter(row => !row.parse_error && row.transaction_date)
+    .map(row => row.transaction_date as string)
+    ?? []
+
+  if (!dates.length) return ''
+
+  const latestDate = dates.reduce((latest, current) => (current > latest ? current : latest), dates[0])
+  return latestDate.slice(0, 7)
 })
 
 // ---------------------------------------------------------------------------
