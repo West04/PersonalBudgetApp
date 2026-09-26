@@ -105,7 +105,7 @@ flowchart TD
     RouterSummary --> DashSummaryMgr
     RouterCC --> CCSummaryMgr
     RouterCC --> ReconcileMgr
-    RouterUpload --> CSVImportMgr
+    RouterUpload -->|"/upload/confirm"| CSVImportMgr
     RouterPlaid --> PlaidAccountSyncMgr
     RouterPlaid --> PlaidTxSyncMgr
 
@@ -116,6 +116,8 @@ flowchart TD
     RouterBudget --> BudgetAcc
     RouterCC --> TxAcc
     RouterPlaid --> PlaidAcc
+    RouterUpload -->|"/upload/preview"| AcctAcc
+    RouterUpload -->|"/upload/preview"| CSVLoader
 
     %% Manager internal wiring
     BudgetSummaryMgr --> ZBBEngine
@@ -176,8 +178,10 @@ Although both ingestion pipelines persist transactions to PostgreSQL, their oper
 - **Processing Model:** Batch parsing via `BankStatementLoader` hierarchy (USAA, Discover).
 - **Identity Model:** No stable external transaction IDs.
 - **Deduplication Policy:** Exact 4-field tuple match `(account_id, date, amount, description)`.
-- **Event Lifecycle:** Two user-facing operations: Preview and Confirm. Confirm reparses the raw upload independently and does not consume Preview state. Insert-only; duplicate rows are skipped; no deletion or modification events.
-- **Error Model:** Preview reports row-level parsing issues; Confirm fails whole-statement parsing with 422 before persistence, while persistence-loop row errors are accumulated non-fatally.
+- **Event Lifecycle:** Two user-facing operations with distinct architectural paths:
+  - **Preview (`POST /upload/preview`, Slice 16 Implemented & Verified):** Direct `Router -> (AccountAccess + BankStatementLoader)` workflow. Read-only, stateless verification and parse preview; reuses `account_access.get_account_by_id`; no Manager, no persistence.
+  - **Confirm (`POST /upload/confirm`, Slice 5 Implemented & Verified):** Multi-step `Router -> CSVImportManager -> (AccountAccess + TransactionAccess + BankStatementLoader)` workflow. Coordinates account verification, statement parsing, row-level deduplication, transaction staging, and atomic batch commit.
+- **Error Model:** Preview reports row-level parsing issues in response data; Confirm fails whole-statement parsing with 422 before persistence, while persistence-loop row errors are accumulated non-fatally.
 
 ### 5.2. Plaid Account Sync Pipeline (Slice 6 Implemented & Verified)
 - **Input Resource:** External Plaid REST API (`/accounts/get`).
@@ -233,6 +237,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 | **Category & Group Reorder** | **No** | **No Engine** | **Yes** | `Router -> CategoryAccess` | Applies payload-index sort_order updates while preserving characterized handling of unknown, unlisted, cross-group, empty, and duplicate IDs (Slice 12 Implemented & Verified). |
 | **Budget Allocation CRUD** | **No** | **No Engine** | **Yes** | `Router -> BudgetAccess` | Standard monthly allocation entity CRUD (Slice 13 Implemented & Verified). Concrete persistence moved to `budget_access.py`. |
 | **Plaid Link-Token Creation** | **No** | **No Engine** | **Yes** | `Router -> Plaid Accessor` | Single external SDK call (Slice 15 Implemented & Verified). Concrete Plaid SDK LinkToken creation moved to `plaid_access.py`. |
+| **Upload Preview** | **No** | **No Engine** | **Yes** | `Router -> (AccountAccess + StatementLoader)` | Direct stateless preview of uploaded statement (Slice 16 Implemented & Verified). Reuses `account_access.get_account_by_id` and `BankStatementLoader` without a Manager. |
 
 ### 7.2. Category 1: Manager + Existing Engine
 - **Credit-Card Summary (Slice 3 Implemented & Verified):** Uses `CreditCardSummaryManager` orchestrating active credit accounts, historical transactions, calculation engine execution, and monthly display selection, reusing the existing, pure [`calculate_credit_card_state`](backend/domain/credit_cards.py). Documented in [credit-card-summary.md](credit-card-summary.md).
@@ -253,6 +258,7 @@ Direct **`Router -> Accessor`** is the terminal and correct VBD design for:
 - Category and CategoryGroup reordering (`/category-groups/reorder`, `/categories/reorder -> backend/access/category_access.py`; Slice 12 Implemented & Verified)
 - Budget allocation CRUD (`backend/routers/budgets.py -> backend/access/budget_access.py`; Slice 13 Implemented & Verified)
 - Plaid link-token creation (`POST /plaid/create_link_token -> backend/access/plaid_access.py`; Slice 15 Implemented & Verified)
+- Upload preview (`POST /upload/preview -> backend/access/account_access.py` and `BankStatementLoader`; Slice 16 Implemented & Verified)
 
 > [!NOTE]
 > **Shared ResourceAccess for Multiple Callers:**

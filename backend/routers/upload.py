@@ -17,7 +17,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session
 
-from .. import models, schemas
+from .. import schemas
+from ..access import account_access
 from ..database import get_db
 from ..bank_statement_loader import get_loader
 from ..managers import csv_import_manager
@@ -28,16 +29,6 @@ router = APIRouter(prefix="/upload", tags=["Upload"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _verify_account(account_id: UUID, db: Session) -> models.Account:
-    account = db.query(models.Account).filter(models.Account.id == account_id).first()
-    if not account:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Account {account_id} not found",
-        )
-    return account
-
 
 async def _read_upload(file: UploadFile) -> bytes:
     raw = await file.read()
@@ -60,7 +51,12 @@ async def preview_csv(
     Parse a CSV file and return a preview of the transactions it contains.
     Nothing is written to the database.
     """
-    _verify_account(account_id, db)
+    account = account_access.get_account_by_id(db, account_id)
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Account {account_id} not found",
+        )
 
     raw = await _read_upload(file)
 
