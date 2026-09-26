@@ -167,7 +167,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 
-const API_BASE = 'http://localhost:12344'
+const API_BASE = '/api'
 
 // --- State ---
 const currentMonth = ref(new Date().toISOString().slice(0, 7)) // YYYY-MM
