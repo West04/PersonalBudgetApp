@@ -5,7 +5,8 @@ from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
 
-from .. import models, schemas
+from .. import schemas
+from ..access import transaction_access
 from ..database import get_db
 from ..managers import (
     credit_card_summary_manager,
@@ -123,7 +124,5 @@ def mark_transfers(
     """
     Marks a list of transactions as transfers (is_transfer = True).
     """
-    db.query(models.Transaction).filter(
-        models.Transaction.transaction_id.in_(payload.transaction_ids)
-    ).update({models.Transaction.is_transfer: True}, synchronize_session=False)
-    db.commit()
+    transaction_access.mark_transactions_as_transfers(db, payload.transaction_ids)
+

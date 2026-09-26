@@ -1,5 +1,7 @@
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
+from uuid import uuid4
 import pytest
 
 from backend import models
@@ -7,6 +9,7 @@ from backend.access.transaction_access import (
     get_account_for_transaction,
     get_unmatched_inflow_transactions,
     get_unmatched_outflow_transactions,
+    mark_transactions_as_transfers,
 )
 
 
@@ -104,3 +107,143 @@ def test_access_get_account_for_transaction(db_session):
     assert resolved_account is not None
     assert resolved_account.id == acct.id
     assert resolved_account.name == "My Account"
+
+
+def test_access_mark_transactions_as_transfers_normal_and_cardinality(db_session):
+    """
+    Verify mark_transactions_as_transfers bulk updates rows across cardinalities:
+    - Mutates matching records to is_transfer = True.
+    - Leaves unreferenced records untouched (is_transfer = False).
+    - Unconditionally commits changes to the database.
+    - Returns exact count of updated rows.
+    """
+    acct = models.Account(name="Acct", type="depository", current_balance=Decimal("1000.00"), currency="USD")
+    db_session.add(acct)
+    db_session.flush()
+
+    t1 = models.Transaction(account_id=acct.id, amount=Decimal("10.00"), date=date(2026, 6, 1), description="T1", is_transfer=False)
+    t2 = models.Transaction(account_id=acct.id, amount=Decimal("20.00"), date=date(2026, 6, 2), description="T2", is_transfer=False)
+    t3 = models.Transaction(account_id=acct.id, amount=Decimal("30.00"), date=date(2026, 6, 3), description="T3", is_transfer=False)
+    db_session.add_all([t1, t2, t3])
+    db_session.commit()
+
+    # 1. Single ID
+    count_1 = mark_transactions_as_transfers(db_session, [t1.transaction_id])
+    assert count_1 == 1
+    db_session.refresh(t1)
+    assert t1.is_transfer is True
+
+    # 2. Pair of IDs (t2 and t3)
+    count_2 = mark_transactions_as_transfers(db_session, [t2.transaction_id, t3.transaction_id])
+    assert count_2 == 2
+    db_session.refresh(t2)
+    db_session.refresh(t3)
+    assert t2.is_transfer is True
+    assert t3.is_transfer is True
+
+
+def test_access_mark_transactions_as_transfers_empty_list(db_session):
+    """
+    Verify mark_transactions_as_transfers with empty list:
+    - Returns 0.
+    - Executes single db.commit() unconditionally.
+    - Does not modify any existing transactions.
+    """
+    acct = models.Account(name="Acct", type="depository", current_balance=Decimal("1000.00"), currency="USD")
+    db_session.add(acct)
+    db_session.flush()
+
+    t = models.Transaction(account_id=acct.id, amount=Decimal("50.00"), date=date(2026, 6, 1), description="T", is_transfer=False)
+    db_session.add(t)
+    db_session.commit()
+
+    with patch.object(db_session, "commit", wraps=db_session.commit) as spy_commit:
+        count = mark_transactions_as_transfers(db_session, [])
+        assert count == 0
+        assert spy_commit.call_count == 1
+
+    db_session.refresh(t)
+    assert t.is_transfer is False
+
+
+def test_access_mark_transactions_as_transfers_nonexistent_ids(db_session):
+    """
+    Verify mark_transactions_as_transfers with nonexistent IDs:
+    - Returns 0.
+    - Executes single db.commit() cleanly without raising exceptions.
+    """
+    fake_ids = [uuid4(), uuid4()]
+
+    with patch.object(db_session, "commit", wraps=db_session.commit) as spy_commit:
+        count = mark_transactions_as_transfers(db_session, fake_ids)
+        assert count == 0
+        assert spy_commit.call_count == 1
+
+
+def test_access_mark_transactions_as_transfers_mixed_existing_and_nonexistent(db_session):
+    """
+    Verify mark_transactions_as_transfers with mixed existing and nonexistent IDs:
+    - Updates only existing transaction rows.
+    - Silently ignores nonexistent IDs.
+    - Returns count of actually updated rows (1).
+    - Unconditionally commits.
+    """
+    acct = models.Account(name="Acct", type="depository", current_balance=Decimal("1000.00"), currency="USD")
+    db_session.add(acct)
+    db_session.flush()
+
+    t_real = models.Transaction(account_id=acct.id, amount=Decimal("60.00"), date=date(2026, 6, 1), description="Real", is_transfer=False)
+    db_session.add(t_real)
+    db_session.commit()
+
+    fake_id = uuid4()
+    count = mark_transactions_as_transfers(db_session, [t_real.transaction_id, fake_id])
+    assert count == 1
+
+    db_session.refresh(t_real)
+    assert t_real.is_transfer is True
+
+
+def test_access_mark_transactions_as_transfers_duplicate_ids(db_session):
+    """
+    Verify mark_transactions_as_transfers with duplicate IDs in the sequence:
+    - Updates single matched record to is_transfer = True.
+    - Returns 1 (count of matched/updated rows in SQL).
+    - Commits cleanly.
+    """
+    acct = models.Account(name="Acct", type="depository", current_balance=Decimal("1000.00"), currency="USD")
+    db_session.add(acct)
+    db_session.flush()
+
+    t = models.Transaction(account_id=acct.id, amount=Decimal("70.00"), date=date(2026, 6, 1), description="Dup", is_transfer=False)
+    db_session.add(t)
+    db_session.commit()
+
+    count = mark_transactions_as_transfers(db_session, [t.transaction_id, t.transaction_id])
+    assert count == 1
+
+    db_session.refresh(t)
+    assert t.is_transfer is True
+
+
+def test_access_mark_transactions_as_transfers_already_marked_idempotence(db_session):
+    """
+    Verify mark_transactions_as_transfers is idempotent for already-marked rows:
+    - Re-running against an already-true record updates it idempotently without error.
+    - Returns 1 (SQLAlchemy reports rows matched by update).
+    - Record remains is_transfer = True.
+    """
+    acct = models.Account(name="Acct", type="depository", current_balance=Decimal("1000.00"), currency="USD")
+    db_session.add(acct)
+    db_session.flush()
+
+    t = models.Transaction(account_id=acct.id, amount=Decimal("80.00"), date=date(2026, 6, 1), description="Already", is_transfer=True)
+    db_session.add(t)
+    db_session.commit()
+
+    count = mark_transactions_as_transfers(db_session, [t.transaction_id])
+    assert count == 1
+
+    db_session.refresh(t)
+    assert t.is_transfer is True
+

@@ -58,7 +58,7 @@ The following items are **speculative** and must **not** be used to justify arch
 flowchart TD
     subgraph Presentation ["Presentation Layer (FastAPI Routers)"]
         RouterSummary["summaries.py<br/>(/summary/budget, /summary/dashboard)"]
-        RouterCC["credit_cards.py<br/>(/credit-cards/summary, candidates)"]
+        RouterCC["credit_cards.py<br/>(/credit-cards/summary, candidates, mark-transfers)"]
         RouterTx["transactions.py<br/>(Slice 10 Implemented & Verified)"]
         RouterAcct["accounts.py<br/>(Slice 11 Implemented & Verified)"]
         RouterCat["categories.py<br/>(Slice 12 Implemented & Verified)"]
@@ -114,6 +114,7 @@ flowchart TD
     RouterAcct --> AcctAcc
     RouterCat --> CatAcc
     RouterBudget --> BudgetAcc
+    RouterCC --> TxAcc
 
     %% Manager internal wiring
     BudgetSummaryMgr --> ZBBEngine
@@ -224,7 +225,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 | **CSV Confirmation & Deduplication** | **Yes** | **No Standalone Engine** | **Yes** | `Router -> CSVImportManager -> (AccountAccess + TransactionAccess + StatementLoader)` | Coordinates account verification, loader parsing, exact duplicate checking, batch insert, and commit (Slice 5 Implemented & Verified; see [csv-import-confirmation.md](csv-import-confirmation.md)). |
 | **Plaid Account Sync** | **Yes** | **No Engine** | **Yes** | `Router -> PlaidAccountSyncManager -> (PlaidItemAccess + AccountAccess + PlaidAccess)` | External API call, credential decryption, and account/balance persistence (Slice 6 Implemented & Verified; see [plaid-account-sync.md](plaid-account-sync.md)). |
 | **Plaid Transaction Sync** | **Yes** | **No Engine** | **Yes** | `Router -> PlaidTransactionSyncManager -> (PlaidItemAccess + PlaidAccess + AccountAccess + PlaidTransactionAccess + TransactionAccess)` | Coordinates balance refresh flush, cursor pagination loop, added/modified/removed processing, event-level commits, and cursor persistence (Slice 7 & Slice 9 Implemented & Verified; see [plaid-transaction-sync.md](plaid-transaction-sync.md)). |
-| **Transfer Confirmation** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Single atomic boolean mutation (`is_transfer = True`). |
+| **Transfer Confirmation** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Single atomic boolean bulk mutation (`is_transfer = True`) (Slice 14 Implemented & Verified). Concrete bulk persistence moved to `transaction_access.py`. |
 | **Manual Transaction CRUD** | **No** | **No Engine** | **Yes** | `Router -> TransactionAccess` | Standard entity CRUD and query filtering (Slice 10 Implemented & Verified). Retired legacy `crud/transaction.py`. |
 | **Account CRUD** | **No** | **No Engine** | **Yes** | `Router -> AccountAccess` | Standard entity CRUD (Slice 11 Implemented & Verified). Raw queries moved to `account_access.py`. |
 | **Category & Group CRUD** | **No** | **No Engine** | **Yes** | `Router -> CategoryAccess` | Standard entity CRUD (Slice 12 Implemented & Verified). Retired legacy `crud/category.py`. |
@@ -244,7 +245,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 
 ### 7.4. Category 3: No Manager and No Engine Currently Justified
 Direct **`Router -> Accessor`** is the terminal and correct VBD design for:
-- Transfer confirmation (`POST /credit-cards/mark-transfers`)
+- Transfer confirmation (`POST /credit-cards/mark-transfers -> backend/access/transaction_access.py`; Slice 14 Implemented & Verified)
 - Manual transaction CRUD (`backend/routers/transactions.py -> backend/access/transaction_access.py`; Slice 10 Implemented & Verified)
 - Account CRUD (`backend/routers/accounts.py -> backend/access/account_access.py`; Slice 11 Implemented & Verified)
 - Category and CategoryGroup CRUD (`backend/routers/categories.py -> backend/access/category_access.py`; Slice 12 Implemented & Verified)
@@ -274,3 +275,5 @@ The following items remain intentionally excluded from structural refactoring an
 4. Credit-card inclusion of future-dated transactions in current `balance_owed` (Unresolved Domain Decision).
 5. Transfer-matching greedy matching on unspecified PostgreSQL row sequence without closest-date tie-breaking (Unresolved Domain Decision).
 6. Plaid token base64 storage upgrade to real cryptographic encryption (Security Migration).
+7. Transaction-level `is_transfer=True` is not currently filtered by `get_actuals_by_category`. Budget Summary transfer exclusion currently depends on transfer-category classification rather than the transaction flag (Unresolved Domain Decision / Characterized Behavior).
+

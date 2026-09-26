@@ -392,4 +392,24 @@ def delete_manual_transaction(
     return deleted
 
 
+def mark_transactions_as_transfers(
+    db: Session,
+    transaction_ids: Sequence[UUID],
+) -> int:
+    """
+    Marks transactions with IDs in transaction_ids as transfers (is_transfer = True).
+    Executes a bulk update against models.Transaction with synchronize_session=False.
+    Owns the standalone CRUD transaction boundary by calling db.commit() unconditionally.
+    Returns the count of updated rows.
+    """
+    updated_count = (
+        db.query(models.Transaction)
+        .filter(models.Transaction.transaction_id.in_(transaction_ids))
+        .update({models.Transaction.is_transfer: True}, synchronize_session=False)
+    )
+    db.commit()
+    return updated_count
+
+
+
 
