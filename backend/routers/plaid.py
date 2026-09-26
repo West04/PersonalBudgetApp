@@ -1,21 +1,13 @@
-from os import getenv
 from typing import List, Dict, Any
 
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from plaid.api import plaid_api
-import plaid
-from plaid.model.country_code import CountryCode
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
-from plaid.model.link_token_create_request import LinkTokenCreateRequest
-from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
-from plaid.model.products import Products
 from plaid.model.accounts_get_request import AccountsGetRequest
 from plaid.exceptions import ApiException
-from plaid.configuration import Configuration
-from plaid.api_client import ApiClient
 from .. import schemas
+from ..access import plaid_access
 from ..crud import plaid as crud_plaid
 from ..database import get_db
 from ..managers import plaid_account_sync_manager
@@ -25,41 +17,16 @@ load_dotenv()
 
 router = APIRouter(prefix="/plaid", tags=["Plaid"])
 
-PLAID_ENVIRONMENT = getenv("PLAID_ENVIRONMENT", "Sandbox")
-
-if PLAID_ENVIRONMENT == "Sandbox":
-    host = plaid.Environment.Sandbox
-elif PLAID_ENVIRONMENT == "Development":
-    host = plaid.Environment.Development
-elif PLAID_ENVIRONMENT == "Production":
-    host = plaid.Environment.Production
-else:
-    raise ValueError("PLAID_ENVIRONMENT environment variable not set correctly")
-
-config = Configuration(
-    host=host,
-    api_key={
-        "clientId": getenv("PLAID_CLIENT_ID"),
-        "secret": getenv("PLAID_SECRET"),
-    },
-)
-
-api_client = ApiClient(config)
-client = plaid_api.PlaidApi(api_client)
+client = plaid_access.client
 
 
 @router.post("/create_link_token", response_model=schemas.PlaidLinkTokenResponse)
 def create_link_token():
     try:
-        request = LinkTokenCreateRequest(
-            user=LinkTokenCreateRequestUser(client_user_id="static-user-id-for-now"),
-            client_name="My Personal Budget App",
-            products=[Products("transactions")],
-            country_codes=[CountryCode("US")],
-            language="en",
-        )
-        response = client.link_token_create(request)
-        return {"link_token": response.link_token}
+        link_token = plaid_access.create_link_token()
+        return {"link_token": link_token}
+    except plaid_access.PlaidAccessError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

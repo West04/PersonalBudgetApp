@@ -7,11 +7,16 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 import pytest
 from plaid.exceptions import ApiException
+from plaid.model.country_code import CountryCode
+from plaid.model.link_token_create_request import LinkTokenCreateRequest
+from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
+from plaid.model.products import Products
 
 from backend.access.plaid_access import (
     PlaidAccountSnapshot,
     PlaidAccessError,
     fetch_accounts_for_token,
+    create_link_token,
 )
 
 
@@ -168,3 +173,141 @@ def test_generic_external_exception_maps_to_500_plaid_access_error():
     err = exc_info.value
     assert err.status_code == 500
     assert err.detail == "Plaid socket timeout"
+
+
+# ---------------------------------------------------------------------------
+# create_link_token ResourceAccess Tests
+# ---------------------------------------------------------------------------
+
+def test_create_link_token_request_construction():
+    """
+    Verifies the Accessor constructs LinkTokenCreateRequest with exact
+    constants: client_user_id, client_name, products, country_codes, language,
+    and that optional fields are None.
+    """
+    mock_resp = MagicMock()
+    mock_resp.link_token = "link-test-token"
+
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp) as mock_create:
+        token = create_link_token()
+
+    mock_create.assert_called_once()
+    request = mock_create.call_args[0][0]
+    assert isinstance(request, LinkTokenCreateRequest)
+
+    # user: LinkTokenCreateRequestUser(client_user_id="static-user-id-for-now")
+    assert isinstance(request.user, LinkTokenCreateRequestUser)
+    assert request.user.client_user_id == "static-user-id-for-now"
+
+    # client_name: "My Personal Budget App"
+    assert request.client_name == "My Personal Budget App"
+
+    # products: [Products("transactions")]
+    assert request.products == [Products("transactions")]
+    assert len(request.products) == 1
+    assert isinstance(request.products[0], Products)
+    assert request.products[0].value == "transactions"
+
+    # country_codes: [CountryCode("US")]
+    assert request.country_codes == [CountryCode("US")]
+    assert len(request.country_codes) == 1
+    assert isinstance(request.country_codes[0], CountryCode)
+    assert request.country_codes[0].value == "US"
+
+    # language: "en"
+    assert request.language == "en"
+
+    # Verify optional fields remain unsupplied
+    assert getattr(request, "redirect_uri", None) is None
+    assert getattr(request, "webhook", None) is None
+    assert getattr(request, "account_filters", None) is None
+    assert getattr(request, "access_token", None) is None
+
+
+def test_create_link_token_success_extraction():
+    """
+    Verifies that the Accessor extracts response.link_token and returns only the token string.
+    """
+    mock_resp = MagicMock()
+    mock_resp.link_token = "link-sandbox-test-token-123"
+
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp):
+        token = create_link_token()
+
+    assert token == "link-sandbox-test-token-123"
+
+
+def test_create_link_token_empty_string_returned_unchanged():
+    """
+    Verifies that an empty string link_token is returned unchanged without failing truthiness checks.
+    """
+    mock_resp = MagicMock()
+    mock_resp.link_token = ""
+
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp):
+        token = create_link_token()
+
+    assert token == ""
+
+
+def test_create_link_token_none_returned_unchanged_for_presentation_validation():
+    """
+    Verifies that None is returned as-is by the Accessor, leaving Presentation response
+    validation to handle/reject it.
+    """
+    mock_resp = MagicMock()
+    mock_resp.link_token = None
+
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp):
+        token = create_link_token()
+
+    assert token is None
+
+
+def test_create_link_token_api_exception_normalized_to_500_plaid_access_error():
+    """
+    Verifies Plaid ApiException is normalized to PlaidAccessError with status_code=500
+    and detail=str(exc).
+    """
+    exc = ApiException(status=400, reason="Bad Request")
+    exc.body = '{"error_code": "INVALID_FIELD"}'
+
+    with patch("backend.access.plaid_access.client.link_token_create", side_effect=exc):
+        with pytest.raises(PlaidAccessError) as exc_info:
+            create_link_token()
+
+    err = exc_info.value
+    assert err.status_code == 500
+    assert err.detail == str(exc)
+    assert "Status Code: 400" in err.detail
+
+
+def test_create_link_token_runtime_error_normalized_to_500_plaid_access_error():
+    """
+    Verifies generic non-Plaid exception is normalized to PlaidAccessError with status_code=500
+    and detail=str(exc).
+    """
+    with patch("backend.access.plaid_access.client.link_token_create", side_effect=RuntimeError("Network failure")):
+        with pytest.raises(PlaidAccessError) as exc_info:
+            create_link_token()
+
+    err = exc_info.value
+    assert err.status_code == 500
+    assert err.detail == "Network failure"
+
+
+def test_create_link_token_missing_link_token_attribute_raises_plaid_access_error():
+    """
+    Verifies that when response lacks link_token attribute, the resulting AttributeError
+    is normalized to PlaidAccessError with status_code=500 preserving the attribute error detail.
+    """
+    mock_resp = object()  # plain object without link_token attribute
+
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp):
+        with pytest.raises(PlaidAccessError) as exc_info:
+            create_link_token()
+
+    err = exc_info.value
+    assert err.status_code == 500
+    assert "'object' object has no attribute 'link_token'" in err.detail
+

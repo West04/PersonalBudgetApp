@@ -64,7 +64,7 @@ flowchart TD
         RouterCat["categories.py<br/>(Slice 12 Implemented & Verified)"]
         RouterBudget["budgets.py<br/>(Slice 13 Implemented & Verified)"]
         RouterUpload["upload.py<br/>(/upload/preview, /upload/confirm)"]
-        RouterPlaid["plaid.py<br/>(/plaid/sync_accounts, sync_transactions)"]
+        RouterPlaid["plaid.py<br/>(/plaid/create_link_token, sync_accounts, sync_transactions)"]
     end
 
     subgraph Managers ["Workflow Managers (Sequencing Volatility)"]
@@ -109,12 +109,13 @@ flowchart TD
     RouterPlaid --> PlaidAccountSyncMgr
     RouterPlaid --> PlaidTxSyncMgr
 
-    %% Implemented CRUD directly to Accessors
+    %% Direct Router to Accessor workflows
     RouterTx --> TxAcc
     RouterAcct --> AcctAcc
     RouterCat --> CatAcc
     RouterBudget --> BudgetAcc
     RouterCC --> TxAcc
+    RouterPlaid --> PlaidAcc
 
     %% Manager internal wiring
     BudgetSummaryMgr --> ZBBEngine
@@ -231,7 +232,7 @@ Following the reference vertical slice (Budget Summary) and the completed Dashbo
 | **Category & Group CRUD** | **No** | **No Engine** | **Yes** | `Router -> CategoryAccess` | Standard entity CRUD (Slice 12 Implemented & Verified). Retired legacy `crud/category.py`. |
 | **Category & Group Reorder** | **No** | **No Engine** | **Yes** | `Router -> CategoryAccess` | Applies payload-index sort_order updates while preserving characterized handling of unknown, unlisted, cross-group, empty, and duplicate IDs (Slice 12 Implemented & Verified). |
 | **Budget Allocation CRUD** | **No** | **No Engine** | **Yes** | `Router -> BudgetAccess` | Standard monthly allocation entity CRUD (Slice 13 Implemented & Verified). Concrete persistence moved to `budget_access.py`. |
-| **Plaid Link-Token Creation** | **No** | **No Engine** | **Yes** | `Router -> Plaid Accessor` | Single external SDK call. |
+| **Plaid Link-Token Creation** | **No** | **No Engine** | **Yes** | `Router -> Plaid Accessor` | Single external SDK call (Slice 15 Implemented & Verified). Concrete Plaid SDK LinkToken creation moved to `plaid_access.py`. |
 
 ### 7.2. Category 1: Manager + Existing Engine
 - **Credit-Card Summary (Slice 3 Implemented & Verified):** Uses `CreditCardSummaryManager` orchestrating active credit accounts, historical transactions, calculation engine execution, and monthly display selection, reusing the existing, pure [`calculate_credit_card_state`](backend/domain/credit_cards.py). Documented in [credit-card-summary.md](credit-card-summary.md).
@@ -251,7 +252,7 @@ Direct **`Router -> Accessor`** is the terminal and correct VBD design for:
 - Category and CategoryGroup CRUD (`backend/routers/categories.py -> backend/access/category_access.py`; Slice 12 Implemented & Verified)
 - Category and CategoryGroup reordering (`/category-groups/reorder`, `/categories/reorder -> backend/access/category_access.py`; Slice 12 Implemented & Verified)
 - Budget allocation CRUD (`backend/routers/budgets.py -> backend/access/budget_access.py`; Slice 13 Implemented & Verified)
-- Plaid link-token creation (`POST /plaid/create_link_token`)
+- Plaid link-token creation (`POST /plaid/create_link_token -> backend/access/plaid_access.py`; Slice 15 Implemented & Verified)
 
 > [!NOTE]
 > **Shared ResourceAccess for Multiple Callers:**

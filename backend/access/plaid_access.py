@@ -16,6 +16,10 @@ from plaid.api_client import ApiClient
 from plaid.configuration import Configuration
 from plaid.exceptions import ApiException
 from plaid.model.accounts_get_request import AccountsGetRequest
+from plaid.model.country_code import CountryCode
+from plaid.model.link_token_create_request import LinkTokenCreateRequest
+from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
+from plaid.model.products import Products
 
 load_dotenv()
 
@@ -165,3 +169,33 @@ def fetch_accounts_for_token(access_token: str) -> Sequence[PlaidAccountSnapshot
         ) from exc
 
     return snapshots
+ 
+ 
+def create_link_token() -> str:
+    """
+    Creates a Plaid Link token via Plaid SDK client.link_token_create.
+    Constructs the request with fixed configuration:
+      - client_user_id: 'static-user-id-for-now'
+      - client_name: 'My Personal Budget App'
+      - products: [Products('transactions')]
+      - country_codes: [CountryCode('US')]
+      - language: 'en'
+    Returns response.link_token string.
+    Normalizes any external or extraction failure into PlaidAccessError with status_code=500.
+    """
+    try:
+        request = LinkTokenCreateRequest(
+            user=LinkTokenCreateRequestUser(client_user_id="static-user-id-for-now"),
+            client_name="My Personal Budget App",
+            products=[Products("transactions")],
+            country_codes=[CountryCode("US")],
+            language="en",
+        )
+        response = client.link_token_create(request)
+        return response.link_token
+    except Exception as exc:
+        raise PlaidAccessError(
+            status_code=500,
+            detail=str(exc),
+        ) from exc
+
