@@ -208,6 +208,104 @@ class DiscoverLoader(BankStatementLoader):
 
 
 # ---------------------------------------------------------------------------
+# Configurable mapped loader
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class MappedCSVFormatConfig:
+    """
+    Immutable parser configuration consumed by MappedStatementLoader to interpret
+    user-defined/custom CSV statement exports.
+    """
+    date_column: str
+    description_column: str
+    amount_column: str
+
+    date_format: str
+
+    amount_sign_convention: Literal[
+        "positive_is_outflow",
+        "positive_is_inflow",
+    ]
+
+    status_column: Optional[str] = None
+    status_posted_value: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.amount_sign_convention not in {
+            "positive_is_outflow",
+            "positive_is_inflow",
+        }:
+            raise ValueError(
+                f"Invalid amount_sign_convention: {self.amount_sign_convention!r}. "
+                "Must be 'positive_is_outflow' or 'positive_is_inflow'."
+            )
+
+        required_cols = [self.date_column, self.description_column, self.amount_column]
+        if len(set(required_cols)) != 3:
+            raise ValueError(
+                "date_column, description_column, and amount_column must be distinct"
+            )
+
+        if self.status_column is not None and self.status_column in set(required_cols):
+            raise ValueError(
+                "status_column cannot be the same as date, description, or amount column"
+            )
+
+    @property
+    def required_headers(self) -> frozenset[str]:
+        """Returns the set of CSV source column names required by this configuration."""
+        headers = [self.date_column, self.description_column, self.amount_column]
+        if self.status_column:
+            headers.append(self.status_column)
+        return frozenset(headers)
+
+
+class MappedStatementLoader(BankStatementLoader):
+    """
+    Concrete bank statement loader configured at runtime with dynamic column mappings,
+    date formats, sign conventions, and status semantics via MappedCSVFormatConfig.
+    """
+
+    def __init__(self, account_id: UUID, config: MappedCSVFormatConfig):
+        super().__init__(account_id=account_id)
+        self.config = config
+
+    @property
+    def column_map(self) -> dict[str, str]:
+        mapping = {
+            self.config.date_column: "date",
+            self.config.description_column: "description",
+            self.config.amount_column: "amount",
+        }
+        if self.config.status_column:
+            mapping[self.config.status_column] = "status"
+        return mapping
+
+    def transform_row(self, row: dict) -> Optional[TransactionCreate]:
+        parsed_date = datetime.strptime(row["date"], self.config.date_format).date()
+        amount = Decimal(row["amount"])
+
+        if self.config.amount_sign_convention == "positive_is_inflow":
+            amount = -amount
+
+        if self.config.status_column:
+            expected_posted = (self.config.status_posted_value or "posted").strip().lower()
+            raw_status = row.get("status", "").strip().lower()
+            pending = (raw_status != expected_posted)
+        else:
+            pending = False
+
+        return TransactionCreate(
+            account_id=self.account_id,
+            date=parsed_date,
+            description=row["description"],
+            amount=amount,
+            pending=pending,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Loader registry — maps format string to loader class
 # ---------------------------------------------------------------------------
 
