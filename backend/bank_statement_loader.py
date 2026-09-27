@@ -6,7 +6,8 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from abc import ABC, abstractmethod
-from typing import Optional
+from collections.abc import Sequence
+from typing import Literal, Optional
 
 from backend.schemas import TransactionCreate
 
@@ -34,6 +35,14 @@ class BankStatementLoader(ABC):
     def column_map(self):
         """Maps CSV column headers to internal standard names."""
         pass
+
+    @classmethod
+    def get_required_headers(cls) -> frozenset[str]:
+        """Returns the frozenset of required CSV headers defined by column_map."""
+        cmap = getattr(cls, "column_map", None)
+        if isinstance(cmap, dict):
+            return frozenset(cmap.keys())
+        return frozenset()
 
     # ------------------------------------------------------------------
     # Loading helpers
@@ -216,6 +225,116 @@ def get_loader(format_name: str, account_id: UUID) -> BankStatementLoader:
             f"Unknown format '{format_name}'. Available: {list(LOADER_REGISTRY)}"
         )
     return cls(account_id=account_id)
+
+
+# ---------------------------------------------------------------------------
+# Format definitions & detection (pure ingestion helpers)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class CSVFormatMatchDefinition:
+    """
+    Immutable metadata defining how an external CSV statement format is matched
+    against uploaded CSV headers.
+    """
+    identifier: str
+    name: str
+    required_headers: frozenset[str]
+
+    def __post_init__(self):
+        if not isinstance(self.required_headers, frozenset):
+            object.__setattr__(self, "required_headers", frozenset(self.required_headers))
+
+
+@dataclass(frozen=True)
+class FormatDetectionResult:
+    """
+    Immutable result of format detection against uploaded CSV headers.
+
+    Status semantics:
+    - 0 matches  -> 'unknown'
+    - 1 match    -> 'detected'
+    - 2+ matches -> 'ambiguous'
+    """
+    matches: tuple[CSVFormatMatchDefinition, ...]
+
+    @property
+    def status(self) -> Literal["unknown", "detected", "ambiguous"]:
+        if not self.matches:
+            return "unknown"
+        if len(self.matches) == 1:
+            return "detected"
+        return "ambiguous"
+
+    @property
+    def detected_format(self) -> Optional[CSVFormatMatchDefinition]:
+        """Returns the single detected format when status is 'detected', else None."""
+        if len(self.matches) == 1:
+            return self.matches[0]
+        return None
+
+
+def normalize_header(header: Optional[str]) -> str:
+    """
+    Normalizes a single CSV header: returns header string as-is, or empty string if None.
+    Preserves exact whitespace, case, and punctuation to match parser contract.
+    """
+    if header is None:
+        return ""
+    return str(header)
+
+
+def normalize_headers(headers: Sequence[Optional[str]]) -> tuple[str, ...]:
+    """
+    Normalizes a sequence of CSV header names preserving exact header text:
+    - Preserves exact whitespace, case, and punctuation to match parser contract
+    - Filters out empty or None headers
+    """
+    return tuple(str(h) for h in headers if h is not None and h != "")
+
+
+def detect_csv_format(
+    headers: Sequence[str],
+    formats: Sequence[CSVFormatMatchDefinition],
+) -> FormatDetectionResult:
+    """
+    Detects matching CSV format configurations for the given uploaded headers.
+
+    Matching rule:
+    A format matches when its required_headers are a subset of the normalized uploaded headers
+    (i.e. format.required_headers <= normalized_uploaded_headers). Extra source columns are permitted.
+
+    Ordering:
+    Preserves the candidate ordering of the input `formats` sequence.
+    """
+    normalized_set = set(normalize_headers(headers))
+    matches = [
+        fmt for fmt in formats
+        if fmt.required_headers.issubset(normalized_set)
+    ]
+    return FormatDetectionResult(matches=tuple(matches))
+
+
+# ---------------------------------------------------------------------------
+# Built-in format match metadata
+# ---------------------------------------------------------------------------
+
+USAA_FORMAT_MATCH = CSVFormatMatchDefinition(
+    identifier="usaa",
+    name="USAA",
+    required_headers=USAALoader.get_required_headers(),
+)
+
+DISCOVER_FORMAT_MATCH = CSVFormatMatchDefinition(
+    identifier="discover",
+    name="Discover",
+    required_headers=DiscoverLoader.get_required_headers(),
+)
+
+BUILTIN_FORMAT_MATCHES: tuple[CSVFormatMatchDefinition, ...] = (
+    USAA_FORMAT_MATCH,
+    DISCOVER_FORMAT_MATCH,
+)
 
 
 # ---------------------------------------------------------------------------
