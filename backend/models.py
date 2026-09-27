@@ -14,6 +14,8 @@ from sqlalchemy import (
     String,
     Boolean,
     Integer,
+    Index,
+    CheckConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -129,3 +131,30 @@ class Account(Base):
 
     item = relationship("PlaidItem", back_populates="accounts")
     transactions = relationship("Transaction", back_populates="account")
+
+
+class CSVFormat(Base):
+    __tablename__ = "csv_formats"
+
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    name = Column(String(100), nullable=False)
+
+    date_column = Column(String(100), nullable=False)
+    description_column = Column(String(100), nullable=False)
+    amount_column = Column(String(100), nullable=False)
+    status_column = Column(String(100), nullable=True)
+
+    date_format = Column(String(50), nullable=False)
+    amount_sign_convention = Column(String(30), nullable=False)
+    status_posted_value = Column(String(50), nullable=True, default="posted")
+
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("uq_csv_formats_name_lower", func.lower(name), unique=True),
+        CheckConstraint(
+            "amount_sign_convention IN ('positive_is_outflow', 'positive_is_inflow')",
+            name="chk_csv_formats_amount_sign_convention",
+        ),
+    )
+

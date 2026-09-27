@@ -1,5 +1,5 @@
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, condecimal, Field
+from pydantic import BaseModel, ConfigDict, condecimal, Field, field_validator, model_validator
 from datetime import date, datetime, datetime as DateTime
 from typing import Optional, List, Literal
 from decimal import Decimal
@@ -349,3 +349,78 @@ class CSVImportResult(BaseModel):
     imported: int
     skipped: int        # duplicates that were silently skipped
     errors: List[str]   # non-fatal row errors logged during import
+
+
+# --- CSV Format Schemas ---
+
+AmountSignConvention = Literal["positive_is_outflow", "positive_is_inflow"]
+
+
+class CSVFormatCreate(BaseModel):
+    name: str
+    date_column: str
+    description_column: str
+    amount_column: str
+    status_column: Optional[str] = None
+    date_format: str
+    amount_sign_convention: AmountSignConvention
+    status_posted_value: Optional[str] = "posted"
+
+    @field_validator("name", "date_column", "description_column", "amount_column", "date_format")
+    @classmethod
+    def check_non_empty(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("Field cannot be empty or whitespace")
+        return s
+
+    @field_validator("status_column", mode="before")
+    @classmethod
+    def clean_status_column(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s if s else None
+
+    @field_validator("status_posted_value", mode="before")
+    @classmethod
+    def clean_status_posted_value(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s if s else None
+
+    @model_validator(mode="after")
+    def validate_and_normalize(self):
+        col_list = [self.date_column, self.description_column, self.amount_column]
+        if len(col_list) != len(set(col_list)):
+            raise ValueError("date_column, description_column, and amount_column must be distinct source columns")
+        if self.status_column and self.status_column in col_list:
+            raise ValueError("status_column must be distinct from date, description, and amount columns")
+
+        # Canonicalize status configuration:
+        # If status_column is absent, status_posted_value is irrelevant -> canonicalize to None.
+        # If status_column is present, normalize status_posted_value to trimmed lowercase (default "posted").
+        if self.status_column is None:
+            self.status_posted_value = None
+        else:
+            val = (str(self.status_posted_value) if self.status_posted_value is not None else "").strip().lower()
+            self.status_posted_value = val if val else "posted"
+
+        return self
+
+
+class CSVFormatRead(BaseModel):
+    id: UUID
+    name: str
+    date_column: str
+    description_column: str
+    amount_column: str
+    status_column: Optional[str] = None
+    date_format: str
+    amount_sign_convention: AmountSignConvention
+    status_posted_value: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
