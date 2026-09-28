@@ -672,3 +672,45 @@ def test_csv_format_to_mapped_config_adapter_without_status():
     assert config.status_posted_value is None
     assert config.required_headers == frozenset({"Date", "Description", "Amount"})
 
+
+def test_csv_format_to_match_definition_adapter():
+    """Verify csv_format_to_match_definition derives match metadata from models.CSVFormat."""
+    format_id = uuid4()
+    orm_format = models.CSVFormat(
+        id=format_id,
+        name="Credit Union Checking",
+        date_column="Tx Date",
+        description_column="Payee",
+        amount_column="Net Value",
+        status_column="Status Flag",
+        date_format="%d/%m/%Y",
+        amount_sign_convention="positive_is_inflow",
+        status_posted_value="cleared",
+    )
+
+    match_def = csv_format_access.csv_format_to_match_definition(orm_format)
+    assert match_def.identifier == str(format_id)
+    assert match_def.name == "Credit Union Checking"
+    assert match_def.required_headers == frozenset({"Tx Date", "Payee", "Net Value", "Status Flag"})
+
+
+def test_csv_format_to_match_definition_adapter_without_status():
+    """Verify csv_format_to_match_definition without status column."""
+    format_id = uuid4()
+    orm_format = models.CSVFormat(
+        id=format_id,
+        name="Simple Card",
+        date_column="Date",
+        description_column="Description",
+        amount_column="Amount",
+        status_column=None,
+        date_format="%Y-%m-%d",
+        amount_sign_convention="positive_is_outflow",
+        status_posted_value=None,
+    )
+
+    match_def = csv_format_access.csv_format_to_match_definition(orm_format)
+    assert match_def.identifier == str(format_id)
+    assert match_def.name == "Simple Card"
+    assert match_def.required_headers == frozenset({"Date", "Description", "Amount"})
+

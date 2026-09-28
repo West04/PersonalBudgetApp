@@ -424,3 +424,20 @@ class CSVFormatRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+# --- CSV Inspection Schemas ---
+
+class CSVFormatMatchRead(BaseModel):
+    identifier: str
+    name: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CSVInspectResponse(BaseModel):
+    headers: list[str]
+    sample_rows: list[list[str]]
+    status: Literal["unknown", "detected", "ambiguous"]
+    detected_format: Optional[CSVFormatMatchRead] = None
+    matches: list[CSVFormatMatchRead]
+

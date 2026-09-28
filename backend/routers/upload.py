@@ -11,6 +11,8 @@ Both endpoints accept multipart form data:
   - format     : "usaa" | "discover"
 """
 
+import csv
+import io
 from decimal import Decimal
 from uuid import UUID
 
@@ -21,9 +23,11 @@ from .. import schemas
 from ..access import account_access, csv_format_access
 from ..database import get_db
 from ..bank_statement_loader import (
+    BUILTIN_FORMAT_MATCHES,
     BankStatementLoader,
     LOADER_REGISTRY,
     MappedStatementLoader,
+    detect_csv_format,
     get_loader,
 )
 from ..managers import csv_import_manager
@@ -70,6 +74,99 @@ def _resolve_statement_loader(
 
     config = csv_format_access.csv_format_to_mapped_config(custom_format)
     return MappedStatementLoader(account_id=account_id, config=config)
+
+
+# ---------------------------------------------------------------------------
+# Inspect endpoint (upload-first detection)
+# ---------------------------------------------------------------------------
+
+@router.post("/inspect", response_model=schemas.CSVInspectResponse)
+async def inspect_csv(
+    file: UploadFile = File(..., description="CSV file to inspect"),
+    db: Session = Depends(get_db),
+):
+    """
+    Inspect an uploaded CSV file without importing or requiring an account:
+    1. Read and decode bytes via utf-8-sig.
+    2. Extract CSV headers and up to 3 bounded sample rows of raw source values.
+    3. Load persisted custom formats and combine with built-in format candidates.
+    4. Detect matching format candidates without requiring an account or importing data.
+    """
+    raw = await _read_upload(file)
+
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unable to decode CSV file as UTF-8: {exc}",
+        )
+
+    if not text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="CSV file is empty or contains no header row",
+        )
+
+    stream = io.StringIO(text)
+    reader = csv.reader(stream)
+    try:
+        raw_headers = next(reader, None)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Malformed CSV header row: {exc}",
+        )
+
+    if raw_headers is None or not any(h.strip() for h in raw_headers if h is not None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="CSV file contains no valid headers",
+        )
+
+    headers = [str(h) for h in raw_headers]
+
+    # Collect bounded sample (up to 3 rows) of raw source values as positional lists
+    sample_rows: list[list[str]] = []
+    for raw_row in reader:
+        if not raw_row or not any(c.strip() for c in raw_row):
+            continue
+        sample_rows.append([str(c) for c in raw_row])
+        if len(sample_rows) >= 3:
+            break
+
+    # Build candidates: built-in matches followed by persisted custom formats
+    custom_formats = csv_format_access.list_custom_formats(db)
+    custom_candidates = [
+        csv_format_access.csv_format_to_match_definition(cf)
+        for cf in custom_formats
+    ]
+    candidates = list(BUILTIN_FORMAT_MATCHES) + custom_candidates
+
+    detection_result = detect_csv_format(headers=headers, formats=candidates)
+
+    detected_format_read = None
+    if detection_result.detected_format:
+        detected_format_read = schemas.CSVFormatMatchRead(
+            identifier=detection_result.detected_format.identifier,
+            name=detection_result.detected_format.name,
+        )
+
+    matches_read = [
+        schemas.CSVFormatMatchRead(
+            identifier=m.identifier,
+            name=m.name,
+        )
+        for m in detection_result.matches
+    ]
+
+    return schemas.CSVInspectResponse(
+        headers=headers,
+        sample_rows=sample_rows,
+        status=detection_result.status,
+        detected_format=detected_format_read,
+        matches=matches_read,
+    )
 
 
 # ---------------------------------------------------------------------------

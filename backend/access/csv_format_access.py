@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from ..bank_statement_loader import MappedCSVFormatConfig
+from ..bank_statement_loader import CSVFormatMatchDefinition, MappedCSVFormatConfig
 
 RESERVED_FORMAT_NAMES: frozenset[str] = frozenset({"usaa", "discover"})
 
@@ -191,4 +191,21 @@ def csv_format_to_mapped_config(
         date_format=csv_format.date_format,
         amount_sign_convention=csv_format.amount_sign_convention,  # type: ignore[arg-type]
         status_posted_value=csv_format.status_posted_value,
+    )
+
+
+def csv_format_to_match_definition(
+    csv_format: models.CSVFormat,
+) -> CSVFormatMatchDefinition:
+    """
+    Converts a persisted models.CSVFormat ORM entity into an immutable
+    CSVFormatMatchDefinition detection metadata object.
+    Derives required_headers from the mapped parser configuration contract.
+    Does not query, commit, flush, or mutate ORM state.
+    """
+    config = csv_format_to_mapped_config(csv_format)
+    return CSVFormatMatchDefinition(
+        identifier=str(csv_format.id),
+        name=csv_format.name,
+        required_headers=config.required_headers,
     )
