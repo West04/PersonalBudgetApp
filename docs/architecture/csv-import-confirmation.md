@@ -2,24 +2,27 @@
 
 ## 1. Overview & Conceptual Architecture
 
-The CSV Confirmation & Deduplication workflow (`POST /upload/confirm`) parses uploaded bank statement CSV files (USAA or Discover), verifies target account validity, detects exact duplicate transactions against existing records, stages non-duplicate transactions, and commits them in a single batch transaction.
+The CSV Confirmation & Deduplication workflow (`POST /upload/confirm`) parses uploaded bank statement CSV files (supporting built-in USAA and Discover formats as well as user-defined custom formats via `MappedStatementLoader`), verifies target account validity, detects exact duplicate transactions against existing records, stages non-duplicate transactions, and commits them in a single batch transaction.
 
 Under Volatility-Based Decomposition (VBD), this workflow decomposes into:
 
 ```text
 FastAPI Upload Router (backend/routers/upload.py)
-        ↓
+        ↓ resolves format ("usaa" | "discover" | <custom_uuid>) via _resolve_statement_loader
+        ├── CSV Format ResourceAccess (backend/access/csv_format_access.py) ────────→ PostgreSQL
+        ↓ passes resolved BankStatementLoader instance
 CSV Import Manager (backend/managers/csv_import_manager.py)
         ├── Account ResourceAccess (backend/access/account_access.py) ─────────────→ PostgreSQL
         ├── Transaction ResourceAccess (backend/access/transaction_access.py) ─────→ PostgreSQL
-        └── Existing BankStatementLoader boundary (backend/bank_statement_loader.py)
-                ├── USAA loader
-                └── Discover loader
+        └── BankStatementLoader boundary (backend/bank_statement_loader.py)
+                ├── USAALoader
+                ├── DiscoverLoader
+                └── MappedStatementLoader (configurable custom formats)
 ```
 
 ### Key Architectural Boundaries:
 1. **No New Engine:** Deduplication is a concrete persistence-backed existence lookup, not an independently volatile calculation or business policy. An engine is explicitly rejected.
-2. **StatementLoader Boundary Preserved:** The existing `BankStatementLoader` hierarchy in [`backend/bank_statement_loader.py`](../../backend/bank_statement_loader.py) remains authoritative for file parsing, header mapping, bank date formats, and sign normalization.
+2. **StatementLoader Boundary Preserved:** The `BankStatementLoader` hierarchy in [`backend/bank_statement_loader.py`](../../backend/bank_statement_loader.py) remains authoritative for file parsing, header mapping, bank date formats, and sign normalization. Dynamic custom formats are parsed through `MappedStatementLoader` driven by immutable `MappedCSVFormatConfig`.
 3. **Account & Transaction ResourceAccess:** Direct SQLAlchemy queries in the router are moved behind focused, concrete ResourceAccess operations.
 4. **Single Transaction Boundary:** The Manager owns the workflow sequencing and the single final `db.commit()`.
 
@@ -32,11 +35,9 @@ The `CSVImportManager` is justified strictly by an **observed multi-step busines
 ```text
 verify destination account exists (Account ResourceAccess)
         ↓
-resolve StatementLoader for bank format (BankStatementLoader)
+parse raw bytes into valid transactions and non-fatal row errors via loader.load_records_tolerant (BankStatementLoader)
         ↓
-parse raw bytes into normalized TransactionCreate records (BankStatementLoader)
-        ↓
-for each transaction:
+for each valid transaction:
     check exact duplicate existence (Transaction ResourceAccess)
     if duplicate:
         skipped += 1
@@ -47,11 +48,11 @@ for each transaction:
         ↓
 commit batch transaction (single db.commit())
         ↓
-return CSVImportSummary
+return CSVImportSummary(imported, skipped, errors)
 ```
 
 ### Rationale:
-- This workflow coordinates multiple distinct boundaries: Account ResourceAccess, the StatementLoader parser registry, Transaction ResourceAccess, per-row error isolation, and database transaction commit.
+- This workflow coordinates multiple distinct boundaries: Account ResourceAccess, the StatementLoader parser, Transaction ResourceAccess, per-row error isolation, and database transaction commit.
 - The use case ("confirm and import statement") changes independently from HTTP multipart transport handling (FastAPI `UploadFile`, `Form(...)`) and from file-format-specific CSV schemas.
 - A Manager is justified because of this meaningful orchestration sequence, **not** because every endpoint requires a Manager.
 
@@ -70,20 +71,20 @@ In the implemented VBD architecture:
   raw_bytes = await file.read()
   await file.seek(0)
   ```
-- The Router passes plain bytes and scalar form fields to the Manager.
+- The Router verifies account existence and resolves the format identifier to a concrete `BankStatementLoader` instance (USAA, Discover, or `MappedStatementLoader`).
 - The **Manager** executes the application validation sequence:
   ```text
-  account lookup → loader resolution → statement parsing → import loop
+  account lookup → statement parsing (tolerant) → duplicate check & staging loop → commit
   ```
 
 ### Invariant Application Validation Precedence:
 The application validation precedence is strictly:
-$$\text{Account Existence (404)} \longrightarrow \text{Format Validity (400)} \longrightarrow \text{Statement Parsing (422)}$$
+$$\text{Account Existence (404)} \longrightarrow \text{Format Validity (400 / 404)} \longrightarrow \text{Statement Parsing (422)}$$
 
 - Nonexistent account + unknown format $\rightarrow$ Account error (HTTP 404).
 - Nonexistent account + malformed CSV $\rightarrow$ Account error (HTTP 404).
-- Valid account + unknown format $\rightarrow$ Format error (HTTP 400).
-- Valid account + malformed CSV $\rightarrow$ Parse error (HTTP 422).
+- Valid account + unknown format $\rightarrow$ Format error (HTTP 400 for bad string, HTTP 404 for unknown custom UUID).
+- Valid account + malformed CSV headers $\rightarrow$ Parse error (HTTP 422).
 
 Reading `UploadFile` bytes prior to Manager invocation is a transport extraction step and does not alter this domain validation precedence.
 
@@ -96,23 +97,26 @@ File: [`backend/routers/upload.py`](../../backend/routers/upload.py)
 ### Router Owns:
 - FastAPI endpoint registration: `@router.post("/confirm", response_model=schemas.CSVImportResult)`.
 - Multipart form parameter extraction: `file: UploadFile = File(...)`, `account_id: UUID = Form(...)`, `format: str = Form(...)`.
+- Resolving the loader via `_resolve_statement_loader(db, account_id, format)`:
+  - `"usaa"` or `"discover"` $\rightarrow$ built-in loader from `LOADER_REGISTRY`;
+  - custom UUID $\rightarrow$ fetches `CSVFormat` via `csv_format_access.get_custom_format_by_id`, builds `MappedCSVFormatConfig`, returns `MappedStatementLoader`;
+  - invalid string $\rightarrow$ `HTTPException(400, detail="Unknown format...")`;
+  - unknown UUID $\rightarrow$ `HTTPException(404, detail="Format <uuid> not found")`.
 - Reading `UploadFile` stream into `raw_bytes: bytes`.
 - Acquiring database session via dependency injection: `db: Session = Depends(get_db)`.
-- Invoking the Manager: `csv_import_manager.confirm_csv_import(db, raw_bytes, account_id, format)`.
+- Invoking the Manager: `csv_import_manager.confirm_csv_import(db=db, raw_bytes=raw, loader=loader)`.
 - Catching framework-free application exceptions and mapping them to HTTP status codes:
   - `CSVImportAccountNotFoundError` $\rightarrow$ `HTTPException(404, detail=str(exc))`
-  - `CSVImportUnknownFormatError` $\rightarrow$ `HTTPException(400, detail=str(exc))`
   - `CSVImportParseError` $\rightarrow$ `HTTPException(422, detail=str(exc))`
 - Mapping `CSVImportSummary` to [`schemas.CSVImportResult`](../../backend/schemas.py).
 - Returning HTTP 200 OK.
 
 ### Router Must NOT Retain:
-- Account existence queries (`db.query(models.Account)`).
 - Transaction duplicate queries (`db.query(models.Transaction)`).
 - Direct instantiation of `models.Transaction`.
 - Transaction staging loops.
 - `db.commit()` workflow orchestration.
-- CSV parsing or loader registry lookups.
+- CSV parsing internals.
 
 ---
 
@@ -120,7 +124,7 @@ File: [`backend/routers/upload.py`](../../backend/routers/upload.py)
 
 File: `backend/managers/csv_import_manager.py`
 
-The Manager contains **no FastAPI imports** and raises zero `HTTPException`s. It defines three focused application error classes:
+The Manager contains **no FastAPI imports** and raises zero `HTTPException`s. It defines application error classes:
 
 ```python
 class CSVImportAccountNotFoundError(Exception):
@@ -128,7 +132,7 @@ class CSVImportAccountNotFoundError(Exception):
 
 
 class CSVImportUnknownFormatError(Exception):
-    """Raised when the requested format string is not in the loader registry."""
+    """Raised when the requested format string is not in the loader registry (legacy/compatibility)."""
 
 
 class CSVImportParseError(Exception):
@@ -140,22 +144,15 @@ class CSVImportParseError(Exception):
    ```python
    raise CSVImportAccountNotFoundError(f"Account {account_id} not found")
    ```
-2. **Unknown Format:**
+2. **Invalid Statement / Missing Columns:**
    ```python
    try:
-       loader = get_loader(format_name, account_id)
-   except ValueError as exc:
-       raise CSVImportUnknownFormatError(str(exc)) from exc
-   ```
-3. **Invalid Statement / Missing Columns:**
-   ```python
-   try:
-       transactions = loader.load_from_bytes(raw_bytes)
+       parsed = loader.load_records_tolerant(raw_bytes)
    except ValueError as exc:
        raise CSVImportParseError(str(exc)) from exc
    ```
 
-The Router maps `str(exc)` directly into `detail`, preserving exact existing error strings without recomputing registry values or leaking parser types into presentation.
+The Router maps `str(exc)` directly into `detail`, preserving exact existing error strings without leaking parser types into presentation.
 
 ---
 
@@ -168,27 +165,26 @@ File: `backend/managers/csv_import_manager.py`
 def confirm_csv_import(
     db: Session,
     raw_bytes: bytes,
-    account_id: UUID,
-    format_name: str,
+    loader: BankStatementLoader,
 ) -> CSVImportSummary:
     """
     Coordinates the CSV confirmation and import workflow:
-    1. Verifies destination account exists via get_account_by_id.
-    2. Instantiates statement loader via get_loader.
-    3. Parses CSV bytes into normalized transactions via loader.load_from_bytes.
-    4. Iterates parsed transactions:
+    1. Verifies destination account exists via get_account_by_id(db, loader.account_id).
+    2. Parses CSV bytes into normalized transactions via loader.load_records_tolerant.
+    3. Iterates parsed transactions:
        - Checks duplicate existence via csv_import_transaction_exists.
        - If duplicate, increments skipped counter.
        - If new, stages transaction via stage_csv_import_transaction and increments imported.
        - Catches per-row exceptions and formats row error strings.
-    5. Commits the transaction batch via db.commit().
-    6. Returns CSVImportSummary.
+    4. Commits the transaction batch via db.commit().
+    5. Returns CSVImportSummary.
     """
 ```
 
 ### Rules & Invariants:
 - Accepts `db: Session` as application context under established VBD pragmatic coupling.
 - Accepts `raw_bytes: bytes` (does not import `UploadFile`).
+- Accepts `loader: BankStatementLoader` resolved by the router.
 - Exposes no ORM models or Pydantic schemas.
 
 ---
@@ -366,9 +362,10 @@ The existing parser hierarchy in [`backend/bank_statement_loader.py`](../../back
 - `BankStatementLoader` (ABC)
 - `USAALoader` (handles USAA headers, date format `%Y-%m-%d`, and negates amounts so purchases are positive)
 - `DiscoverLoader` (handles Discover headers, date format `%m/%d/%Y`, and preserves positive charges)
-- `LOADER_REGISTRY` & `get_loader`
+- `MappedStatementLoader` (configurable parser implementation driven by `MappedCSVFormatConfig`)
+- `LOADER_REGISTRY` & `get_loader` (built-in loader registry)
 
-The Manager coordinates loader invocation via `get_loader` and `loader.load_from_bytes(raw_bytes)`. No parser logic is moved into the Manager.
+The router resolves the loader instance via `_resolve_statement_loader` and passes it to `confirm_csv_import`, where the Manager coordinates tolerant statement parsing via `loader.load_records_tolerant(raw_bytes)`. No parser logic is moved into the Manager.
 
 ---
 
@@ -401,7 +398,7 @@ for txn in transactions:
 2. **Error String Format:** Exactly `f"Row {txn.date} '{txn.description}': {exc}"`.
 3. **Loop Continuation:** A row exception does not halt the workflow; subsequent rows continue processing.
 4. **Commit Eligibility:** Successfully staged rows before and after a failed row remain eligible for the final commit.
-5. **No Parser Catching:** Statement parsing occurs before the loop; CSV parse errors fail the whole request with HTTP 422.
+5. **Tolerant Parsing & Non-Fatal Row Errors:** Statements are parsed via `loader.load_records_tolerant(raw_bytes)`. Missing required columns fail the whole request with HTTP 422 (`CSVImportParseError`). Malformed rows during parsing (invalid dates, invalid decimal amounts, ragged rows) are captured non-fatally and recorded in `errors`, while valid rows proceed to the duplicate check and staging loop.
 
 ---
 
@@ -493,7 +490,7 @@ Protected by [`tests/test_characterization_csv_import.py`](../../tests/test_char
 - Fuzzy or hash-based deduplication.
 - Configurable dedupe tolerance or policies.
 - Generic ingestion framework combining CSV and Plaid.
-- Hypothetical bank parser plugins (Chase, Bank of America).
+- Dedicated hardcoded Python parser classes for hypothetical banks (arbitrary CSV variations are handled as configuration data via `MappedCSVFormatConfig` and `CSVFormat` records).
 - Generic repositories or Unit of Work.
 - Eager batch query or `ON CONFLICT` optimization.
 

@@ -19,9 +19,11 @@ flowchart TD
     end
 
     subgraph Backend ["FastAPI Backend (Port 12344 / 8000)"]
-        Router["FastAPI Routers"]
-        CRUD["CRUD & Business Logic Layer"]
-        Loader["Bank Statement Loaders<br/>(USAA, Discover, extensible)"]
+        Router["Presentation Routers<br/>(backend/routers/)"]
+        Mgr["Workflow Managers<br/>(backend/managers/)"]
+        Engine["Domain Engines<br/>(backend/domain/)"]
+        Access["ResourceAccess<br/>(backend/access/)"]
+        Loader["Statement Loaders<br/>(USAA, Discover, Mapped)"]
         Lifespan["App Lifespan<br/>(Auto DDL & Default Seed)"]
     end
 
@@ -33,14 +35,17 @@ flowchart TD
         PlaidAPI["Plaid API<br/>(Link, Accounts, Transactions)"]
     end
 
-    UI -->|Local /api calls| Proxy
-    UI -.->|Direct dev calls| Router
+    UI -->|All /api calls| Proxy
     Proxy -->|Internal Docker network| Router
-    Router --> CRUD
+    Router --> Mgr
+    Router --> Access
     Router --> Loader
+    Mgr --> Engine
+    Mgr --> Access
+    Mgr --> Loader
+    Access --> DB
+    Access --> PlaidAPI
     Lifespan --> DB
-    CRUD --> DB
-    Router --> PlaidAPI
 ```
 
 ---
@@ -116,7 +121,7 @@ Credit card payments or checking-to-savings transfers generate two distinct reco
 1. An outflow on Account A (+X)
 2. An inflow on Account B (-X)
 
-If unaddressed, these would distort spending and income reports. The backend transfer engine in [`backend/routers/credit_cards.py`](file:///Users/west/programming_stuff/budget_app/backend/routers/credit_cards.py#L122-L195) provides an automated heuristic:
+If unaddressed, these would distort spending and income reports. The backend reconciliation engine in [`backend/domain/reconciliation.py`](file:///Users/west/programming_stuff/budget_app/backend/domain/reconciliation.py) (`detect_transfer_candidates`) provides an automated heuristic:
 - Matches any unlinked inflow (`amount < 0`, `is_transfer == False`) on one account with an unlinked outflow (`amount > 0`, `is_transfer == False`) on a *different* account.
 - **Criteria:** Exactly identical absolute amount and $| \text{date}_{\text{outflow}} - \text{date}_{\text{inflow}} | \le 2\text{ days}$.
 - Returns pairs as candidate transfers for user review or batch approval via `POST /credit-cards/mark-transfers`.
@@ -133,27 +138,36 @@ flowchart LR
         P4["POST /plaid/sync_transactions"] -->|Plaid Sync API / cursor| P5["Upsert Transactions"]
     end
 
-    subgraph CSVIngestion ["CSV Statement Ingestion"]
-        C1["User selects Account & Format"] --> C2["POST /upload/preview"]
-        C2 --> C3["BankStatementLoader (USAA / Discover)"]
-        C3 -->|Validates rows & flags errors| C4["Preview Modal"]
-        C4 -->|User confirms| C5["POST /upload/confirm"]
-        C5 -->|Duplicate Check<br/>account + date + amount + description| C6["Insert Valid Rows"]
+    subgraph CSVIngestion ["CSV Statement Ingestion (Upload-First)"]
+        C1["User selects CSV File"] --> C2["POST /upload/inspect"]
+        C2 --> C3["Backend inspects headers & sample rows<br/>Auto-detects format (detected / ambiguous / unknown)"]
+        C3 --> C4["Frontend Step 1: displays detection state<br/>(Optional: Save custom mapping via POST /upload/formats)"]
+        C4 --> C5["User selects Target Account (Step 2) & clicks Preview"]
+        C5 --> C6["POST /upload/preview"]
+        C6 --> C7["_resolve_statement_loader()<br/>(USAA, Discover, or MappedStatementLoader)"]
+        C7 -->|Parses & validates rows| C8["Step 3: Preview Table & Confirm Action"]
+        C8 -->|User clicks Confirm / Import| C9["POST /upload/confirm"]
+        C9 -->|Duplicate Check via csv_import_manager<br/>(account_id + date + amount + description)| C10["Step 4: Done (Import Results)"]
     end
 ```
 
 ### 4.1 Plaid Integration
 - Uses Plaid Link token workflow.
-- Securely stores the access token encrypted with base64 (production upgrade planned for Fernet/KMS).
+- Stores access token encoded with base64 placeholder (production migration planned for cryptographic encryption via Fernet/KMS).
 - Tracks `transactions_cursor` on the `PlaidItem` model for incremental synchronization.
 - Maps Plaid account categories to application account types (`depository`, `credit`, `investment`, `loan`, `other`).
 
 ### 4.2 Bank Statement Loader Pattern
-- Implemented as an extensible Abstract Base Class (`BankStatementLoader` in [`backend/bank_statement_loader.py`](file:///Users/west/programming_stuff/budget_app/backend/bank_statement_loader.py)).
-- Subclasses define:
-  - `column_map`: header mapping from bank format to internal representation.
-  - `transform_row()`: handles bank-specific date formats and sign normalization.
-- Factory function `get_loader(format_name, account_id)` dynamically resolves loaders from `LOADER_REGISTRY`.
+- Implemented as an extensible Abstract Base Class (`BankStatementLoader` in [`backend/bank_statement_loader.py`](file:///Users/west/programming_stuff/budget_app/backend/bank_statement_loader.py)). Under Volatility-Based Decomposition, this represents an ingestion/parsing boundary adapting messy external bank representations, not a pure business calculation Engine.
+- Built-in concrete loaders:
+  - `USAALoader`: Handles USAA CSV exports (dates: `%Y-%m-%d`, sign: negative=debit, positive=credit). Structurally requires `Date`, `Description`, `Category`, `Amount`, `Status` (where source `Category` is bank-assigned categorization, distinct from user budget categories).
+  - `DiscoverLoader`: Handles Discover CSV exports (dates: `%m/%d/%Y`, sign: positive=debit, negative=credit). Structurally requires `Trans. Date`, `Description`, `Amount`, `Category`.
+- Configurable parser:
+  - `MappedStatementLoader`: Driven by `MappedCSVFormatConfig` to support arbitrary user-defined CSV column mappings persisted in `models.CSVFormat`.
+- Loader Resolution:
+  - Built-in lookup: `get_loader(format_name, account_id)` using `LOADER_REGISTRY` in [`backend/bank_statement_loader.py`](file:///Users/west/programming_stuff/budget_app/backend/bank_statement_loader.py).
+  - Endpoint resolution: Router helper `_resolve_statement_loader(db, account_id, format_identifier)` in [`backend/routers/upload.py`](file:///Users/west/programming_stuff/budget_app/backend/routers/upload.py) resolves built-ins via `get_loader` or custom formats by UUID lookup via [`backend/access/csv_format_access.py`](file:///Users/west/programming_stuff/budget_app/backend/access/csv_format_access.py), constructing a `MappedStatementLoader(account_id=account_id, config=config)`.
+- Header auto-detection: `detect_csv_format(headers, formats)` checks whether candidate required headers are a subset of uploaded headers ($required\_headers \subseteq uploaded\_headers$) using exact string comparison (case-sensitive, whitespace-sensitive, punctuation-sensitive; BOM handled via `utf-8-sig`), permitting extra columns and classifying files as `detected` (unique match), `ambiguous` (multiple matches), or `unknown` (no match).
 
 ---
 
@@ -166,11 +180,11 @@ The application uses a persistent sidebar defined in [`frontend/app/app.vue`](fi
 - **Transactions (`/transactions`):** Searchable, paginated transaction ledger with filters for account, category, uncategorized transactions, and inline updates.
 - **Accounts (`/accounts`):** Grouped account list by category (depository, credit, loan, etc.) with balance tracking and CRUD modals.
 - **Credit Cards (`/credit-cards`):** Debt tracking, monthly charge/payment breakdowns, and transfer matching review.
-- **Upload (`/upload`):** Step-by-step wizard for CSV statement ingestion.
+- **Upload (`/upload`):** Upload-first CSV statement ingestion wizard: inspects CSV files, auto-detects formats or supports custom column mappings, binds to target accounts, previews parsed rows with error reporting, and confirms deduplicated imports.
 - **Settings (`/settings`):** User preferences placeholder.
 - **Index (`/`):** Redirects automatically to `/dashboard`.
 
 ### 5.2 API Communication Pattern
-1. **Server-Side Proxy:** Nuxt routes `/api/**` to `http://backend:8000/**` in production/docker environments via `nuxt.config.ts`.
-2. **CORS:** FastAPI configures `CORSMiddleware` for `http://localhost:3000` and `http://localhost:12345` to enable direct client requests during development.
+1. **Server-Side Proxy:** Nuxt routes `/api/**` to backend via Nitro server proxy in [`frontend/nuxt.config.ts`](file:///Users/west/programming_stuff/budget_app/frontend/nuxt.config.ts). All frontend pages and components standardize on `const API_BASE = '/api'`, avoiding hardcoded backend ports or direct client-to-backend CORS dependencies.
+2. **CORS:** FastAPI configures `CORSMiddleware` as a defense-in-depth fallback for direct requests during local development.
 3. **Data Types Composable:** Shared account types and sub-type definitions are centralized in [`frontend/app/composables/useAccountTypes.ts`](file:///Users/west/programming_stuff/budget_app/frontend/app/composables/useAccountTypes.ts) and kept in sync with backend `ACCOUNT_SUBTYPES`.

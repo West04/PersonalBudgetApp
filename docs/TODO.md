@@ -1,146 +1,64 @@
 # Budget App VBD Modernization — TODO
 
-**Current stopping point:** Slice 11 complete; Slice 12 main analysis complete; Slice 12 implementation has not started.
+**Current stopping point:** Slices 1–16 complete; Custom CSV Format Persistence, Header Detection, Configurable Mapped Statement Parser, Inspection API, and Upload-First Frontend Workflow complete at HEAD (`df4f6b0`).
 
-**Current known test baseline before the final Slice 12 correction gate:**
+**Verified regression state at current HEAD:**
 
 ```text
-354 passed, 23 warnings
+Backend:  652 passed, 27 warnings (python3 -m pytest)
+Frontend: npm run build -> PASS
 ```
 
 > Always rerun the full suite and treat the latest result as authoritative.
 
 ---
 
-## Priority 1 — Finish Slice 12 characterization gate
+## Completed Slices & Milestones
 
-- [ ] Run/recreate **Prompt `68431`**: *Slice 12 Final Characterization Gate — Null Updates & Reorder Edges*.
-- [ ] Confirm production code remains unchanged during this gate.
-- [ ] Characterize `CategoryGroupUpdate` with:
-  - [ ] `name = null`
-  - [ ] `sort_order = null`
-- [ ] Characterize `CategoryUpdate` with:
-  - [ ] `name = null`
-  - [ ] `group_id = null`
-  - [ ] `sort_order = null`
-  - [ ] `type = null`
-  - [ ] `is_active = null`
-- [ ] Characterize CategoryGroup reorder with:
-  - [ ] empty `order`
-  - [ ] duplicate IDs
-- [ ] Characterize Category reorder with:
-  - [ ] empty `order`
-  - [ ] duplicate IDs
-- [ ] Run the complete repository suite.
-- [ ] Confirm the pass count increases beyond 354 and warnings remain understood.
-- [ ] Review the report before allowing Slice 12 implementation.
-
----
-
-## Priority 2 — Implement Slice 12
-
-**Target architecture:**
-
-```text
-categories.py
-    -> category_access.py
-    -> PostgreSQL
-```
-
-- [ ] Add the required CategoryGroup CRUD/reorder operations to `backend/access/category_access.py`.
-- [ ] Add the required Category CRUD/reorder operations to `backend/access/category_access.py`.
-- [ ] Preserve existing `get_category_groups` behavior used by `BudgetSummaryManager`.
-- [ ] Keep `CategoryAccess` free of Pydantic/FastAPI dependencies.
-- [ ] Retarget all Category/CategoryGroup routes in `backend/routers/categories.py` to `CategoryAccess`.
-- [ ] Preserve all characterized HTTP status/error behavior.
-- [ ] Preserve explicit-null update behavior exactly as discovered in the final characterization gate.
-- [ ] Preserve reorder behavior for:
-  - [ ] unknown IDs
-  - [ ] unlisted rows
-  - [ ] cross-group Category IDs
-  - [ ] empty lists
-  - [ ] duplicate IDs
-- [ ] Preserve CategoryGroup delete cascade behavior exactly.
-- [ ] Preserve Transaction `category_id -> NULL` behavior on Category deletion.
-- [ ] Preserve current Budget/category deletion behavior.
-- [ ] Confirm `backend/crud/category.py` has zero remaining callers.
-- [ ] Delete `backend/crud/category.py` if fully dead.
-- [ ] Add focused unit tests to `tests/test_access_category.py`.
-- [ ] Run full regression.
-- [ ] Update `docs/architecture/volatility-map.md`.
-- [ ] Review the diff.
-- [ ] Commit Slice 12.
+- [x] **Slice 1:** Budget Summary Manager (`backend/managers/budget_summary_manager.py`)
+- [x] **Slice 2:** Dashboard Summary Manager (`backend/managers/dashboard_summary_manager.py`)
+- [x] **Slice 3:** Credit Card Summary Manager (`backend/managers/credit_card_summary_manager.py`)
+- [x] **Slice 4:** Transfer Reconciliation Manager (`backend/managers/transfer_reconciliation_manager.py`)
+- [x] **Slice 5:** CSV Import Confirmation Manager (`backend/managers/csv_import_manager.py`)
+- [x] **Slice 6:** Plaid Account Sync Manager (`backend/managers/plaid_account_sync_manager.py`)
+- [x] **Slice 7 & 9:** Plaid Transaction Sync Manager (`backend/managers/plaid_transaction_sync_manager.py`) & Transaction ResourceAccess
+- [x] **Slice 10:** Manual Transaction CRUD ResourceAccess (`backend/access/transaction_access.py`)
+- [x] **Slice 11:** Account CRUD ResourceAccess (`backend/access/account_access.py`)
+- [x] **Slice 12:** Category & CategoryGroup CRUD / Reorder ResourceAccess (`backend/access/category_access.py`, retired `backend/crud/category.py`)
+- [x] **Slice 13:** Budget Allocation ResourceAccess (`backend/access/budget_access.py`, retired `backend/crud/budget.py`)
+- [x] **Slice 14:** Transfer Confirmation ResourceAccess (`backend/access/transaction_access.py:mark_transfers_as_reconciled`)
+- [x] **Slice 15:** Plaid Link-Token Creation ResourceAccess (`backend/access/plaid_access.py:create_link_token`)
+- [x] **Slice 16:** Upload Preview Account Lookup ResourceAccess (`backend/access/account_access.py:get_account_by_id`)
+- [x] **Custom CSV Formats & Upload-First Ingestion:**
+  - Persisted `CSVFormat` PostgreSQL Resource and `backend/access/csv_format_access.py`
+  - Configurable `MappedStatementLoader` and immutable `MappedCSVFormatConfig` in `backend/bank_statement_loader.py`
+  - Header auto-detection helper function (`detect_csv_format`) with exact matching rules
+  - Stateless upload inspection endpoint (`POST /upload/inspect`)
+  - Custom format management endpoints (`GET /upload/formats`, `POST /upload/formats`)
+  - Upload-first frontend workflow in `frontend/app/pages/upload.vue` (Step 1: Upload / Inspect / Resolve $\rightarrow$ Step 2: Account $\rightarrow$ Step 3: Preview & Confirm $\rightarrow$ Step 4: Done)
 
 ---
 
-## Priority 3 — Budget Allocation CRUD
+## Priority 1 — Audit Remaining Persistence Leaks
 
-Expected shape:
-
-```text
-Router -> BudgetAccess -> PostgreSQL
-```
-
-- [ ] Run an analysis/characterization gate first.
-- [ ] Inventory Budget CRUD routes and existing `budget_access.py` behavior.
-- [ ] Freeze create/update/delete semantics.
-- [ ] Preserve Budget Summary Manager and Budget Engine behavior.
-- [ ] Avoid introducing a BudgetManager for simple CRUD.
-- [ ] Implement only after characterization is green.
-- [ ] Full regression, docs reconciliation, review, commit.
+- [ ] Audit routers and managers for direct SQLAlchemy queries or session management that belong in ResourceAccess:
+  - [ ] Search for `db.query(`
+  - [ ] Search for `db.add(`
+  - [ ] Search for `db.delete(`
+  - [ ] Search for `db.commit(`
+  - [ ] Search for direct ORM construction inside routers
+- [ ] Ensure any remaining raw queries are encapsulated in concrete `backend/access/` modules.
 
 ---
 
-## Priority 4 — Transfer Confirmation
+## Priority 2 — Backend VBD Audit & Consistency
 
-Expected shape:
-
-```text
-Router -> Accessor
-```
-
-- [ ] Characterize the current transfer-confirmation endpoint.
-- [ ] Confirm it is still a simple atomic persistence mutation.
-- [ ] Avoid a Manager unless real sequencing is discovered.
-- [ ] Avoid an Engine unless real algorithmic volatility is discovered.
-- [ ] Extract persistence if needed.
-- [ ] Full regression, docs, review, commit.
-
----
-
-## Priority 5 — Plaid Link-Token Creation
-
-Expected shape:
-
-```text
-Router -> Plaid Accessor
-```
-
-- [ ] Characterize the current link-token creation endpoint.
-- [ ] Preserve exact SDK request/response/error behavior.
-- [ ] Keep it separate from Plaid sync Managers.
-- [ ] Do not invent a generic bank-provider abstraction.
-- [ ] Extract only the external-resource interaction if justified.
-- [ ] Full regression, docs, review, commit.
-
----
-
-## Priority 6 — Remaining persistence leaks
-
-- [ ] Audit routers/managers for direct SQLAlchemy usage.
-- [ ] Specifically revisit `backend/routers/upload.py::_verify_account`.
-- [ ] Handle the upload Account lookup within the CSV/upload boundary.
-- [ ] Do not mechanically move queries without checking workflow ownership.
-- [ ] Re-run repository-wide searches for:
-  - [ ] `db.query(`
-  - [ ] `db.add(`
-  - [ ] `db.delete(`
-  - [ ] `db.commit(`
-  - [ ] direct ORM construction inside routers
-
----
-
-## Priority 7 — Backend VBD audit
+- [ ] Verify Routers contain Presentation concerns only (HTTP validation, error mapping, serialization).
+- [ ] Verify Managers exist only for meaningful multi-step orchestration.
+- [ ] Verify Engines remain pure and infrastructure-free.
+- [ ] Verify Accessors own concrete persistence/external-resource mechanics.
+- [ ] Check for dead code or legacy compatibility wrappers (e.g. audit remaining `backend/crud/plaid.py`).
+- [ ] Confirm no unnecessary Managers, Engines, repositories, or DTO layers.
 
 - [ ] Verify Routers contain Presentation concerns only where intended.
 - [ ] Verify Managers exist only for meaningful orchestration.
@@ -296,8 +214,14 @@ Do not introduce speculative abstractions unless a real independent volatility a
 
 # Resume checkpoint
 
-When returning to the project, the first task is:
+When returning to the project, the current baseline is:
 
-> **Run Prompt `68431` and finish the Slice 12 explicit-null + reorder-edge characterization gate.**
+> **All Slices 1–16 and Custom CSV Format / Upload-First ingestion are complete and regression-verified at HEAD (`df4f6b0`). Documentation audit is complete.**
 
-Do **not** start the Slice 12 implementation until that gate is reviewed.
+Next steps:
+- Human review of the refreshed documentation.
+- Select the next prioritized slice:
+  - **Priority 1 & 2:** Auditing remaining persistence leaks and legacy wrappers (e.g. `backend/crud/plaid.py`).
+  - **Priority 3:** Separate product/behavior decisions (Transaction description nullability, CategoryGroup cascade deletion, Credit card transfer/future-dated balance semantics).
+  - **Priority 4:** Plaid token security migration (replacing base64 with cryptographic key management).
+

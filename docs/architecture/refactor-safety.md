@@ -2,55 +2,45 @@
 
 ## 1. Overview & Strategy
 
-Before executing any architectural refactoring, we must establish **safety nets**. A code audit reveals that the current test directory (`tests/`) contains zero unit tests:
-- Existing test scripts (`smoke_test.py`, `repro_budget_issue.py`, `test_decimal.py`) are manual integration scripts requiring a live backend server running on `http://127.0.0.1:12344`.
-- They primarily check HTTP status codes (`200 OK`) and JSON key presence rather than mathematical correctness, edge cases, sign inversions, or boundary conditions.
-- Core business invariants (such as zero-based budget calculations, transfer pairing heuristics, and CSV deduplication) currently have **zero automated regression protection**.
-
-The prerequisite to refactoring is writing **Characterization Tests** (using `pytest` and an isolated test environment) that pin down the exact behavior of the existing system before any code is moved or rewritten.
+Prior to architectural decomposition, safety nets were established to protect core accounting rules and behavior. The characterization harness was implemented using **`pytest`**, SQLite in-memory fixtures for rapid regression checking, and direct domain test fixtures:
+- Core business invariants (such as zero-based budget calculations, credit card debt aggregation, transfer pairing heuristics, and CSV deduplication) are now covered by automated regression tests in `tests/`.
+- All major workflows have corresponding characterization and integration tests verifying error handling, HTTP status codes, and edge-case contracts.
+- The automated regression suite is executed with `python3 -m pytest`.
 
 ---
 
 ## 2. Test Coverage & Safety Matrix
 
-| # | Major Behavior | Relevant Source Files | Existing Tests | Coverage Confidence | Characterization Tests Needed Before Refactoring | Important Invariants to Protect |
-|---|---|---|---|:---:|---|---|
-| **1** | **Monetary Sign Convention** | `models.py`, `bank_statement_loader.py`, `crud/plaid.py`, `routers/summaries.py` | None | **None** | Unit tests asserting sign conversions across all ingestion sources: USAA inverts debits to positive; Discover preserves positive charges; Plaid inverts negative debits; summaries invert negative income actuals to positive. | • Outflows (Purchases, Debits, Charges) > 0<br/>• Inflows (Deposits, Credits, Income) < 0<br/>• Income displayed positively in budget & dashboard reports. |
-| **2** | **Manual Transaction Creation** | `routers/transactions.py`, `schemas.py`, `models.py` | `smoke_test.py` (reads list only) | **Low** | Test `POST /transactions/` creating a standalone record: test valid decimal amounts, positive vs negative amounts, null category ID, and null Plaid transaction ID. | • Creates valid transaction with generated UUID<br/>• Nullable category_id<br/>• Correct decimal precision (`condecimal(10,2)`). |
-| **3** | **CSV Statement Parsing** | `bank_statement_loader.py`, `routers/upload.py` | `bank_statement_loader.py:main()` (manual CLI with hardcoded local paths) | **None** | In-memory unit tests using synthetic CSV text for `USAALoader` and `DiscoverLoader`: test header normalization, date parsing (`%Y-%m-%d` vs `%m/%d/%Y`), amount sign conversion, and missing column errors. | • USAA negates raw amount (credit/debit normalization)<br/>• Discover preserves raw charge amount<br/>• Unparseable rows raise or record parse errors. |
-| **4** | **CSV Transaction Confirmation & Deduplication** | `routers/upload.py` (`_is_duplicate`, `confirm_csv`), `models.py` | None | **None** | Test importing a batch of transactions into an account; re-import the exact same batch and verify 100% of rows are marked `skipped` and zero new rows are inserted; import with 1 modified amount and verify 1 inserted, rest skipped. | • Duplicate matching rule: identical `(account_id, date, amount, description)`<br/>• Duplicates are silently skipped without throwing 400/500 errors<br/>• Valid rows are inserted atomically. |
-| **5** | **Plaid Synchronization** | `crud/plaid.py`, `routers/plaid.py`, `crud/transaction.py` | `smoke_test.py` (asserts 404 on dummy item) | **Low** | Unit tests mocking Plaid API response: verify added transactions are inserted with inverted amounts; verify modified transactions update existing records by `plaid_transaction_id`; verify removed transactions delete records; verify `transactions_cursor` updates. | • Plaid amounts inverted: `amount = -tx_data['amount']`<br/>• Idempotent upsert based on `plaid_transaction_id`<br/>• Cursor updated upon page exhaustion. |
-| **6** | **Zero-Based Budget (ZBB) Calculation** | `routers/summaries.py` (`get_budget_summary`) | `smoke_test.py` (status code 200 check) | **None** | Pure unit tests with synthetic category groups, budgets, and transactions: verify `total_income_planned`, `total_income_actual`, `total_expense_planned`, `total_expense_actual`, and `to_be_assigned`. | • $\text{to\_be\_assigned} = \text{total\_income\_planned} - \text{total\_expense\_planned}$<br/>• Income actuals inverted (`actual = -raw_actual`)<br/>• Transfers excluded from income/expense totals. |
-| **7** | **Dashboard Summary Calculation** | `routers/summaries.py` (`get_dashboard_summary`) | `smoke_test.py` (verifies key presence) | **Low** | Test comparing dashboard metrics against budget summary metrics for the exact same dataset: verify planned/actual totals and `to_be_assigned` match identically; verify account balance sum. | • Planned, actual, and `to_be_assigned` must match `get_budget_summary` output identically<br/>• Total balance = sum of active `account.current_balance`. |
-| **8** | **Category Budget Remaining Calculations** | `routers/summaries.py`, `routers/budgets.py` | None | **None** | Test remaining math: expense category with zero spent (`remaining == planned`); expense category partially spent; over-spent category (`is_over_budget == True`, `remaining < 0`); income category under-earned vs over-earned. | • Expense: $\text{remaining} = \text{planned} - \text{actual}$; $\text{is\_over\_budget} = \text{remaining} < 0$<br/>• Income: $\text{remaining} = \text{planned} - \text{actual}$; $\text{is\_over\_budget} = \text{False}$. |
-| **9** | **Transfer Candidate Matching** | `routers/credit_cards.py` (`get_transfer_candidates`) | None | **None** | Test matching algorithm: identical amounts on same date across different accounts; 1-day difference (match); 2-day difference (match); 3-day difference (no match); same account (no match); already marked transfer (no match). | • Requires opposite signs: one positive (outflow), one negative (inflow)<br/>• Absolute amounts must match exactly<br/>• Accounts must differ<br/>• $|date_{outflow} - date_{inflow}| \le 2\text{ days}$<br/>• Neither transaction has `is_transfer == True`. |
-| **10** | **Transfer Confirmation** | `routers/credit_cards.py` (`mark_transfers`), `routers/summaries.py` | None | **None** | Test submitting a pair of transaction IDs to `POST /credit-cards/mark-transfers`: verify both records now have `is_transfer = True`; verify they are immediately excluded from ZBB monthly actuals. | • Sets `Transaction.is_transfer = True`<br/>• Both sides neutralized in subsequent budget summary calculations. |
-| **11** | **Credit Card Balance & Metric Calculations** | `routers/credit_cards.py` (`get_credit_card_summary`) | None | **None** | Test with credit card account having `starting_balance`, historical transactions from past months, and current month transactions: verify `balance_owed`, `charges_this_month`, and `payments_this_month`. | • $\text{balance\_owed} = \text{starting\_balance} + \sum_{\text{all-time}} \text{amount}$<br/>• Charges: sum of positive, non-transfer transactions in month<br/>• Payments: absolute sum of negative transactions in month. |
-| **12** | **Category & Group Reordering** | `crud/category.py`, `routers/categories.py` | None | **None** | Test `POST /category-groups/reorder` and `POST /categories/reorder`: submit arbitrary permutation of UUIDs; verify sequential `sort_order` (0, 1, 2, ...) is updated in database and returned in correct order. | • Sequential 0-indexed `sort_order`<br/>• Category reordering preserves parent `group_id`<br/>• All existing items retained. |
+The following matrix documents the key system behaviors characterized and protected by automated tests:
+
+| # | Major Behavior | Relevant Source Files | Implemented Protection | Coverage Confidence | Characterized Invariants & Behavior |
+|---|---|---|---|:---:|---|
+| **1** | **Monetary Sign Convention** | `models.py`, `bank_statement_loader.py`, `access/transaction_access.py`, `domain/budgeting.py` | `test_decimal.py`, `test_characterization_zbb.py`, `test_unit_csv_parsing.py` | **High** | • Outflows (Purchases, Debits, Charges) > 0<br/>• Inflows (Deposits, Credits, Income) < 0<br/>• Income displayed positively in budget & dashboard reports. |
+| **2** | **Manual Transaction CRUD** | `routers/transactions.py`, `schemas.py`, `access/transaction_access.py` | `test_characterization_transactions.py`, `test_access_transaction.py` | **High** | • Valid transaction creation with UUID<br/>• Nullable category_id<br/>• Decimal precision (`condecimal(10,2)`). |
+| **3** | **CSV Statement Parsing** | `bank_statement_loader.py` | `test_unit_csv_parsing.py`, `test_unit_mapped_csv_parsing.py` | **High** | • USAA negates raw amount (credit/debit normalization)<br/>• Discover preserves raw charge amount<br/>• Configurable mapped formats handle custom dates and sign conventions<br/>• Tolerant parser records non-fatal row errors. |
+| **4** | **CSV Transaction Confirmation & Deduplication** | `managers/csv_import_manager.py`, `access/transaction_access.py` | `test_characterization_csv_import.py`, `test_manager_csv_import.py`, `test_access_csv_import.py` | **High** | • Duplicate matching rule: exact `(account_id, date, amount, description)`<br/>• Duplicates are silently skipped without throwing 400/500 errors<br/>• Valid rows are inserted atomically. |
+| **5** | **Plaid Synchronization** | `managers/plaid_*_sync_manager.py`, `access/plaid_*_access.py` | `test_characterization_plaid_*.py`, `test_manager_plaid_*.py` | **High** | • Plaid amounts inverted: `amount = -tx_data['amount']`<br/>• Idempotent upsert based on `plaid_transaction_id`<br/>• Cursor updated upon page exhaustion. |
+| **6** | **Zero-Based Budget (ZBB) Calculation** | `domain/budgeting.py`, `managers/budget_summary_manager.py` | `test_domain_budgeting.py`, `test_characterization_zbb.py`, `test_manager_budget_summary.py` | **High** | • $\text{to\_be\_assigned} = \text{total\_income\_planned} - \text{total\_expense\_planned}$<br/>• Income actuals inverted (`actual = -raw_actual`)<br/>• Transfers excluded from income/expense totals. |
+| **7** | **Dashboard Summary Calculation** | `managers/dashboard_summary_manager.py` | `test_manager_dashboard_summary.py`, `test_access_dashboard_summary.py` | **High** | • Planned, actual, and `to_be_assigned` match `get_budget_summary` output identically<br/>• Total balance = sum of active `account.current_balance`. |
+| **8** | **Category Budget Remaining Calculations** | `domain/budgeting.py`, `routers/budgets.py` | `test_domain_budgeting.py`, `test_characterization_budgets.py` | **High** | • Expense: $\text{remaining} = \text{planned} - \text{actual}$; $\text{is\_over\_budget} = \text{remaining} < 0$<br/>• Income: $\text{remaining} = \text{planned} - \text{actual}$; $\text{is\_over\_budget} = \text{False}$. |
+| **9** | **Transfer Candidate Matching** | `domain/reconciliation.py`, `managers/transfer_reconciliation_manager.py` | `test_domain_reconciliation.py`, `test_characterization_transfers.py`, `test_manager_transfer_reconciliation.py` | **High** | • Requires opposite signs: one positive (outflow), one negative (inflow)<br/>• Absolute amounts must match exactly<br/>• Accounts must differ<br/>• $|date_{outflow} - date_{inflow}| \le 2\text{ days}$<br/>• Neither transaction has `is_transfer == True`. |
+| **10** | **Transfer Confirmation** | `routers/credit_cards.py`, `access/transaction_access.py` | `test_characterization_transfers.py`, `test_access_transfers.py` | **High** | • Sets `Transaction.is_transfer = True`<br/>• Bulk atomic update in PostgreSQL. |
+| **11** | **Credit Card Balance & Metric Calculations** | `domain/credit_cards.py`, `managers/credit_card_summary_manager.py` | `test_domain_credit_cards.py`, `test_characterization_credit_cards.py`, `test_manager_credit_card_summary.py` | **High** | • $\text{balance\_owed} = \text{starting\_balance} + \sum_{\text{all-time}} \text{amount}$<br/>• Charges: sum of positive, non-transfer transactions in month<br/>• Payments: absolute sum of negative transactions in month. |
+| **12** | **Category & Group Reordering** | `access/category_access.py`, `routers/categories.py` | `test_characterization_categories.py`, `test_access_category.py` | **High** | • Sequential 0-indexed `sort_order`<br/>• Category reordering preserves parent `group_id`<br/>• Preserves characterized handling of nulls, duplicates, and unlisted IDs. |
 
 ---
 
-## 3. Recommended Characterization Test Harness
+## 3. Characterization Test Harness
 
-To ensure rapid test execution and complete isolation without relying on Docker or live network ports, characterization tests should be implemented using:
-- **`pytest`**: Test runner with parameterized test cases.
-- **In-Memory SQLite (or dedicated local PostgreSQL test DB)**: Allows instant spinning up of tables via `models.Base.metadata.create_all()` with zero persistence pollution.
-- **FastAPI `TestClient` (`httpx`)**: Tests route endpoints synchronously without spinning up Uvicorn.
-- **Pure Domain Fixtures**: Tests calculation functions directly with plain Python objects (`Decimal`, `date`) without touching database tables.
-
-### Phased Characterization Plan
-1. **Phase 1: Pure Domain Tests**
-   - Write tests for ZBB math (`to_be_assigned`, sign inversion, remaining).
-   - Write tests for Credit Card debt calculation.
-   - Write tests for Transfer matching heuristics.
-   - Write tests for CSV parser row transformations.
-2. **Phase 2: Database & Workflow Characterization Tests**
-   - Write tests for CSV import duplicate skipping.
-   - Write tests for manual transaction creation and updates.
-   - Write tests for transfer marking.
-   - Write tests for category and group reordering.
-3. **Phase 3: Refactoring Execution**
-   - Refactor modules one at a time, running the characterization test suite after every change to guarantee zero behavioral regressions.
+The test suite runs via:
+```bash
+python3 -m pytest
+```
+Key harness components:
+- **`pytest`**: Test runner with parameterized test fixtures.
+- **In-Memory SQLite**: Fast isolated test database via `conftest.py` with zero persistence pollution.
+- **FastAPI `TestClient` (`httpx`)**: Synchronous route endpoint tests without spinning up network servers.
+- **Pure Domain Unit Tests**: Direct execution of domain calculation functions (`Decimal`, `date`) without touching database tables.
 
 ---
 

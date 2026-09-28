@@ -72,6 +72,19 @@ erDiagram
         BOOLEAN pending "Default false"
         BOOLEAN is_transfer "Default false"
     }
+
+    CSV_FORMATS {
+        UUID id PK
+        VARCHAR name UK "lower(name) unique index"
+        VARCHAR date_column "Header name"
+        VARCHAR description_column "Header name"
+        VARCHAR amount_column "Header name"
+        VARCHAR status_column "Nullable header name"
+        VARCHAR date_format "strptime format string"
+        VARCHAR amount_sign_convention "positive_is_outflow | positive_is_inflow"
+        VARCHAR status_posted_value "Nullable status token"
+        TIMESTAMP created_at "Server now"
+    }
 ```
 
 ---
@@ -180,6 +193,28 @@ Represents an authorized bank connection via Plaid.
 | `plaid_item_id` | VARCHAR | No | - | Unique Plaid Item identifier |
 | `plaid_access_token_encrypted` | VARCHAR | No | - | Encrypted access token |
 | `transactions_cursor` | VARCHAR | Yes | - | Plaid sync cursor for incremental updates |
+
+---
+
+### 2.7 `csv_formats`
+Represents persisted custom bank statement configurations for dynamic CSV import mapping.
+
+| Column | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | UUID | No | `uuid.uuid4()` | Primary key |
+| `name` | VARCHAR(100) | No | - | Display name of the format |
+| `date_column` | VARCHAR(100) | No | - | Name of CSV column containing transaction dates |
+| `description_column` | VARCHAR(100) | No | - | Name of CSV column containing transaction descriptions |
+| `amount_column` | VARCHAR(100) | No | - | Name of CSV column containing transaction amounts |
+| `status_column` | VARCHAR(100) | Yes | `None` | Optional CSV column containing transaction status |
+| `date_format` | VARCHAR(50) | No | - | `strptime` format string (e.g. `%m/%d/%Y`, `%Y-%m-%d`) |
+| `amount_sign_convention` | VARCHAR(30) | No | - | `'positive_is_outflow'` or `'positive_is_inflow'` |
+| `status_posted_value` | VARCHAR(50) | Yes | `None` | Status token indicating posted status. Canonicalized rules: `None` if `status_column` is absent (`None`); defaults to `"posted"` if `status_column` is present and token is omitted/blank; trimmed and lowercased if custom token is supplied (e.g. `"  CLEARED  "` &rarr; `"cleared"`). |
+| `created_at` | TIMESTAMP | No | `func.now()` | Creation timestamp |
+
+**Constraints & Indexes:**
+- `uq_csv_formats_name_lower`: `UNIQUE INDEX (lower(name))` (Format names are case-insensitively unique).
+- `chk_csv_formats_amount_sign_convention`: `CHECK (amount_sign_convention IN ('positive_is_outflow', 'positive_is_inflow'))`.
 
 ---
 

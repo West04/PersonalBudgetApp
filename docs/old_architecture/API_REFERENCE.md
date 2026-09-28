@@ -299,28 +299,118 @@ Marks one or more transactions with `is_transfer = true`.
 
 ## 7. CSV Statement Upload
 
-Parse and import bank exports with duplicate detection.
+Parse, inspect, format, and import bank exports with duplicate detection.
+
+### `POST /upload/inspect`
+Inspects an uploaded CSV file without importing data or requiring a destination account:
+- Reads file stream and decodes using UTF-8 BOM (`utf-8-sig`).
+- Extracts CSV headers and up to 3 bounded sample rows of raw source values as positional lists (`sample_rows[row][column]` corresponds to `headers[column]`).
+- Loads persisted custom format configurations and combines with built-in format candidates (`usaa`, `discover`).
+- Runs pure header auto-detection against all candidates.
+- **Form Data:**
+  - `file`: CSV file binary (`UploadFile`)
+- **Response (200 OK):** [`CSVInspectResponse`](file:///Users/west/programming_stuff/budget_app/backend/schemas.py#L437-L443)
+  ```json
+  {
+    "headers": ["Date", "Description", "Amount", "Category", "Status"],
+    "sample_rows": [
+      ["2026-05-01", "Grocery Store", "45.20", "Food", "posted"],
+      ["2026-05-03", "Gas Station", "30.00", "Transportation", "posted"]
+    ],
+    "status": "detected",
+    "detected_format": {
+      "identifier": "usaa",
+      "name": "USAA"
+    },
+    "matches": [
+      {
+        "identifier": "usaa",
+        "name": "USAA"
+      }
+    ]
+  }
+  ```
+  - `status`: `"unknown"` (0 matches), `"detected"` (exactly 1 match), or `"ambiguous"` (2+ matches).
+  - `detected_format`: Populated only when `status == "detected"`.
+  - `sample_rows`: Positional string arrays (NOT objects keyed by header names). Preserves duplicate header columns, long rows, and short rows.
+- **Error Responses:**
+  - `422 Unprocessable Entity`: File cannot be decoded as UTF-8, file is empty, or header row is missing/invalid.
+
+### `GET /upload/formats`
+Lists all user-defined persisted custom CSV format configurations, ordered by name case-insensitively ascending. Excludes built-in formats (USAA and Discover are code constants).
+- **Response (200 OK):** `Array<CSVFormatRead>` ([`CSVFormatRead`](file:///Users/west/programming_stuff/budget_app/backend/schemas.py#L413-L426))
+  ```json
+  [
+    {
+      "id": "e5c1505b-801b-4f99-9ea2-349f485dbba6",
+      "name": "My Credit Union",
+      "date_column": "Posting Date",
+      "description_column": "Details",
+      "amount_column": "Amount",
+      "status_column": "Type",
+      "date_format": "%m/%d/%Y",
+      "amount_sign_convention": "positive_is_outflow",
+      "status_posted_value": "posted",
+      "created_at": "2026-09-27T18:00:00Z"
+    }
+  ]
+  ```
+
+### `POST /upload/formats`
+Creates and persists a new custom CSV format definition.
+- **Request Body (JSON):** [`CSVFormatCreate`](file:///Users/west/programming_stuff/budget_app/backend/schemas.py#L359-L411)
+  ```json
+  {
+    "name": "My Credit Union",
+    "date_column": "Posting Date",
+    "description_column": "Details",
+    "amount_column": "Amount",
+    "status_column": "Type",
+    "date_format": "%m/%d/%Y",
+    "amount_sign_convention": "positive_is_outflow",
+    "status_posted_value": "posted"
+  }
+  ```
+  - `name`: Unique name (case-insensitive check, cannot collide with reserved names `"usaa"` or `"discover"`).
+  - `date_column`, `description_column`, `amount_column`: Source column names (must be mutually distinct).
+  - `status_column`: Optional source column distinguishing posted vs pending items.
+  - `date_format`: Python `datetime.strptime` pattern (e.g. `%Y-%m-%d`, `%m/%d/%Y`).
+  - `amount_sign_convention`: `"positive_is_outflow"` (charges positive) or `"positive_is_inflow"` (deposits positive, charges negative).
+  - `status_posted_value`: Value indicating a posted transaction. If `status_column` is absent (`null`), `status_posted_value` is canonicalized to `null`. If `status_column` is present and token is omitted/blank, defaults to `"posted"`. If a custom token is supplied, it is trimmed and lowercased (e.g. `"  CLEARED  "` becomes `"cleared"`).
+- **Response (201 Created):** [`CSVFormatRead`](file:///Users/west/programming_stuff/budget_app/backend/schemas.py#L413-L426)
+- **Error Responses:**
+  - `400 Bad Request`: Non-distinct column mappings or invalid parameters.
+  - `409 Conflict`: Name collides with built-in or existing format, or an identical semantic configuration already exists.
 
 ### `POST /upload/preview`
-Multipart form upload that inspects and parses a CSV file without persisting data.
+Multipart form upload that parses a CSV file using an explicit format identifier and returns row-by-row previews without persisting data.
 - **Form Data:**
-  - `file`: CSV file binary
-  - `account_id`: target account UUID
-  - `format`: `"usaa"` or `"discover"`
+  - `file`: CSV file binary (`UploadFile`)
+  - `account_id`: Destination account UUID
+  - `format`: Explicit format identifier (`"usaa"`, `"discover"`, or a custom `CSVFormat` UUID). *Note: Preview does not perform auto-detection; format must be specified.*
 - **Response (200 OK):** [`CSVPreviewResponse`](file:///Users/west/programming_stuff/budget_app/backend/schemas.py#L339-L345)
-  - `total_rows`, `valid_rows`, `error_rows`
-  - `rows[]`: parsed fields and optional per-row `parse_error`
+  - `total_rows`: Total rows read
+  - `valid_rows`: Number of successfully parsed transaction rows
+  - `error_rows`: Number of rows that encountered parsing errors
+  - `rows[]`: Array of [`CSVTransactionRow`](file:///Users/west/programming_stuff/budget_app/backend/schemas.py#L328-L336) (`row_number`, `transaction_date`, `description`, `amount`, `pending`, `parse_error`)
+- **Error Responses:**
+  - `400 Bad Request`: Unknown built-in format identifier string.
+  - `404 Not Found`: Target account or custom format UUID not found in database.
 
 ### `POST /upload/confirm`
-Parses and imports the CSV into the database with duplicate avoidance.
+Parses and imports the CSV into the database with duplicate prevention and non-fatal row error isolation.
 - **Form Data:**
-  - `file`: CSV file binary
-  - `account_id`: target account UUID
-  - `format`: `"usaa"` or `"discover"`
+  - `file`: CSV file binary (`UploadFile`)
+  - `account_id`: Destination account UUID
+  - `format`: Explicit format identifier (`"usaa"`, `"discover"`, or a custom `CSVFormat` UUID). *Note: Confirm does not perform auto-detection; format must be specified.*
 - **Response (200 OK):** [`CSVImportResult`](file:///Users/west/programming_stuff/budget_app/backend/schemas.py#L347-L352)
-  - `imported`: count of inserted rows
-  - `skipped`: count of duplicates skipped
-  - `errors`: list of non-fatal row warnings
+  - `imported`: Count of inserted and committed rows
+  - `skipped`: Count of duplicate rows skipped (`account_id + date + amount + description` match)
+  - `errors`: List of non-fatal row warnings logged during parsing or staging
+- **Error Responses:**
+  - `400 Bad Request`: Unknown format string.
+  - `404 Not Found`: Target account or custom format UUID not found.
+  - `422 Unprocessable Entity`: Whole-file parse failure (missing required header columns).
 
 ---
 

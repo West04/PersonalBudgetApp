@@ -112,9 +112,20 @@ The frontend will run at [http://localhost:3000](http://localhost:3000).
 
 ## 5. Testing & Database Seeding
 
-The [`tests/`](file:///Users/west/programming_stuff/budget_app/tests/) directory includes end-to-end verification and realistic data seeding tools:
+The repository contains both an automated unit/integration test suite (`pytest`) and live environment smoke/seeding tools:
 
-### 5.1 Run the Smoke Test Suite
+### 5.1 Run the Automated Test Suite (Pytest)
+Executes the automated suite of unit, integration, and characterization tests covering budgeting logic, credit card calculation, transfer matching, statement loaders, CSV auto-detection, and resource access:
+
+```bash
+# Run all tests
+python3 -m pytest
+
+# Run specific test file
+python3 -m pytest tests/test_bank_statement_loader.py
+```
+
+### 5.2 Run the Smoke Test Suite
 Verifies all core API endpoints against a running backend server:
 
 ```bash
@@ -136,7 +147,7 @@ Server up. Starting tests...
 ✅ POST /plaid/create_link_token
 ```
 
-### 5.2 Comprehensive Seed Script
+### 5.3 Comprehensive Seed Script
 Populates the database with realistic multi-month budgets, multiple accounts, and transactions:
 
 ```bash
@@ -150,7 +161,7 @@ python3 tests/seed_comprehensive.py --clean
 python3 tests/seed_comprehensive.py --base-url http://localhost:8000
 ```
 
-### 5.3 Plaid Sandbox Transaction Generator
+### 5.4 Plaid Sandbox Transaction Generator
 If using Plaid Sandbox:
 ```bash
 python3 tests/generate_sandbox_tx.py
@@ -161,7 +172,7 @@ python3 tests/generate_sandbox_tx.py
 ## 6. Common Gotchas & Troubleshooting
 
 1. **Trailing Slashes on Routes:**
-   - FastAPI enforces exact routing: `/budget/` requires the trailing slash; `/category-groups` does not have a trailing slash. Always check [`docs/API_REFERENCE.md`](file:///Users/west/programming_stuff/budget_app/docs/API_REFERENCE.md).
+   - FastAPI enforces exact routing: `/budget/` requires the trailing slash; `/category-groups` does not have a trailing slash. Always check [`API_REFERENCE.md`](file:///Users/west/programming_stuff/budget_app/docs/old_architecture/API_REFERENCE.md).
 2. **Transaction Sign Convention:**
    - Purchases/Outflows are **positive** numbers.
    - Income/Deposits are **negative** numbers.

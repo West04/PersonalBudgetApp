@@ -29,7 +29,7 @@ frontend/
 │       ├── transactions.vue    # Paginated, filterable transaction ledger
 │       ├── accounts.vue        # Account management & balances by account type
 │       ├── credit-cards.vue    # Credit debt tracking and transfer candidate review
-│       ├── upload.vue          # 4-step CSV bank statement import wizard
+│       ├── upload.vue          # Upload-first 4-step CSV wizard (Upload/Inspect/Resolve, Account, Preview & Confirm, Done)
 │       └── settings.vue        # Settings placeholder
 ├── public/                     # Static assets (favicons, robots.txt)
 ├── nuxt.config.ts              # Nitro proxy configuration
@@ -53,8 +53,9 @@ export default defineNuxtConfig({
 })
 ```
 
-- When running inside Docker Compose, browser calls to `/api/...` are routed to the Nuxt Nitro server on port 3000, which forwards them over the Docker network to `http://backend:8000/...`.
-- When developing locally, FastAPI's `CORSMiddleware` also allows direct requests from `http://localhost:3000` and `http://localhost:12345`.
+- **Consistent Frontend Contract:** All pages and components (`dashboard.vue`, `transactions.vue`, `accounts.vue`, `categories.vue`, `credit-cards.vue`, `upload.vue`) standardize on `const API_BASE = '/api'`.
+- In both local development and Docker Compose, browser requests to `/api/...` are routed through the Nuxt Nitro server proxy to `http://backend:8000/...`, eliminating direct client-side dependencies on backend port numbers.
+- FastAPI's `CORSMiddleware` provides a defense-in-depth fallback for direct API calls during local testing.
 
 ---
 

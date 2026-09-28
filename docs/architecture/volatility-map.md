@@ -8,9 +8,10 @@ Rather than organizing the codebase mechanically around functional entities ("bu
 1. **Volatility-Driven Boundaries:** Components exist only to protect against demonstrated, independent reasons to change.
 2. **Workflow Managers:** A Manager is justified strictly when there is meaningful orchestration or sequencing across multiple activities.
 3. **Calculation Engines:** An Engine is justified strictly when there is an independently volatile business algorithm, heuristic, or calculation rule that can be expressed as a pure, infrastructure-free function.
-4. **ResourceAccess / Accessors:** Accessors own concrete interaction with PostgreSQL tables or external APIs (querying, filtering, eager loading, persistence). They replace generic repository patterns.
-5. **No Mechanical Layering:** Simple CRUD operations do **not** receive Managers or Engines. They follow a direct `Router -> Accessor` design.
-6. **No Domain-Noun Architecture:** Domain entities (Account, Category, Budget, Transaction) do not automatically become architecture layers (`AccountManager`, `CategoryEngine`, etc.).
+4. **ResourceAccess / Accessors:** Accessors own concrete interaction with PostgreSQL tables or external network APIs (querying, filtering, eager loading, persistence). They replace generic repository patterns.
+5. **Ingestion & Parser Boundary:** `BankStatementLoader` and format auto-detection adapt messy external bank CSV statement streams into normalized domain records (`TransactionCreate`). Statement parsing is **not** ResourceAccess and **not** a business Engine.
+6. **No Mechanical Layering:** Simple CRUD operations do **not** receive Managers or Engines. They follow a direct `Router -> Accessor` design.
+7. **No Domain-Noun Architecture:** Domain entities (Account, Category, Budget, Transaction) do not automatically become architecture layers (`AccountManager`, `CategoryEngine`, etc.).
 
 ---
 
@@ -20,7 +21,9 @@ The following matrix documents only **observed volatility** and **confirmed road
 
 | System Responsibility | What Changes Independently? | Volatility Rate | Observed Evidence in Codebase | Justified Architecture Boundary |
 |---|---|:---:|---|---|
-| **Bank Statement Parsing** | Bank export headers, date formats, transaction sign conventions | **Medium-High** | USAA and Discover CSV formats have opposite sign conventions and different column headers | **Ingestion Parser / StatementLoader** (`backend/bank_statement_loader.py`) |
+| **Bank Statement Parsing** | Bank export headers, date formats, transaction sign conventions | **Medium-High** | USAA and Discover CSV formats have opposite sign conventions and different column headers | **Ingestion Parser / StatementLoader** (`backend/bank_statement_loader.py`: `BankStatementLoader`, `USAALoader`, `DiscoverLoader`, `MappedStatementLoader`) |
+| **CSV Custom Format Configuration** | User-defined column mappings, date formats, sign conventions, and status tokens | **Low-Medium** | Bank statement variations across user institutions without codebase changes | **Configuration Resource (`models.CSVFormat`) & ResourceAccess** (`backend/access/csv_format_access.py`) |
+| **CSV Format Header Auto-Detection** | Header matching against built-in and user-defined candidate formats | **Medium** | Upload-first workflow automatically resolving formats from CSV header structure | **Ingestion Format Detection Function** (`backend/bank_statement_loader.py:detect_csv_format`) |
 | **Plaid API Integration** | External API endpoints, cursor-based sync protocol, credential decryption | **High** | Plaid API cursor typing quirk requiring raw HTTP requests; token storage security | **External ResourceAccess** (`plaid_access.py` / SDK client for `/accounts/get` + `plaid_transaction_access.py` / raw HTTP for `/transactions/sync`) |
 | **Zero-Based Budget (ZBB) Math** | Sign inversions, category remaining, group totals, `to_be_assigned` | **Medium** | Financial math was previously copy-pasted across `get_budget_summary` and `get_dashboard_summary` | **Pure Domain Engine** (`backend/domain/budgeting.py`) |
 | **Transfer Reconciliation Matching** | Pairing heuristics: exact absolute amount, opposing signs, different accounts, $\le 2$ days | **Medium-High** | Heuristic matching was trapped inside `routers/credit_cards.py` | **Pure Domain Engine** (`backend/domain/reconciliation.py`) |
@@ -40,7 +43,7 @@ The following items are **speculative** and must **not** be used to justify arch
 | Speculative Concept | Why Rejected as an Architectural Driver |
 |---|---|
 | **Alternative Bank Aggregators (MX, Teller)** | The application currently integrates exclusively with Plaid. Introducing an `IBankProvider` interface is premature generalization. |
-| **Hypothetical CSV Layouts (Chase, BoA, OFX/QIF)** | Only USAA and Discover statements are currently supported. Adding generic bank format parsers before real formats are needed adds dead code. |
+| **Hardcoded Bank Classes for Hypothetical Layouts (Chase, BoA, OFX/QIF)** | Creating dedicated Python parser classes for hypothetical banks or non-CSV formats adds dead code. Instead, arbitrary CSV statement variations are handled generically as configuration data via `MappedCSVFormatConfig` and persisted `CSVFormat` records. |
 | **Fuzzy Duplicate Matching / Hash Deduplication** | Current deduplication is an exact 4-tuple match `(account_id, date, amount, description)`. Algorithmic scoring engines are overengineering. |
 | **Merchant-Keyword / Split-Transfer Matching** | Inter-account transfers currently use deterministic 1-to-1 pairing within 2 days. Heuristic pipeline frameworks are rejected. |
 | **Statement Cycles, APR Tracking, Minimum Payments** | Credit card accounting strictly tracks all-time net transactions and monthly charges/payments. Liability forecasting engines are speculative. |
@@ -63,18 +66,18 @@ flowchart TD
         RouterAcct["accounts.py<br/>(Slice 11 Implemented & Verified)"]
         RouterCat["categories.py<br/>(Slice 12 Implemented & Verified)"]
         RouterBudget["budgets.py<br/>(Slice 13 Implemented & Verified)"]
-        RouterUpload["upload.py<br/>(/upload/preview, /upload/confirm)"]
+        RouterUpload["upload.py<br/>(/upload/inspect, formats, preview, confirm)"]
         RouterPlaid["plaid.py<br/>(/plaid/create_link_token, sync_accounts, sync_transactions)"]
     end
 
     subgraph Managers ["Workflow Managers (Sequencing Volatility)"]
-        BudgetSummaryMgr["BudgetSummaryManager<br/>(Reference Vertical Slice)"]
-        DashSummaryMgr["DashboardSummaryManager<br/>(Slice 2 Implemented & Verified)"]
-        CCSummaryMgr["CreditCardSummaryManager<br/>(Slice 3 Implemented & Verified)"]
-        ReconcileMgr["TransferReconciliationManager<br/>(Slice 4 Implemented & Verified)"]
-        CSVImportMgr["CSVImportManager<br/>(Slice 5 Implemented & Verified)"]
-        PlaidAccountSyncMgr["PlaidAccountSyncManager<br/>(Slice 6 Implemented & Verified)"]
-        PlaidTxSyncMgr["PlaidTransactionSyncManager<br/>(Slice 7 & Slice 9 Implemented & Verified)"]
+        BudgetSummaryMgr["BudgetSummaryManager<br/>(budget_summary_manager.py)"]
+        DashSummaryMgr["DashboardSummaryManager<br/>(dashboard_summary_manager.py)"]
+        CCSummaryMgr["CreditCardSummaryManager<br/>(credit_card_summary_manager.py)"]
+        ReconcileMgr["TransferReconciliationManager<br/>(transfer_reconciliation_manager.py)"]
+        CSVImportMgr["CSVImportManager<br/>(csv_import_manager.py)"]
+        PlaidAccountSyncMgr["PlaidAccountSyncManager<br/>(plaid_account_sync_manager.py)"]
+        PlaidTxSyncMgr["PlaidTransactionSyncManager<br/>(plaid_transaction_sync_manager.py)"]
     end
 
     subgraph Engines ["Domain Calculation Engines (Pure Business Rules)"]
@@ -83,15 +86,19 @@ flowchart TD
         ReconcileEngine["Reconciliation Engine<br/>(detect_transfer_candidates)"]
     end
 
+    subgraph Ingestion ["Ingestion & Parsing Boundary"]
+        CSVLoader["bank_statement_loader.py<br/>(USAA, Discover, MappedStatementLoader, detect_csv_format)"]
+    end
+
     subgraph Accessors ["ResourceAccess (Concrete Persistence & API Access)"]
         BudgetAcc["budget_access.py"]
         CatAcc["category_access.py"]
         TxAcc["transaction_access.py"]
         AcctAcc["account_access.py"]
+        CSVFormatAcc["csv_format_access.py"]
         PlaidItemAcc["plaid_item_access.py"]
         PlaidAcc["plaid_access.py / SDK Client"]
         PlaidTxAcc["plaid_transaction_access.py<br/>(raw /transactions/sync)"]
-        CSVLoader["bank_statement_loader.py (USAA, Discover)"]
     end
 
     subgraph Resources ["External & Storage Resources"]
@@ -116,7 +123,11 @@ flowchart TD
     RouterBudget --> BudgetAcc
     RouterCC --> TxAcc
     RouterPlaid --> PlaidAcc
+    RouterUpload -->|"/upload/inspect"| CSVFormatAcc
+    RouterUpload -->|"/upload/inspect"| CSVLoader
+    RouterUpload -->|"/upload/formats"| CSVFormatAcc
     RouterUpload -->|"/upload/preview"| AcctAcc
+    RouterUpload -->|"/upload/preview"| CSVFormatAcc
     RouterUpload -->|"/upload/preview"| CSVLoader
 
     %% Manager internal wiring
@@ -155,6 +166,7 @@ flowchart TD
     CatAcc --> DB
     TxAcc --> DB
     AcctAcc --> DB
+    CSVFormatAcc --> DB
     PlaidItemAcc --> DB
     PlaidAcc --> PlaidAPI
     PlaidTxAcc --> PlaidAPI
@@ -175,13 +187,23 @@ Although both ingestion pipelines persist transactions to PostgreSQL, their oper
 
 ### 5.1. CSV Statement Ingestion Pipeline
 - **Input Resource:** Stateless file stream (`UploadFile`).
-- **Processing Model:** Batch parsing via `BankStatementLoader` hierarchy (USAA, Discover).
+- **Processing Model:** Upload-first inspection and format auto-detection, configurable mapped parsing via `MappedStatementLoader` and built-ins (`USAALoader`, `DiscoverLoader`).
 - **Identity Model:** No stable external transaction IDs.
 - **Deduplication Policy:** Exact 4-field tuple match `(account_id, date, amount, description)`.
-- **Event Lifecycle:** Two user-facing operations with distinct architectural paths:
-  - **Preview (`POST /upload/preview`, Slice 16 Implemented & Verified):** Direct `Router -> (AccountAccess + BankStatementLoader)` workflow. Read-only, stateless verification and parse preview; reuses `account_access.get_account_by_id`; no Manager, no persistence.
-  - **Confirm (`POST /upload/confirm`, Slice 5 Implemented & Verified):** Multi-step `Router -> CSVImportManager -> (AccountAccess + TransactionAccess + BankStatementLoader)` workflow. Coordinates account verification, statement parsing, row-level deduplication, transaction staging, and atomic batch commit.
-- **Error Model:** Preview reports row-level parsing issues in response data; Confirm fails whole-statement parsing with 422 before persistence, while persistence-loop row errors are accumulated non-fatally.
+- **Architectural Boundary Distinction:**
+  - `CSVImportManager` = workflow Manager coordinating destination account verification, statement parsing, duplicate checking, batch staging, and atomic commit.
+  - `bank_statement_loader.py` = ingestion/parser boundary (`BankStatementLoader` ABC, `USAALoader`, `DiscoverLoader`), **not** a VBD business calculation Engine.
+  - `detect_csv_format` = simple deterministic ingestion helper function, **not** an Engine.
+  - `MappedStatementLoader` = configurable parser implementation driven by `MappedCSVFormatConfig`.
+  - `MappedCSVFormatConfig` = parser configuration value object.
+  - `account_access.py` & `transaction_access.py` = concrete ResourceAccess modules imported and called by `CSVImportManager`.
+  - `csv_format_access.py` = concrete ResourceAccess module used by the upload router (`/upload/inspect`, `/upload/formats`, and `_resolve_statement_loader`).
+- **Event Lifecycle & Workflows:**
+  - **Inspection (`POST /upload/inspect`):** Stateless inspection extracting headers and up to 3 bounded sample rows of raw positional source values (`sample_rows[row][column]`); detects matches against built-ins and custom formats. Status: `unknown` (0 matches), `detected` (1 match), `ambiguous` (2+ matches). File only; no destination account required; no transaction persistence.
+  - **Format Management (`GET /upload/formats`, `POST /upload/formats`):** Lists persisted custom formats (ordered case-insensitively) and persists new valid mapping configurations. Built-in formats (USAA, Discover) are code constants and are not stored in the database.
+  - **Preview (`POST /upload/preview`):** Direct `Router -> (AccountAccess + CSVFormatAccess + BankStatementLoader)` workflow. Requires destination account and explicit format identifier (`"usaa"`, `"discover"`, or custom UUID). Read-only parse preview; does not auto-detect format; captures row errors gracefully; no persistence.
+  - **Confirm (`POST /upload/confirm`):** Multi-step `Router -> CSVImportManager -> (AccountAccess + TransactionAccess + BankStatementLoader)` workflow. Requires destination account and explicit format identifier. Coordinates account verification, tolerant statement parsing, row-level duplicate checking, batch staging, non-fatal row error accumulation, and a single final `db.commit()`.
+- **Error Model:** Preview reports row-level parsing errors in response; Confirm parses via `load_records_tolerant`, returning non-fatal row errors in `summary.errors` while staging and committing valid transactions.
 
 ### 5.2. Plaid Account Sync Pipeline (Slice 6 Implemented & Verified)
 - **Input Resource:** External Plaid REST API (`/accounts/get`).
@@ -204,11 +226,11 @@ Although both ingestion pipelines persist transactions to PostgreSQL, their oper
 ## 6. Anti-Patterns & Overengineering to Avoid
 
 1. **Generic Repository Interfaces (`IRepository<T>`):**
-   Introducing generic repository abstractions, specification patterns, or Unit of Work frameworks for PostgreSQL is unnecessary boilerplate. Concrete Python functions in focused access modules (`account_access.py`, `transaction_access.py`) are preferred.
+   Introducing generic repository abstractions, specification patterns, or Unit of Work frameworks for PostgreSQL is unnecessary boilerplate. Concrete Python functions in focused access modules (`account_access.py`, `transaction_access.py`, `csv_format_access.py`) are preferred.
 2. **Manager-per-Domain-Entity Antipattern:**
    Creating `AccountManager`, `CategoryManager`, or `BudgetManager` for basic CRUD operations adds zero architectural value. A Manager is justified strictly by workflow sequencing.
 3. **Engine-per-Feature Antipattern:**
-   Inventing pseudo-engines (e.g. `DashboardEngine`, `TransferConfirmationEngine`, `ReorderingEngine`) for simple sums, index increments, or boolean updates is overengineering.
+   Inventing pseudo-engines (e.g. `DashboardEngine`, `TransferConfirmationEngine`, `ReorderingEngine`, `DeduplicationEngine`) for simple sums, index increments, boolean updates, or database lookups is overengineering.
 4. **DTO Layer Proliferation:**
    Do not introduce parallel DTO types for every layer. Accessors return ORM persistence records to Managers; Managers map records into clean, immutable application dataclasses; Routers serialize application dataclasses to Pydantic responses.
 5. **Microservices / Distributed Message Brokers:**
@@ -218,34 +240,36 @@ Although both ingestion pipelines persist transactions to PostgreSQL, their oper
 
 ## 7. Remaining Workflows Classification & Architectural Decisions
 
-Following the reference vertical slice (Budget Summary) and the completed Dashboard Summary slice, the remaining application workflows are classified based on observed volatility:
+Following the reference vertical slice (Budget Summary) and the completed Dashboard Summary slice, the application workflows are classified based on observed volatility:
 
 ### 7.1. Classification Summary Matrix
 
-| Workflow | Manager? | Engine? | Accessor? | Target Pattern | Rationale |
-|---|:---:|:---:|:---:|---|---|
-| **Dashboard Summary** | **Yes** | **Reuse Budget Engine** | **Yes** | `Router -> Manager -> (BudgetSummaryManager + Accessors)` | Composes existing Budget Summary workflow, active accounts, and 10 recent transactions (Slice 2 Implemented & Verified; see [dashboard-summary.md](dashboard-summary.md)). |
-| **Credit-Card Summary** | **Yes** | **Reuse CC Engine** | **Yes** | `Router -> Manager -> (CreditCardEngine + Accessors)` | Coordinates active credit accounts, historical ledger queries, calculation engine execution, and monthly display selection (Slice 3 Implemented & Verified; see [credit-card-summary.md](credit-card-summary.md)). |
-| **Transfer Candidate Search** | **Yes** | **Reuse Reconciliation Engine** | **Yes** | `Router -> Manager -> (ReconciliationEngine + Accessor)` | Coordinates candidate-set retrieval, domain input mapping, pure Engine matching, match-to-record correlation, and response enrichment (Slice 4 Implemented & Verified; see [transfer-candidate-search.md](transfer-candidate-search.md)). |
-| **CSV Confirmation & Deduplication** | **Yes** | **No Standalone Engine** | **Yes** | `Router -> CSVImportManager -> (AccountAccess + TransactionAccess + StatementLoader)` | Coordinates account verification, loader parsing, exact duplicate checking, batch insert, and commit (Slice 5 Implemented & Verified; see [csv-import-confirmation.md](csv-import-confirmation.md)). |
-| **Plaid Account Sync** | **Yes** | **No Engine** | **Yes** | `Router -> PlaidAccountSyncManager -> (PlaidItemAccess + AccountAccess + PlaidAccess)` | External API call, credential decryption, and account/balance persistence (Slice 6 Implemented & Verified; see [plaid-account-sync.md](plaid-account-sync.md)). |
-| **Plaid Transaction Sync** | **Yes** | **No Engine** | **Yes** | `Router -> PlaidTransactionSyncManager -> (PlaidItemAccess + PlaidAccess + AccountAccess + PlaidTransactionAccess + TransactionAccess)` | Coordinates balance refresh flush, cursor pagination loop, added/modified/removed processing, event-level commits, and cursor persistence (Slice 7 & Slice 9 Implemented & Verified; see [plaid-transaction-sync.md](plaid-transaction-sync.md)). |
-| **Transfer Confirmation** | **No** | **No Engine** | **Yes** | `Router -> Accessor` | Single atomic boolean bulk mutation (`is_transfer = True`) (Slice 14 Implemented & Verified). Concrete bulk persistence moved to `transaction_access.py`. |
-| **Manual Transaction CRUD** | **No** | **No Engine** | **Yes** | `Router -> TransactionAccess` | Standard entity CRUD and query filtering (Slice 10 Implemented & Verified). Retired legacy `crud/transaction.py`. |
-| **Account CRUD** | **No** | **No Engine** | **Yes** | `Router -> AccountAccess` | Standard entity CRUD (Slice 11 Implemented & Verified). Raw queries moved to `account_access.py`. |
-| **Category & Group CRUD** | **No** | **No Engine** | **Yes** | `Router -> CategoryAccess` | Standard entity CRUD (Slice 12 Implemented & Verified). Retired legacy `crud/category.py`. |
-| **Category & Group Reorder** | **No** | **No Engine** | **Yes** | `Router -> CategoryAccess` | Applies payload-index sort_order updates while preserving characterized handling of unknown, unlisted, cross-group, empty, and duplicate IDs (Slice 12 Implemented & Verified). |
-| **Budget Allocation CRUD** | **No** | **No Engine** | **Yes** | `Router -> BudgetAccess` | Standard monthly allocation entity CRUD (Slice 13 Implemented & Verified). Concrete persistence moved to `budget_access.py`. |
-| **Plaid Link-Token Creation** | **No** | **No Engine** | **Yes** | `Router -> Plaid Accessor` | Single external SDK call (Slice 15 Implemented & Verified). Concrete Plaid SDK LinkToken creation moved to `plaid_access.py`. |
-| **Upload Preview** | **No** | **No Engine** | **Yes** | `Router -> (AccountAccess + StatementLoader)` | Direct stateless preview of uploaded statement (Slice 16 Implemented & Verified). Reuses `account_access.get_account_by_id` and `BankStatementLoader` without a Manager. |
+| Workflow / Responsibility | Manager | Engine / Specialized Boundary | ResourceAccess | Target Pattern | Rationale |
+|---|---|---|---|---|---|
+| **Dashboard Summary** | `DashboardSummaryManager` | Reuses `calculate_budget_summary` (Pure Engine via `BudgetSummaryManager`) | `account_access.py`, `transaction_access.py` | `Router -> Manager -> (BudgetSummaryManager + Accessors)` | Composes existing Budget Summary workflow, active accounts, and 10 recent transactions (Slice 2 Implemented & Verified; see [dashboard-summary.md](dashboard-summary.md)). |
+| **Credit-Card Summary** | `CreditCardSummaryManager` | `calculate_credit_card_state` (Pure Engine) | `account_access.py`, `transaction_access.py` | `Router -> Manager -> (CreditCardEngine + Accessors)` | Coordinates active credit accounts, historical ledger queries, calculation engine execution, and monthly display selection (Slice 3 Implemented & Verified; see [credit-card-summary.md](credit-card-summary.md)). |
+| **Transfer Candidate Search** | `TransferReconciliationManager` | `detect_transfer_candidates` (Pure Engine) | `transaction_access.py` | `Router -> Manager -> (ReconciliationEngine + Accessor)` | Coordinates candidate-set retrieval, domain input mapping, pure Engine matching, match-to-record correlation, and response enrichment (Slice 4 Implemented & Verified; see [transfer-candidate-search.md](transfer-candidate-search.md)). |
+| **CSV Confirmation & Deduplication** | `CSVImportManager` | `BankStatementLoader` / `MappedStatementLoader` (Ingestion/Parser Boundary, not an Engine) | `account_access.py`, `transaction_access.py` | `Router -> CSVImportManager -> (AccountAccess + TransactionAccess + BankStatementLoader)` | Coordinates destination account verification, loader parsing, exact duplicate checking, batch insert, and commit (Slice 5 Implemented & Verified; see [csv-import-confirmation.md](csv-import-confirmation.md)). |
+| **Plaid Account Sync** | `PlaidAccountSyncManager` | None (No Engine) | `plaid_item_access.py`, `account_access.py`, `plaid_access.py` | `Router -> PlaidAccountSyncManager -> (PlaidItemAccess + AccountAccess + PlaidAccess)` | External API call, credential decryption, and account/balance persistence (Slice 6 Implemented & Verified; see [plaid-account-sync.md](plaid-account-sync.md)). |
+| **Plaid Transaction Sync** | `PlaidTransactionSyncManager` | None (No Engine) | `plaid_item_access.py`, `plaid_access.py`, `account_access.py`, `plaid_transaction_access.py`, `transaction_access.py` | `Router -> PlaidTransactionSyncManager -> (PlaidItemAccess + PlaidAccess + AccountAccess + PlaidTransactionAccess + TransactionAccess)` | Coordinates balance refresh flush, cursor pagination loop, added/modified/removed processing, event-level commits, and cursor persistence (Slice 7 & Slice 9 Implemented & Verified; see [plaid-transaction-sync.md](plaid-transaction-sync.md)). |
+| **Transfer Confirmation** | None (No Manager) | None (No Engine) | `transaction_access.py` | `Router -> Accessor` | Single atomic boolean bulk mutation (`is_transfer = True`) (Slice 14 Implemented & Verified). Concrete bulk persistence moved to `transaction_access.py`. |
+| **Manual Transaction CRUD** | None (No Manager) | None (No Engine) | `transaction_access.py` | `Router -> TransactionAccess` | Standard entity CRUD and query filtering (Slice 10 Implemented & Verified). Retired legacy `crud/transaction.py`. |
+| **Account CRUD** | None (No Manager) | None (No Engine) | `account_access.py` | `Router -> AccountAccess` | Standard entity CRUD (Slice 11 Implemented & Verified). Raw queries moved to `account_access.py`. |
+| **Category & Group CRUD** | None (No Manager) | None (No Engine) | `category_access.py` | `Router -> CategoryAccess` | Standard entity CRUD (Slice 12 Implemented & Verified). Retired legacy `crud/category.py`. |
+| **Category & Group Reorder** | None (No Manager) | None (No Engine) | `category_access.py` | `Router -> CategoryAccess` | Applies payload-index sort_order updates while preserving characterized handling of unknown, unlisted, cross-group, empty, and duplicate IDs (Slice 12 Implemented & Verified). |
+| **Budget Allocation CRUD** | None (No Manager) | None (No Engine) | `budget_access.py` | `Router -> BudgetAccess` | Standard monthly allocation entity CRUD (Slice 13 Implemented & Verified). Concrete persistence moved to `budget_access.py`. |
+| **Plaid Link-Token Creation** | None (No Manager) | None (No Engine) | `plaid_access.py` | `Router -> Plaid Accessor` | Single external SDK call (Slice 15 Implemented & Verified). Concrete Plaid SDK LinkToken creation moved to `plaid_access.py`. |
+| **Upload Preview** | None (No Manager) | `BankStatementLoader` / `MappedStatementLoader` (Ingestion/Parser Boundary, not an Engine) | `account_access.py`, `csv_format_access.py` | `Router -> (AccountAccess + CSVFormatAccess + StatementLoader)` | Direct stateless preview of uploaded statement (Slice 16 Implemented & Verified). Resolves loader explicitly, reuses `account_access.get_account_by_id` without a Manager. |
+| **CSV Upload Inspection** | None (No Manager) | `detect_csv_format` (Simple deterministic ingestion helper, not an Engine) | `csv_format_access.py` | `Router -> (CSVFormatAccess + detect_csv_format)` | Stateless header extraction, sample row reading, and candidate matching without a Manager. |
+| **CSV Format Management** | None (No Manager) | None (No Engine) | `csv_format_access.py` | `Router -> CSVFormatAccess` | Standard entity listing and persistence for user-defined formats via `csv_format_access.py`. |
 
 ### 7.2. Category 1: Manager + Existing Engine
-- **Credit-Card Summary (Slice 3 Implemented & Verified):** Uses `CreditCardSummaryManager` orchestrating active credit accounts, historical transactions, calculation engine execution, and monthly display selection, reusing the existing, pure [`calculate_credit_card_state`](backend/domain/credit_cards.py). Documented in [credit-card-summary.md](credit-card-summary.md).
+- **Credit-Card Summary (Slice 3 Implemented & Verified):** Uses `CreditCardSummaryManager` orchestrating active credit accounts, historical transactions, calculation engine execution, and monthly display selection, reusing the existing, pure [`calculate_credit_card_state`](../../backend/domain/credit_cards.py). Documented in [credit-card-summary.md](credit-card-summary.md).
 
-- **Transfer Candidate Search (Slice 4 Implemented & Verified):** Uses `TransferReconciliationManager` orchestrating candidate-set retrieval, domain input mapping, pure Engine matching, match-to-record correlation, and response enrichment, reusing the existing, pure [`detect_transfer_candidates`](backend/domain/reconciliation.py). Documented in [transfer-candidate-search.md](transfer-candidate-search.md).
+- **Transfer Candidate Search (Slice 4 Implemented & Verified):** Uses `TransferReconciliationManager` orchestrating candidate-set retrieval, domain input mapping, pure Engine matching, match-to-record correlation, and response enrichment, reusing the existing, pure [`detect_transfer_candidates`](../../backend/domain/reconciliation.py). Documented in [transfer-candidate-search.md](transfer-candidate-search.md).
 
 ### 7.3. Category 2: Manager Likely Justified, No Engine
-- **CSV Confirmation & Deduplication (Slice 5 Implemented & Verified):** Multi-step pipeline (verify account $\rightarrow$ parse statement $\rightarrow$ deduplicate $\rightarrow$ batch stage $\rightarrow$ commit), reusing the existing BankStatementLoader boundary without a new Engine. Documented in [csv-import-confirmation.md](csv-import-confirmation.md).
+- **CSV Confirmation & Deduplication (Slice 5 Implemented & Verified):** Multi-step pipeline (verify account $\rightarrow$ resolve loader $\rightarrow$ parse statement $\rightarrow$ deduplicate $\rightarrow$ batch stage $\rightarrow$ commit), reusing the existing BankStatementLoader boundary without a new Engine. Documented in [csv-import-confirmation.md](csv-import-confirmation.md).
 - **Plaid Account Sync (Slice 6 Implemented & Verified):** Multi-step pipeline (validate identifiers $\rightarrow$ lookup PlaidItem $\rightarrow$ decrypt token $\rightarrow$ fetch accounts $\rightarrow$ stage/update local accounts $\rightarrow$ flush $\rightarrow$ commit), coordinating external Plaid SDK access, credential decoding, and account persistence without a standalone Engine. Documented in [plaid-account-sync.md](plaid-account-sync.md).
 - **Plaid Transaction Sync (Slice 7 & Slice 9 Implemented & Verified):** Multi-step pipeline (validate identifiers $\rightarrow$ lookup PlaidItem $\rightarrow$ decrypt token $\rightarrow$ stage balance refresh $\rightarrow$ flush $\rightarrow$ paginated cursor loop $\rightarrow$ event-level commits $\rightarrow$ persist final cursor $\rightarrow$ commit cursor), coordinating raw HTTP Plaid transaction sync, external account fetching, account persistence, and transaction resource access without an Engine. Documented in [plaid-transaction-sync.md](plaid-transaction-sync.md).
 
@@ -259,6 +283,8 @@ Direct **`Router -> Accessor`** is the terminal and correct VBD design for:
 - Budget allocation CRUD (`backend/routers/budgets.py -> backend/access/budget_access.py`; Slice 13 Implemented & Verified)
 - Plaid link-token creation (`POST /plaid/create_link_token -> backend/access/plaid_access.py`; Slice 15 Implemented & Verified)
 - Upload preview (`POST /upload/preview -> backend/access/account_access.py` and `BankStatementLoader`; Slice 16 Implemented & Verified)
+- CSV upload inspection (`POST /upload/inspect -> backend/access/csv_format_access.py` and `detect_csv_format`)
+- CSV format management (`GET /upload/formats`, `POST /upload/formats -> backend/access/csv_format_access.py`)
 
 > [!NOTE]
 > **Shared ResourceAccess for Multiple Callers:**

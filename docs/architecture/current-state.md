@@ -1,7 +1,7 @@
 # Current State Architecture & System Analysis
 
 ## 1. Executive Summary
-The Personal Budget App is a full-stack personal finance application built on the zero-based budgeting (ZBB) methodology. It supports automated bank syncing via Plaid and manual CSV statement uploads. This document documents the existing architectural implementation, components, data flows, and structural issues identified during reverse engineering.
+The Personal Budget App is a full-stack personal finance application built on the zero-based budgeting (ZBB) methodology. It supports automated bank syncing via Plaid and manual CSV statement uploads (with automatic header detection, custom format persistence, and upload-first workflow). This document records the current architectural implementation, components, data flows, and known defects/unresolved items at HEAD (`df4f6b0`).
 
 ---
 
@@ -9,10 +9,10 @@ The Personal Budget App is a full-stack personal finance application built on th
 
 | Layer | Technologies | Key Libraries & Specifications |
 |---|---|---|
-| **Backend API** | Python 3.11/3.12, FastAPI 0.115+ | Uvicorn, Pydantic v2 (`ConfigDict`, `condecimal`), `python-dotenv` |
-| **ORM & Database** | SQLAlchemy 2.x, PostgreSQL 18 | `psycopg2-binary`, `UUID`, `DECIMAL(10,2)`, `DECIMAL(12,2)` |
+| **Backend API** | Python 3.11, FastAPI 0.115+ | Uvicorn, Pydantic v2 (`ConfigDict`, `condecimal`), `python-dotenv`, `python-multipart` |
+| **ORM & Database** | SQLAlchemy 2.x, PostgreSQL 18 | `psycopg2-binary`, `UUID`, `DECIMAL(10,2)`, `DECIMAL(12,2)`, 7 models (`CategoryGroup`, `Category`, `Budget`, `Account`, `Transaction`, `PlaidItem`, `CSVFormat`) |
 | **Integrations** | Plaid Python SDK, `requests` | Direct HTTP calls to `/transactions/sync`, `csv`, `io` |
-| **Security** | Python Standard Library | `base64` placeholder token encoding |
+| **Security** | Python Standard Library | `base64` placeholder token encoding (security migration pending) |
 | **Frontend SPA** | Nuxt 4 (`^4.2.2`), Vue 3 (`^3.5.26`) | Composition API, `<script setup>`, Vue Router 4, `vuedraggable` (`^4.1.0`) |
 | **Orchestration** | Docker Compose | Backend (`:12344`), Frontend (`:12345`), Postgres (`:5432`) |
 
@@ -31,7 +31,7 @@ The Personal Budget App is a full-stack personal finance application built on th
    - `frontend/app/pages/index.vue` redirects root traffic to `/dashboard`.
 3. **Docker Networking & Proxy Rules:**
    - Nuxt's Nitro server proxies `/api/**` to `http://backend:8000/**`.
-   - Inconsistency: `dashboard.vue` and `transactions.vue` bypass the proxy and target `http://localhost:12344` directly, whereas `credit-cards.vue`, `upload.vue`, `accounts.vue`, and `categories.vue` consume `/api/**`.
+   - All frontend views (`dashboard.vue`, `transactions.vue`, `credit-cards.vue`, `upload.vue`, `accounts.vue`, `categories.vue`) consistently communicate via `/api/**`.
 
 ---
 
@@ -41,25 +41,44 @@ The Personal Budget App is a full-stack personal finance application built on th
 backend/
 ├── main.py                     # App creation, lifespan DDL/seeding, router mounting
 ├── database.py                 # Engine creation, SessionLocal factory, get_db dependency
-├── models.py                   # 6 SQLAlchemy models in a single monolithic file
-├── schemas.py                  # Pydantic schemas and ACCOUNT_SUBTYPES definition
-├── security.py                 # Base64 encode/decode masquerading as encryption
+├── models.py                   # 7 SQLAlchemy models (CategoryGroup, Category, Budget, Account, Transaction, PlaidItem, CSVFormat)
+├── schemas.py                  # Pydantic v2 schemas and ACCOUNT_SUBTYPES definition
+├── security.py                 # Base64 placeholder token encoding (security migration pending)
 ├── initial_data.py             # Default category group and category seed records
-├── bank_statement_loader.py    # BankStatementLoader ABC, USAALoader, DiscoverLoader
+├── bank_statement_loader.py    # BankStatementLoader ABC, USAA/Discover, MappedStatementLoader, MappedCSVFormatConfig, detect_csv_format
+├── access/                     # Concrete PostgreSQL & external ResourceAccess
+│   ├── account_access.py       # Account persistence, active filters, starting balances
+│   ├── budget_access.py        # Monthly budget allocation queries and CRUD
+│   ├── category_access.py      # Category/Group CRUD, hierarchy queries, sort_order updates
+│   ├── csv_format_access.py    # CSVFormat persistence, uniqueness validation, mapped config converters
+│   ├── plaid_access.py         # Plaid SDK client, link-token creation, account balance queries
+│   ├── plaid_item_access.py    # PlaidItem lookup and cursor persistence
+│   ├── plaid_transaction_access.py # Dedicated raw HTTP /transactions/sync client
+│   └── transaction_access.py   # Transaction queries, CSV duplicate detection, staging, transfer flags
+├── domain/                     # Pure business calculation Engines (no DB, no FastAPI)
+│   ├── budgeting.py            # Zero-based budget calculations (planned, actual, to_be_assigned)
+│   ├── credit_cards.py         # Credit card balance_owed, charges, payments calculations
+│   ├── dates.py                # Month range determination helpers
+│   └── reconciliation.py       # Transfer candidate matching heuristic
+├── managers/                   # Workflow orchestration Managers
+│   ├── budget_summary_manager.py     # Coordinates category, budget, transaction access and budgeting engine
+│   ├── credit_card_summary_manager.py # Coordinates credit accounts (account_access), transaction history (transaction_access), and credit card engine
+│   ├── csv_import_manager.py         # Coordinates account verification, statement parsing, deduplication, batch commit
+│   ├── dashboard_summary_manager.py  # Composes budget summary, account balances, and recent activity
+│   ├── plaid_account_sync_manager.py # Coordinates Plaid account balance sync and account persistence
+│   ├── plaid_transaction_sync_manager.py # Coordinates cursor pagination, transaction sync, event commits
+│   └── transfer_reconciliation_manager.py # Coordinates unmatched candidate search and reconciliation engine
 ├── crud/
-│   ├── budget.py               # Budget model queries
-│   ├── category.py             # Category & CategoryGroup queries and reordering
-│   ├── plaid.py                # PlaidItem and Account sync queries
-│   └── transaction.py          # Transaction listing, update, and Plaid sync helpers
-└── routers/
-    ├── accounts.py             # Account CRUD (bypasses crud layer, raw DB queries)
-    ├── budgets.py              # Budget CRUD endpoints
-    ├── categories.py           # Category & Group management and reordering
-    ├── credit_cards.py         # CC balances, monthly metrics, transfer matching heuristic
+│   └── plaid.py                # Legacy Plaid CRUD (pending final deprecation audit)
+└── routers/                    # Presentation / FastAPI route handlers
+    ├── accounts.py             # Account CRUD (routes to account_access)
+    ├── budgets.py              # Budget allocation CRUD (routes to budget_access)
+    ├── categories.py           # Category & Group management and reordering (routes to category_access)
+    ├── credit_cards.py         # CC summaries, transfer candidate search, and mark-transfers
     ├── plaid.py                # Link tokens, token exchange, account/tx sync endpoints
-    ├── summaries.py            # Budget & Dashboard summary aggregations (ZBB calculations)
-    ├── transactions.py         # Paginated transaction ledger and category assignment
-    └── upload.py               # Multipart CSV preview and confirm endpoints
+    ├── summaries.py            # Budget & Dashboard summary aggregations
+    ├── transactions.py         # Paginated transaction ledger and category assignment (routes to transaction_access)
+    └── upload.py               # Inspect (/upload/inspect), format management (/upload/formats), preview, confirm
 ```
 
 ---
@@ -72,31 +91,39 @@ backend/
 2. **Zero-Based Budgeting (ZBB):**
    $$\text{to\_be\_assigned} = \text{total\_income\_planned} - \text{total\_expense\_planned}$$
    - Expense Actuals: $\sum \text{Transaction.amount}$ (outflows > 0)
-   - Income Actuals: $-1 \times \sum \text{Transaction.amount}$ (inflows < 0 converted to positive)
+   - Income Actuals: $-1 \times \sum \text{Transaction.amount}$ (inflows < 0 converted to positive for display)
    - Expense Category Remaining: $\text{planned} - \text{actual}$
 3. **Credit Card Debt Model:**
    $$\text{balance\_owed} = \text{starting\_balance} + \sum_{\text{all-time}} \text{Transaction.amount}$$
    - Charges: Sum of positive non-transfer transactions in current month.
    - Payments: Absolute sum of negative transactions in current month.
 4. **Transfer Matching Heuristic:**
-   - Evaluates all unlinked inflows (`amount < 0`, `is_transfer == False`) against unlinked outflows (`amount > 0`, `is_transfer == False`).
+   - Evaluates unlinked inflows (`amount < 0`, `is_transfer == False`) against unlinked outflows (`amount > 0`, `is_transfer == False`).
    - Pairs them if $|\text{date}_{\text{outflow}} - \text{date}_{\text{inflow}}| \le 2\text{ days}$ and $\text{account}_{\text{outflow}} \ne \text{account}_{\text{inflow}}$.
-   - User approval sets `is_transfer = True` on both records, excluding them from spending calculations.
+   - Approval sets `is_transfer = True` on both records, excluding them from spending calculations.
 
 ---
 
-## 6. Identified Architectural Problems
+## 6. Structural Modernization & Remaining Known Items
 
-1. **Tight Coupling to Persistence in Route Handlers:**
-   `backend/routers/summaries.py`, `backend/routers/credit_cards.py`, and `backend/routers/accounts.py` directly construct and execute complex SQLAlchemy queries and manage session transactions inside HTTP route handlers.
-2. **Duplicated Business Logic:**
-   - `get_month_range()` is copy-pasted between `summaries.py` and `credit_cards.py`.
-   - ZBB actuals aggregation and planned calculations are duplicated between `get_budget_summary()` and `get_dashboard_summary()`.
-   - Transaction persistence and duplicate prevention logic is duplicated across `upload.py`, `transactions.py`, and `crud/transaction.py`.
-   - Account types and subtypes are duplicated between `backend/schemas.py` and `frontend/app/composables/useAccountTypes.ts`.
-3. **Domain Logic Trapped in Presentation Layer:**
-   The transfer matching heuristic is a multi-account reconciliation algorithm, yet it is trapped inside `routers/credit_cards.py`.
-4. **Circular Internal Dependencies:**
-   `backend/crud/transaction.py` imports from `backend/crud/plaid.py`, while `backend/crud/plaid.py` imports from `backend/crud/transaction.py`.
-5. **Insecure Credential Storage:**
-   `backend/security.py` uses base64 string encoding instead of encryption, leaving Plaid access tokens vulnerable in plaintext equivalent storage.
+### 6.1. Addressed Through VBD Decomposition
+1. **Persistence Decoupled from Route Handlers:** Raw SQLAlchemy queries have been moved from routers into focused, concrete ResourceAccess modules (`backend/access/`). Simple CRUD routes terminate directly at ResourceAccess without unnecessary Managers.
+2. **Business Calculations Extracted to Pure Engines:** Zero-based budgeting formulas, credit card balance calculations, and transfer candidate matching heuristics live in pure, infrastructure-free functions in `backend/domain/`.
+3. **Meaningful Workflow Sequencing Isolated in Managers:** Multi-step pipelines (summaries, statement import confirmation, Plaid account and transaction syncing) are orchestrated by focused Managers in `backend/managers/`.
+4. **Ingestion & Custom CSV Formats Separated:** CSV statement interpretation is isolated behind the ingestion/parser boundary (`BankStatementLoader` and `MappedStatementLoader`), custom format configurations are persisted in `CSVFormat` via `csv_format_access`, and detection is performed by a simple deterministic ingestion helper (`detect_csv_format`).
+5. **Proxy Consistency:** All frontend pages use `/api/**` via the Nuxt Nitro proxy.
+
+### 6.2. Preserved Known Defects & Unresolved Domain Items
+1. **`Transaction.description` Database/Schema Nullability Mismatch (Known Defect):**
+   `models.Transaction.description` is nullable in PostgreSQL, but Pydantic schemas enforce non-null `str`. Querying rows with `NULL` descriptions via standard endpoints causes serialization errors. Pinned via characterization test; preserved pending an intentional database/API migration slice.
+2. **CategoryGroup Backend Deletion Cascade Inconsistency (Known Defect):**
+   `backend/routers/categories.py` allows cascading deletion of category groups and child categories, whereas `frontend/app/pages/categories.vue` blocks deleting non-empty groups. Preserved pending an intentional behavior decision.
+3. **Credit Card `balance_owed` Includes Transfers While `charges_this_month` Excludes Them (Unresolved Domain Decision):**
+   In `credit_cards.py`, `balance_owed` includes all transactions (including `is_transfer == True`), while `charges_this_month` filters out transfers. Pinned via characterization test.
+4. **Credit Card `balance_owed` Includes Future-Dated Transactions (Unresolved Domain Decision):**
+   All-time sum currently evaluates transactions regardless of whether `date` is in the future. Pinned via characterization test.
+5. **Transfer Matching Greedy / Order-Dependent (Unresolved Domain Decision):**
+   `detect_transfer_candidates` pairs transactions greedily in input list order without closest-date tie-breaking. Pinned via characterization test.
+6. **Insecure Credential Storage (Security Migration Pending):**
+   `backend/security.py` uses base64 string encoding instead of real cryptographic encryption. Plaid access tokens require migration to Fernet/KMS key management in a dedicated security slice.
+
