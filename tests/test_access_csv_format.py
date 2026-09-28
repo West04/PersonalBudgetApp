@@ -623,3 +623,52 @@ def test_db_level_amount_sign_check_constraint_enforced(db_session):
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+# ---------------------------------------------------------------------------
+# Persistence to Parser Config Adapter Tests
+# ---------------------------------------------------------------------------
+
+def test_csv_format_to_mapped_config_adapter():
+    """Verify csv_format_to_mapped_config maps all fields from models.CSVFormat to MappedCSVFormatConfig."""
+    orm_format = models.CSVFormat(
+        name="Credit Union Checking",
+        date_column="Tx Date",
+        description_column="Payee",
+        amount_column="Net Value",
+        status_column="Status Flag",
+        date_format="%d/%m/%Y",
+        amount_sign_convention="positive_is_inflow",
+        status_posted_value="cleared",
+    )
+
+    config = csv_format_access.csv_format_to_mapped_config(orm_format)
+    assert config.date_column == "Tx Date"
+    assert config.description_column == "Payee"
+    assert config.amount_column == "Net Value"
+    assert config.status_column == "Status Flag"
+    assert config.date_format == "%d/%m/%Y"
+    assert config.amount_sign_convention == "positive_is_inflow"
+    assert config.status_posted_value == "cleared"
+    assert config.required_headers == frozenset({"Tx Date", "Payee", "Net Value", "Status Flag"})
+
+
+def test_csv_format_to_mapped_config_adapter_without_status():
+    """Verify csv_format_to_mapped_config handles optional status fields."""
+    orm_format = models.CSVFormat(
+        name="Simple Card",
+        date_column="Date",
+        description_column="Description",
+        amount_column="Amount",
+        status_column=None,
+        date_format="%Y-%m-%d",
+        amount_sign_convention="positive_is_outflow",
+        status_posted_value=None,
+    )
+
+    config = csv_format_access.csv_format_to_mapped_config(orm_format)
+    assert config.date_column == "Date"
+    assert config.status_column is None
+    assert config.status_posted_value is None
+    assert config.required_headers == frozenset({"Date", "Description", "Amount"})
+

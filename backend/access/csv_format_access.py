@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..bank_statement_loader import MappedCSVFormatConfig
 
 RESERVED_FORMAT_NAMES: frozenset[str] = frozenset({"usaa", "discover"})
 
@@ -172,3 +173,22 @@ def create_custom_format(
 
     db.refresh(csv_format)
     return csv_format
+
+
+def csv_format_to_mapped_config(
+    csv_format: models.CSVFormat,
+) -> MappedCSVFormatConfig:
+    """
+    Converts a persisted models.CSVFormat ORM entity into an immutable
+    MappedCSVFormatConfig parser configuration.
+    Does not query, commit, flush, or mutate ORM state.
+    """
+    return MappedCSVFormatConfig(
+        date_column=csv_format.date_column,
+        description_column=csv_format.description_column,
+        amount_column=csv_format.amount_column,
+        status_column=csv_format.status_column,
+        date_format=csv_format.date_format,
+        amount_sign_convention=csv_format.amount_sign_convention,  # type: ignore[arg-type]
+        status_posted_value=csv_format.status_posted_value,
+    )

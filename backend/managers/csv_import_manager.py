@@ -3,12 +3,11 @@ Manager for the CSV Confirmation & Deduplication workflow.
 
 Coordinates:
 1. Destination account verification via Account ResourceAccess.
-2. Statement loader resolution via BankStatementLoader registry.
-3. CSV byte parsing into normalized transaction records via BankStatementLoader.
-4. Duplicate checking and transaction staging loop via Transaction ResourceAccess.
-5. Per-row error capture and non-fatal aggregation.
-6. Single final database commit.
-7. Returning an immutable CSVImportSummary application dataclass.
+2. CSV byte parsing into normalized transaction records via BankStatementLoader.
+3. Duplicate checking and transaction staging loop via Transaction ResourceAccess.
+4. Per-row error capture and non-fatal aggregation.
+5. Single final database commit.
+6. Returning an immutable CSVImportSummary application dataclass.
 """
 
 from dataclasses import dataclass
@@ -16,7 +15,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from ..access import account_access, transaction_access
-from ..bank_statement_loader import get_loader
+from ..bank_statement_loader import BankStatementLoader
 
 
 @dataclass(frozen=True)
@@ -32,7 +31,7 @@ class CSVImportAccountNotFoundError(Exception):
 
 
 class CSVImportUnknownFormatError(Exception):
-    """Raised when the requested format string is not in the loader registry."""
+    """Raised when a requested format string is unknown (legacy / compatibility)."""
     pass
 
 
@@ -44,34 +43,26 @@ class CSVImportParseError(Exception):
 def confirm_csv_import(
     db: Session,
     raw_bytes: bytes,
-    account_id: UUID,
-    format_name: str,
+    loader: BankStatementLoader,
 ) -> CSVImportSummary:
     """
     Coordinates the CSV confirmation and import workflow:
-    1. Verifies destination account exists via get_account_by_id.
-    2. Instantiates statement loader via get_loader.
-    3. Parses CSV bytes into normalized transactions via loader.load_from_bytes.
-    4. Iterates parsed transactions:
+    1. Verifies destination account exists via get_account_by_id(db, loader.account_id).
+    2. Parses CSV bytes into normalized transactions via loader.load_records_tolerant.
+    3. Iterates parsed transactions:
        - Checks duplicate existence via csv_import_transaction_exists.
        - If duplicate, increments skipped counter.
        - If new, stages transaction via stage_csv_import_transaction and increments imported.
        - Catches per-row exceptions and formats row error strings.
-    5. Commits the transaction batch via db.commit().
-    6. Returns CSVImportSummary.
+    4. Commits the transaction batch via db.commit().
+    5. Returns CSVImportSummary.
     """
     # 1. Account existence
-    account = account_access.get_account_by_id(db, account_id)
+    account = account_access.get_account_by_id(db, loader.account_id)
     if not account:
-        raise CSVImportAccountNotFoundError(f"Account {account_id} not found")
+        raise CSVImportAccountNotFoundError(f"Account {loader.account_id} not found")
 
-    # 2. Format / loader resolution
-    try:
-        loader = get_loader(format_name, account_id)
-    except ValueError as exc:
-        raise CSVImportUnknownFormatError(str(exc)) from exc
-
-    # 3. Statement parsing
+    # 2. Statement parsing
     try:
         parsed = loader.load_records_tolerant(raw_bytes)
     except ValueError as exc:
