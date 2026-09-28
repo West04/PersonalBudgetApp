@@ -146,7 +146,7 @@ class CSVFormat(Base):
 
     date_format = Column(String(50), nullable=False)
     amount_sign_convention = Column(String(30), nullable=False)
-    status_posted_value = Column(String(50), nullable=True, default="posted")
+    status_posted_value = Column(String(50), nullable=True)
 
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 

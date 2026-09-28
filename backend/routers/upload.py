@@ -77,6 +77,52 @@ def _resolve_statement_loader(
 
 
 # ---------------------------------------------------------------------------
+# Custom CSV Formats endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/formats", response_model=list[schemas.CSVFormatRead])
+def list_formats(
+    db: Session = Depends(get_db),
+):
+    """
+    List all persisted custom CSV format definitions.
+    Returns custom formats ordered by name case-insensitively ascending.
+    Does not include built-in formats (USAA/Discover).
+    """
+    return csv_format_access.list_custom_formats(db)
+
+
+@router.post(
+    "/formats",
+    response_model=schemas.CSVFormatRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_format(
+    payload: schemas.CSVFormatCreate,
+    db: Session = Depends(get_db),
+):
+    """
+    Create and persist a new custom CSV format definition.
+    Validates configuration and returns the created format with its assigned UUID.
+    """
+    try:
+        return csv_format_access.create_custom_format(db=db, format_data=payload)
+    except (
+        csv_format_access.CSVFormatNameConflictError,
+        csv_format_access.CSVFormatDuplicateConfigurationError,
+    ) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+    except csv_format_access.CSVFormatAccessError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Inspect endpoint (upload-first detection)
 # ---------------------------------------------------------------------------
 

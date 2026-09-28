@@ -249,8 +249,35 @@ def test_create_and_get_by_id(db_session):
     assert fetched.description_column == "Description"
     assert fetched.amount_column == "Amount"
     assert fetched.status_column is None
+    assert fetched.status_posted_value is None
     assert fetched.date_format == "%m/%d/%Y"
     assert fetched.amount_sign_convention == "positive_is_outflow"
+
+
+def test_create_persists_canonical_none_status_posted_value_when_status_column_absent(db_session):
+    """
+    Verify when status_column is None, status_posted_value is canonically stored
+    and read back as None (not defaulted to 'posted' by ORM/database).
+    """
+    created = csv_format_access.create_custom_format(
+        db_session,
+        name="No Status Checking",
+        date_column="TxDate",
+        description_column="Desc",
+        amount_column="Amount",
+        date_format="%Y-%m-%d",
+        amount_sign_convention="positive_is_outflow",
+        status_column=None,
+        status_posted_value=None,
+    )
+    assert created.status_column is None
+    assert created.status_posted_value is None
+
+    # Re-query in a fresh query
+    fetched = csv_format_access.get_custom_format_by_id(db_session, created.id)
+    assert fetched is not None
+    assert fetched.status_column is None
+    assert fetched.status_posted_value is None
 
 
 def test_get_by_id_nonexistent_returns_none(db_session):
