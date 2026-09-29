@@ -1033,3 +1033,111 @@ def test_manual_delete_transaction_found_and_not_found(client, db_session):
     assert resp_missing.status_code == 404
     assert resp_missing.json() == {"detail": "Transaction not found"}
 
+
+# ---------------------------------------------------------------------------
+# 10. Frontend Date Calculation Timezone Characterization
+# ---------------------------------------------------------------------------
+
+def test_characterization_frontend_end_date_timezone_drift():
+    """
+    Characterizes the current frontend date calculation in transactions.vue:
+        const end_date = new Date(Number(year), Number(month), 0).toISOString().slice(0, 10)
+
+    Demonstrates that:
+    1. In negative/zero UTC offset timezones (e.g. America/Los_Angeles, UTC),
+       local midnight converts to the same or later UTC time, preserving the last day ('2026-09-30').
+    2. In positive UTC offset timezones (e.g. Europe/Paris, Asia/Tokyo, Australia/Sydney),
+       local midnight converts to the previous calendar day in UTC, causing 'end_date' to be
+       calculated as '2026-09-29' instead of '2026-09-30'.
+    3. Because backend list_transactions filters with date <= end_date (inclusive),
+       this bug drops the final day of every month for users in positive UTC timezones.
+    4. Using Date.UTC (or local date string formatting) eliminates the drift across all timezones.
+    """
+    import json
+    import shutil
+    import subprocess
+
+    if not shutil.which("node"):
+        pytest.skip("Node.js not available to execute frontend date characterization")
+
+    # Characterize CURRENT implementation behavior
+    current_calc_js = """
+    const timezones = ['America/Los_Angeles', 'UTC', 'Europe/Paris', 'Asia/Tokyo', 'Australia/Sydney'];
+    const results = {};
+    for (const tz of timezones) {
+        process.env.TZ = tz;
+        const year = '2026', month = '09';
+        const end_date = new Date(Number(year), Number(month), 0).toISOString().slice(0, 10);
+        results[tz] = end_date;
+    }
+    console.log(JSON.stringify(results));
+    """
+    proc = subprocess.run(["node", "-e", current_calc_js], capture_output=True, text=True, check=True)
+    results = json.loads(proc.stdout)
+
+    # Negative & zero offsets preserve last day of month
+    assert results["America/Los_Angeles"] == "2026-09-30"
+    assert results["UTC"] == "2026-09-30"
+
+    # Positive offsets shift to the previous day (the bug)
+    assert results["Europe/Paris"] == "2026-09-29"
+    assert results["Asia/Tokyo"] == "2026-09-29"
+    assert results["Australia/Sydney"] == "2026-09-29"
+
+    # Characterize PROPOSED FIX behavior (using Date.UTC)
+    fixed_calc_js = """
+    const timezones = ['America/Los_Angeles', 'UTC', 'Europe/Paris', 'Asia/Tokyo', 'Australia/Sydney'];
+    const results = {};
+    for (const tz of timezones) {
+        process.env.TZ = tz;
+        const year = '2026', month = '09';
+        const end_date = new Date(Date.UTC(Number(year), Number(month), 0)).toISOString().slice(0, 10);
+        results[tz] = end_date;
+    }
+    console.log(JSON.stringify(results));
+    """
+    proc_fixed = subprocess.run(["node", "-e", fixed_calc_js], capture_output=True, text=True, check=True)
+    results_fixed = json.loads(proc_fixed.stdout)
+
+    # Date.UTC consistently produces 2026-09-30 across all timezones
+    assert results_fixed["America/Los_Angeles"] == "2026-09-30"
+    assert results_fixed["UTC"] == "2026-09-30"
+    assert results_fixed["Europe/Paris"] == "2026-09-30"
+    assert results_fixed["Asia/Tokyo"] == "2026-09-30"
+    assert results_fixed["Australia/Sydney"] == "2026-09-30"
+
+    # Verify all 12 calendar months, leap years, and year rollover across all timezones
+    all_months_js = """
+    const cases = [
+        ['2026', '01', '2026-01-31'],
+        ['2024', '02', '2024-02-29'],  // Leap year
+        ['2026', '02', '2026-02-28'],  // Common year
+        ['2026', '03', '2026-03-31'],
+        ['2026', '04', '2026-04-30'],
+        ['2026', '05', '2026-05-31'],
+        ['2026', '06', '2026-06-30'],
+        ['2026', '07', '2026-07-31'],
+        ['2026', '08', '2026-08-31'],
+        ['2026', '09', '2026-09-30'],
+        ['2026', '10', '2026-10-31'],
+        ['2026', '11', '2026-11-30'],
+        ['2026', '12', '2026-12-31'],  // December rollover boundary
+        ['2027', '01', '2027-01-31']
+    ];
+    const timezones = ['America/Los_Angeles', 'UTC', 'Europe/Paris', 'Asia/Tokyo', 'Australia/Sydney'];
+    for (const tz of timezones) {
+        process.env.TZ = tz;
+        for (const [y, m, expected] of cases) {
+            const end_date = new Date(Date.UTC(Number(y), Number(m), 0)).toISOString().slice(0, 10);
+            if (end_date !== expected) {
+                throw new Error(`Failed for tz=${tz}, ${y}-${m}: expected ${expected}, got ${end_date}`);
+            }
+        }
+    }
+    console.log(JSON.stringify({ all_passed: true }));
+    """
+    proc_all = subprocess.run(["node", "-e", all_months_js], capture_output=True, text=True, check=True)
+    res_all = json.loads(proc_all.stdout)
+    assert res_all["all_passed"] is True
+
+

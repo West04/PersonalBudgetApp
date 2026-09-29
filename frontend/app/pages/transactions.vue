@@ -190,7 +190,7 @@ const { data: categoryGroups } = await useFetch<any[]>(`${API_BASE}/category-gro
 const queryParams = computed(() => {
   const [year, month] = currentMonth.value.split('-')
   const start_date = `${year}-${month}-01`
-  const end_date = new Date(Number(year), Number(month), 0).toISOString().slice(0, 10)
+  const end_date = new Date(Date.UTC(Number(year), Number(month), 0)).toISOString().slice(0, 10)
 
   const params: any = {
     start_date,
