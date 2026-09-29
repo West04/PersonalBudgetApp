@@ -150,22 +150,37 @@ const API_BASE = '/api'
 // --- State ---
 const route = useRoute()
 
-const initialAccountId = typeof route.query.account_id === 'string' && route.query.account_id
-  ? route.query.account_id
-  : ''
-
 const MONTH_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/
-const initialMonth = typeof route.query.month === 'string' && MONTH_REGEX.test(route.query.month)
-  ? route.query.month
-  : new Date().toISOString().slice(0, 7)
 
-const currentMonth = ref(initialMonth) // YYYY-MM
+const getRouteAccountId = () => {
+  return typeof route.query.account_id === 'string' && route.query.account_id
+    ? route.query.account_id
+    : ''
+}
+
+const getRouteMonth = () => {
+  return typeof route.query.month === 'string' && MONTH_REGEX.test(route.query.month)
+    ? route.query.month
+    : new Date().toISOString().slice(0, 7)
+}
+
+const currentMonth = ref(getRouteMonth()) // YYYY-MM
 const searchQuery = ref('')
-const selectedAccount = ref(initialAccountId)
+const selectedAccount = ref(getRouteAccountId())
 const selectedCategory = ref('')
 const uncategorizedOnly = ref(false)
 const limit = ref(50)
 const offset = ref(0)
+
+// Sync filter state when route query parameters change (e.g. sidebar navigation or post-import redirect)
+watch(
+  () => route.query,
+  () => {
+    selectedAccount.value = getRouteAccountId()
+    currentMonth.value = getRouteMonth()
+  },
+  { deep: true }
+)
 
 // --- Fetching Metadata ---
 const { data: accounts } = await useFetch<any[]>(`${API_BASE}/accounts/`)

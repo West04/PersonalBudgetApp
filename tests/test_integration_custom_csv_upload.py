@@ -508,3 +508,70 @@ def test_preview_and_confirm_do_not_call_detect_csv_format(client, db_session, t
     assert resp_usaa_conf.status_code == 200
 
     mock_detect.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 12. Date Format Incident Regression Coverage (Preview & Confirm)
+# ---------------------------------------------------------------------------
+
+def test_custom_format_date_format_controls_preview_and_confirm(client, db_session, test_account):
+    """
+    Regression test for date format incident during acceptance:
+    Proves that the configured custom format controls date interpretation end-to-end
+    through POST /upload/preview and POST /upload/confirm.
+    """
+    from datetime import date
+
+    # 1. Format configured with %d/%m/%Y (e.g. International)
+    format_dmy = csv_format_access.create_custom_format(
+        db=db_session,
+        name="International DD-MM-YYYY",
+        date_column="TxDate",
+        description_column="Narrative",
+        amount_column="Value",
+        date_format="%d/%m/%Y",
+        amount_sign_convention="positive_is_outflow",
+    )
+
+    csv_content = (
+        "TxDate,Narrative,Value\n"
+        "01/09/2026,Corner Cafe,4.50\n"
+        "12/09/2026,Gym Membership,35.00\n"
+        "15/09/2026,Electronics,120.00\n"
+    )
+    files = {"file": ("intl.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
+    data = {"account_id": str(test_account.id), "format": str(format_dmy.id)}
+
+    # Preview under %d/%m/%Y parses all dates into September 2026
+    resp_prev = client.post("/upload/preview", data=data, files=files)
+    assert resp_prev.status_code == 200
+    res_prev = resp_prev.json()
+    assert res_prev["valid_rows"] == 3
+    assert res_prev["error_rows"] == 0
+    assert [r["transaction_date"] for r in res_prev["rows"]] == [
+        "2026-09-01",
+        "2026-09-12",
+        "2026-09-15",
+    ]
+
+    # Confirm persists all transactions in September 2026
+    files["file"][1].seek(0)
+    resp_conf = client.post("/upload/confirm", data=data, files=files)
+    assert resp_conf.status_code == 200
+    res_conf = resp_conf.json()
+    assert res_conf["imported"] == 3
+    assert res_conf["skipped"] == 0
+    assert res_conf["errors"] == []
+
+    txns = (
+        db_session.query(models.Transaction)
+        .filter(models.Transaction.account_id == test_account.id)
+        .order_by(models.Transaction.date.asc())
+        .all()
+    )
+    assert [t.date for t in txns] == [
+        date(2026, 9, 1),
+        date(2026, 9, 12),
+        date(2026, 9, 15),
+    ]
+

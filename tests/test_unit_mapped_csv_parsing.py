@@ -184,6 +184,157 @@ def test_custom_date_formats(fmt, date_str, expected_date):
 
 
 # ---------------------------------------------------------------------------
+# Date-Format Incident Regression Coverage
+# ---------------------------------------------------------------------------
+
+def test_date_format_incident_reproduction_misconfigured_mdy():
+    """
+    Reproduces the concrete acceptance incident:
+    A CSV containing European DD/MM/YYYY dates ('01/09/2026', '12/09/2026', '15/09/2026')
+    parsed with a misconfigured '%m/%d/%Y' custom format.
+
+    Verifies the incident behavior:
+    - Ambiguous '01/09/2026' is reinterpreted as Jan 9, 2026 (2026-01-09).
+    - Ambiguous '12/09/2026' is reinterpreted as Dec 9, 2026 (2026-12-09).
+    - Unambiguous '15/09/2026' fails because month 15 does not exist:
+      * raises ValueError under strict load_from_text
+      * recorded as a row-level parse error under load_records_tolerant,
+        allowing the 2 misparsed dates to land across separate months.
+    """
+    account_id = uuid4()
+    misconfigured = MappedCSVFormatConfig(
+        date_column="TxDate",
+        description_column="Narrative",
+        amount_column="Value",
+        date_format="%m/%d/%Y",
+        amount_sign_convention="positive_is_outflow",
+    )
+    loader = MappedStatementLoader(account_id=account_id, config=misconfigured)
+
+    csv_text = (
+        "TxDate,Narrative,Value\n"
+        "01/09/2026,Corner Cafe,4.50\n"
+        "12/09/2026,Gym Membership,35.00\n"
+        "15/09/2026,Electronics,120.00\n"
+    )
+
+    # 1. Strict parsing raises ValueError on unambiguous row 3 (15/09/2026)
+    with pytest.raises(ValueError, match=r"does not match format '%m/%d/%Y'"):
+        loader.load_from_text(csv_text)
+
+    # 2. Tolerant parsing isolates row 3 and shows the multi-month distortion of ambiguous dates
+    parsed = loader.load_records_tolerant(csv_text.encode("utf-8"))
+    assert len(parsed.valid_transactions) == 2
+    assert len(parsed.row_errors) == 1
+
+    # Row 1 reinterpreted as January 9th
+    assert parsed.valid_transactions[0].date == date(2026, 1, 9)
+    assert parsed.valid_transactions[0].description == "Corner Cafe"
+
+    # Row 2 reinterpreted as December 9th
+    assert parsed.valid_transactions[1].date == date(2026, 12, 9)
+    assert parsed.valid_transactions[1].description == "Gym Membership"
+
+    # Row 3 rejected due to month 15 out of range
+    assert "Row 3: " in parsed.row_errors[0]
+    assert "does not match format '%m/%d/%Y'" in parsed.row_errors[0]
+
+
+def test_date_format_incident_correct_dmy_configuration():
+    """
+    Verifies that when the custom format is correctly configured with '%d/%m/%Y':
+    - Ambiguous '01/09/2026' correctly parses as Sept 1, 2026 (2026-09-01).
+    - Ambiguous '12/09/2026' correctly parses as Sept 12, 2026 (2026-09-12).
+    - Unambiguous '15/09/2026' correctly parses as Sept 15, 2026 (2026-09-15).
+    - All rows are in September 2026 with zero parse errors.
+    """
+    account_id = uuid4()
+    correct_config = MappedCSVFormatConfig(
+        date_column="TxDate",
+        description_column="Narrative",
+        amount_column="Value",
+        date_format="%d/%m/%Y",
+        amount_sign_convention="positive_is_outflow",
+    )
+    loader = MappedStatementLoader(account_id=account_id, config=correct_config)
+
+    csv_text = (
+        "TxDate,Narrative,Value\n"
+        "01/09/2026,Corner Cafe,4.50\n"
+        "12/09/2026,Gym Membership,35.00\n"
+        "15/09/2026,Electronics,120.00\n"
+    )
+
+    # 1. Strict parsing succeeds cleanly for all 3 rows
+    txns = loader.load_from_text(csv_text)
+    assert len(txns) == 3
+    assert txns[0].date == date(2026, 9, 1)
+    assert txns[0].description == "Corner Cafe"
+    assert txns[0].amount == Decimal("4.50")
+
+    assert txns[1].date == date(2026, 9, 12)
+    assert txns[1].description == "Gym Membership"
+    assert txns[1].amount == Decimal("35.00")
+
+    assert txns[2].date == date(2026, 9, 15)
+    assert txns[2].description == "Electronics"
+    assert txns[2].amount == Decimal("120.00")
+
+    # All transactions fall in September 2026
+    assert all(t.date.year == 2026 and t.date.month == 9 for t in txns)
+
+    # 2. Tolerant parsing reports 3 valid rows and 0 errors
+    parsed = loader.load_records_tolerant(csv_text.encode("utf-8"))
+    assert len(parsed.valid_transactions) == 3
+    assert len(parsed.row_errors) == 0
+    assert [t.date for t in parsed.valid_transactions] == [
+        date(2026, 9, 1),
+        date(2026, 9, 12),
+        date(2026, 9, 15),
+    ]
+
+
+def test_configured_custom_format_strictly_controls_date_interpretation_no_heuristics():
+    """
+    Verifies that the configured date_format strictly controls parser interpretation:
+    - The parser does NOT apply auto-inference, fuzzy matching, or heuristic correction.
+    - Given identical ambiguous input ('04/09/2026'), interpretation is 100% deterministic
+      based solely on the configured format string.
+    """
+    account_id = uuid4()
+    csv_text = "TxDate,Narrative,Value\n04/09/2026,Train Ticket,28.00\n"
+
+    # With %d/%m/%Y -> interpreted as 4th of September
+    loader_dmy = MappedStatementLoader(
+        account_id=account_id,
+        config=MappedCSVFormatConfig(
+            date_column="TxDate",
+            description_column="Narrative",
+            amount_column="Value",
+            date_format="%d/%m/%Y",
+            amount_sign_convention="positive_is_outflow",
+        ),
+    )
+    txns_dmy = loader_dmy.load_from_text(csv_text)
+    assert txns_dmy[0].date == date(2026, 9, 4)
+
+    # With %m/%d/%Y -> interpreted as 9th of April
+    loader_mdy = MappedStatementLoader(
+        account_id=account_id,
+        config=MappedCSVFormatConfig(
+            date_column="TxDate",
+            description_column="Narrative",
+            amount_column="Value",
+            date_format="%m/%d/%Y",
+            amount_sign_convention="positive_is_outflow",
+        ),
+    )
+    txns_mdy = loader_mdy.load_from_text(csv_text)
+    assert txns_mdy[0].date == date(2026, 4, 9)
+
+
+
+# ---------------------------------------------------------------------------
 # Required Headers & Column Mapping Invariants
 # ---------------------------------------------------------------------------
 
