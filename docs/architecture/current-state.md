@@ -1,7 +1,7 @@
 # Current State Architecture & System Analysis
 
 ## 1. Executive Summary
-The Personal Budget App is a full-stack personal finance application built on the zero-based budgeting (ZBB) methodology. It supports automated bank syncing via Plaid and manual CSV statement uploads (with automatic header detection, custom format persistence, and upload-first workflow). This document records the current architectural implementation, components, data flows, and known defects/unresolved items at HEAD (`df4f6b0`).
+The Personal Budget App is a full-stack personal finance application built on the zero-based budgeting (ZBB) methodology. It supports automated bank syncing via Plaid and manual CSV statement uploads (with automatic header detection, custom format persistence, upload-first workflow, and route-query synchronized ledger). This document records the current architectural implementation, components, data flows, and known defects/unresolved items at HEAD (`5f4e4e5`).
 
 ---
 
@@ -126,4 +126,6 @@ backend/
    `detect_transfer_candidates` pairs transactions greedily in input list order without closest-date tie-breaking. Pinned via characterization test.
 6. **Insecure Credential Storage (Security Migration Pending):**
    `backend/security.py` uses base64 string encoding instead of real cryptographic encryption. Plaid access tokens require migration to Fernet/KMS key management in a dedicated security slice.
+7. **Frontend Timezone Offset in Transaction Range End Date (`end_date` Calculation):**
+   In `frontend/app/pages/transactions.vue`, `end_date` is computed as `new Date(Number(year), Number(month), 0).toISOString().slice(0, 10)`. Converting local midnight of the month's final day to UTC shifts the date back by one calendar day in positive UTC offset timezones (e.g. `2026-09-29` instead of `2026-09-30`), truncating end-of-month transactions. Preserved pending a focused frontend date utility fix.
 

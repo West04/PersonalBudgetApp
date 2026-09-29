@@ -1,11 +1,11 @@
 # Budget App VBD Modernization — TODO
 
-**Current stopping point:** Slices 1–16 complete; Custom CSV Format Persistence, Header Detection, Configurable Mapped Statement Parser, Inspection API, and Upload-First Frontend Workflow complete at HEAD (`df4f6b0`).
+**Current stopping point:** CSV-first acceptance fixes complete at commit `5f4e4e5`: International CSV date-format configuration corrected, affected test data recovered, date-format regression tests added, and Transactions route-query synchronization bug resolved.
 
 **Verified regression state at current HEAD:**
 
 ```text
-Backend:  652 passed, 27 warnings (python3 -m pytest)
+Backend:  656 passed, 27 warnings (python3 -m pytest)
 Frontend: npm run build -> PASS
 ```
 
@@ -36,10 +36,31 @@ Frontend: npm run build -> PASS
   - Stateless upload inspection endpoint (`POST /upload/inspect`)
   - Custom format management endpoints (`GET /upload/formats`, `POST /upload/formats`)
   - Upload-first frontend workflow in `frontend/app/pages/upload.vue` (Step 1: Upload / Inspect / Resolve $\rightarrow$ Step 2: Account $\rightarrow$ Step 3: Preview & Confirm $\rightarrow$ Step 4: Done)
+- [x] **CSV-First Acceptance Incident & Transactions Navigation Fix (`5f4e4e5`):**
+  - **Incident Discovery:** Discovered during CSV-first acceptance testing with an international sample statement containing `DD/MM/YYYY` dates.
+  - **Root Cause:** A persisted custom format was misconfigured with `%m/%d/%Y`, causing ambiguous European dates (e.g. `01/09/2026`, `12/09/2026`) to be silently reinterpreted into January and December, while unambiguous dates (e.g. `15/09/2026`) failed parsing.
+  - **Test-Data Recovery:** The custom `International` format in the local database was corrected to `%d/%m/%Y`, and only the five erroneous test transactions created by the misconfigured import were removed, leaving existing legitimate September transactions intact.
+  - **Regression Coverage:** Added focused unit tests in `tests/test_unit_mapped_csv_parsing.py` reproducing the incident and proving that the configured format string strictly controls parsing without heuristic inference, plus end-to-end integration coverage in `tests/test_integration_custom_csv_upload.py`.
+  - **Transactions Route-State Fix:** Updated `frontend/app/pages/transactions.vue` so that local filter state (`currentMonth` and `selectedAccount`) synchronizes with `route.query`, ensuring direct/sidebar navigation (`/transactions`) resets to the current month and All Accounts, while query-driven navigation preserves target account and month.
 
 ---
 
-## Priority 1 — Audit Remaining Persistence Leaks
+## Active Direction: CSV-First Product Validation
+
+> **Important Work Direction:**
+> Do NOT resume a broad backend VBD audit merely because the sections below list auditing tasks.
+> CSV-first product validation remains the primary active direction. Engineering effort should prioritize real acceptance, concrete product workflows, and data integrity over speculative architectural cleanup unless real usage reveals concrete defects.
+
+---
+
+## Next Known Issue — Frontend UTC `end_date` Calculation
+
+- [ ] **Characterize & Fix Frontend Timezone `end_date` Offset:**
+  - **Location:** `frontend/app/pages/transactions.vue` line 193 (`const end_date = new Date(Number(year), Number(month), 0).toISOString().slice(0, 10)`).
+  - **Problem:** `new Date(year, month, 0)` constructs local midnight for the last day of the month; `.toISOString()` converts local midnight to UTC. In positive UTC offset timezones (UTC+1 to UTC+14), local midnight converts back into the previous UTC calendar day (e.g. `2026-09-29` instead of `2026-09-30`), cutting off the last day of transactions.
+  - **Status:** Independent issue from route-query synchronization; characterized separately without modifying implementation yet.
+
+---
 
 - [ ] Audit routers and managers for direct SQLAlchemy queries or session management that belong in ResourceAccess:
   - [ ] Search for `db.query(`
