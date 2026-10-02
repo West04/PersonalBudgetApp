@@ -167,6 +167,7 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { useBudgetMonth, isValidMonth } from '~/composables/useBudgetMonth'
+import { formatDateOnly } from '~/utils/formatDate'
 
 const API_BASE = '/api'
 
@@ -215,9 +216,7 @@ const formatCurrency = (amount: number | string, currency = 'USD') => {
   }).format(val)
 }
 
-const formatDate = (dateStr: string) => {
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
+const formatDate = (dateStr: string) => formatDateOnly(dateStr)
 
 const calculatePercentage = (actual: number | string, planned: number | string) => {
   const act = Number(actual)

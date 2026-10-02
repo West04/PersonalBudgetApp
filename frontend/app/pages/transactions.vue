@@ -145,6 +145,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { useBudgetMonth, isValidMonth } from '~/composables/useBudgetMonth'
+import { formatDateOnly } from '~/utils/formatDate'
 
 const API_BASE = '/api'
 
@@ -281,13 +282,7 @@ const formatCurrency = (amount: number | string, currency = 'USD') => {
   }).format(val)
 }
 
-const formatDate = (dateStr: string) => {
-  return new Date(dateStr).toLocaleDateString('en-US', { 
-    year: 'numeric',
-    month: 'short', 
-    day: 'numeric' 
-  })
-}
+const formatDate = (dateStr: string) => formatDateOnly(dateStr, { includeYear: true })
 </script>
 
 <style scoped>
