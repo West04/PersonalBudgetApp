@@ -3,7 +3,7 @@
     <header class="page-header">
       <div class="header-left">
         <h1 class="page-title">Credit Cards</h1>
-        <input type="month" v-model="selectedMonth" class="month-picker" />
+        <input type="month" v-model="monthModel" class="month-picker" />
       </div>
       <button class="secondary-btn" @click="loadCandidates" :disabled="candidatesLoading">
         🔍 Find Transfer Matches
@@ -151,7 +151,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
+import { useBudgetMonth, isValidMonth } from '~/composables/useBudgetMonth'
 
 const API_BASE = '/api'
 
@@ -196,13 +197,33 @@ interface TransferCandidate {
   outflow_account_name: string
 }
 
-// --- State ---
-const getCurrentMonth = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-}
+// --- State & Month Synchronization ---
+const { selectedMonth, setMonth, syncRouteMonth } = useBudgetMonth()
+const route = useRoute()
 
-const selectedMonth = ref(getCurrentMonth())
+const monthModel = computed({
+  get: () => selectedMonth.value,
+  set: (val: string) => {
+    if (val && isValidMonth(val)) {
+      setMonth(val)
+    }
+  }
+})
+
+onMounted(() => {
+  syncRouteMonth()
+})
+
+watch(
+  () => route.query.month,
+  (newMonth) => {
+    if (isValidMonth(newMonth) && newMonth !== selectedMonth.value) {
+      selectedMonth.value = newMonth
+    } else if (!isValidMonth(newMonth)) {
+      syncRouteMonth()
+    }
+  }
+)
 const summary = ref<CreditCardSummaryResponse | null>(null)
 const candidates = ref<TransferCandidate[]>([])
 const pending = ref(true)

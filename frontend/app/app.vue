@@ -16,17 +16,17 @@
       </div>
 
       <nav class="nav">
-        <NuxtLink to="/dashboard" class="nav-item">
+        <NuxtLink :to="{ path: '/dashboard', query: { month: selectedMonth } }" class="nav-item">
           <span class="icon" title="Dashboard">📊</span>
           <span v-if="!isCollapsed" class="label">Dashboard</span>
         </NuxtLink>
 
-        <NuxtLink to="/categories" class="nav-item">
+        <NuxtLink :to="{ path: '/categories', query: { month: selectedMonth } }" class="nav-item">
           <span class="icon" title="Categories">💰</span>
           <span v-if="!isCollapsed" class="label">Categories</span>
         </NuxtLink>
 
-        <NuxtLink to="/transactions" class="nav-item">
+        <NuxtLink :to="{ path: '/transactions', query: { month: selectedMonth } }" class="nav-item">
           <span class="icon" title="Transactions">💸</span>
           <span v-if="!isCollapsed" class="label">Transactions</span>
         </NuxtLink>
@@ -36,7 +36,7 @@
           <span v-if="!isCollapsed" class="label">Accounts</span>
         </NuxtLink>
 
-        <NuxtLink to="/credit-cards" class="nav-item">
+        <NuxtLink :to="{ path: '/credit-cards', query: { month: selectedMonth } }" class="nav-item">
           <span class="icon" title="Credit Cards">💳</span>
           <span v-if="!isCollapsed" class="label">Credit Cards</span>
         </NuxtLink>
@@ -63,8 +63,10 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useBudgetMonth } from '~/composables/useBudgetMonth'
 
 const isCollapsed = ref(false)
+const { selectedMonth } = useBudgetMonth()
 </script>
 
 <style>

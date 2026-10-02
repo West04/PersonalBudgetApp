@@ -7,7 +7,7 @@
         <div class="month-selector">
           <input 
             type="month" 
-            v-model="currentMonth" 
+            v-model="monthModel" 
             class="month-input"
           />
         </div>
@@ -143,14 +143,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
+import { useBudgetMonth, isValidMonth } from '~/composables/useBudgetMonth'
 
 const API_BASE = '/api'
 
-// --- State ---
+// --- State & Month Synchronization ---
 const route = useRoute()
-
-const MONTH_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/
+const router = useRouter()
+const { selectedMonth, setMonth, syncRouteMonth } = useBudgetMonth()
 
 const getRouteAccountId = () => {
   return typeof route.query.account_id === 'string' && route.query.account_id
@@ -158,29 +159,58 @@ const getRouteAccountId = () => {
     : ''
 }
 
-const getRouteMonth = () => {
-  return typeof route.query.month === 'string' && MONTH_REGEX.test(route.query.month)
-    ? route.query.month
-    : new Date().toISOString().slice(0, 7)
-}
-
-const currentMonth = ref(getRouteMonth()) // YYYY-MM
-const searchQuery = ref('')
 const selectedAccount = ref(getRouteAccountId())
+const searchQuery = ref('')
 const selectedCategory = ref('')
 const uncategorizedOnly = ref(false)
 const limit = ref(50)
 const offset = ref(0)
 
-// Sync filter state when route query parameters change (e.g. sidebar navigation or post-import redirect)
+const monthModel = computed({
+  get: () => selectedMonth.value,
+  set: (val: string) => {
+    if (val && isValidMonth(val)) {
+      setMonth(val)
+    }
+  }
+})
+
+onMounted(() => {
+  syncRouteMonth()
+})
+
+// Atomic route filter synchronization: update selectedMonth and selectedAccount together
 watch(
-  () => route.query,
-  () => {
-    selectedAccount.value = getRouteAccountId()
-    currentMonth.value = getRouteMonth()
-  },
-  { deep: true }
+  () => [route.query.account_id, route.query.month],
+  ([newAccount, newMonth]) => {
+    const accountId = typeof newAccount === 'string' ? newAccount : ''
+    const validMonth = isValidMonth(newMonth) ? newMonth : null
+
+    if (validMonth && validMonth !== selectedMonth.value) {
+      selectedMonth.value = validMonth
+    } else if (!validMonth) {
+      syncRouteMonth()
+    }
+
+    if (selectedAccount.value !== accountId) {
+      selectedAccount.value = accountId
+    }
+  }
 )
+
+// Synchronize UI account selection changes to route query
+watch(selectedAccount, (newAcc) => {
+  const currentQueryAcc = typeof route.query.account_id === 'string' ? route.query.account_id : ''
+  if (newAcc !== currentQueryAcc) {
+    const nextQuery: Record<string, string> = { ...route.query, month: selectedMonth.value }
+    if (newAcc) {
+      nextQuery.account_id = newAcc
+    } else {
+      delete nextQuery.account_id
+    }
+    router.replace({ query: nextQuery })
+  }
+})
 
 // --- Fetching Metadata ---
 const { data: accounts } = await useFetch<any[]>(`${API_BASE}/accounts/`)
@@ -188,7 +218,7 @@ const { data: categoryGroups } = await useFetch<any[]>(`${API_BASE}/category-gro
 
 // --- Fetching Transactions ---
 const queryParams = computed(() => {
-  const [year, month] = currentMonth.value.split('-')
+  const [year, month] = selectedMonth.value.split('-')
   const start_date = `${year}-${month}-01`
   const end_date = new Date(Date.UTC(Number(year), Number(month), 0)).toISOString().slice(0, 10)
 
@@ -214,12 +244,11 @@ const {
   refresh 
 } = await useFetch<any>(`${API_BASE}/transactions/`, {
   query: queryParams,
-  watch: [queryParams],
   server: false
 })
 
 // Reset offset when filters change
-watch([searchQuery, selectedAccount, selectedCategory, uncategorizedOnly, currentMonth], () => {
+watch([searchQuery, selectedAccount, selectedCategory, uncategorizedOnly, selectedMonth], () => {
   offset.value = 0
 })
 

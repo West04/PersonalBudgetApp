@@ -5,7 +5,7 @@
         <h1 class="page-title">Categories</h1>
         <input
           type="month"
-          v-model="selectedMonth"
+          v-model="monthModel"
           class="month-picker"
         />
       </div>
@@ -281,6 +281,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import draggable from 'vuedraggable'
+import { useBudgetMonth, isValidMonth } from '~/composables/useBudgetMonth'
 
 const API_BASE = '/api'
 
@@ -331,13 +332,34 @@ interface CategoryGroup {
   categories: Category[]
 }
 
-// --- State ---
-const getCurrentMonth = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-}
+// --- State & Month Synchronization ---
+const { selectedMonth, setMonth, syncRouteMonth } = useBudgetMonth()
+const route = useRoute()
 
-const selectedMonth = ref(getCurrentMonth())
+const monthModel = computed({
+  get: () => selectedMonth.value,
+  set: (val: string) => {
+    if (val && isValidMonth(val)) {
+      setMonth(val)
+    }
+  }
+})
+
+onMounted(() => {
+  syncRouteMonth()
+})
+
+watch(
+  () => route.query.month,
+  (newMonth) => {
+    if (isValidMonth(newMonth) && newMonth !== selectedMonth.value) {
+      selectedMonth.value = newMonth
+    } else if (!isValidMonth(newMonth)) {
+      syncRouteMonth()
+    }
+  }
+)
+
 const categoryGroups = ref<CategoryGroup[]>([])
 const budgetSummary = ref<BudgetSummary | null>(null)
 const pending = ref(true)

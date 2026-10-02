@@ -2,7 +2,7 @@
 definePageMeta({
   middleware: [
     function (to, from) {
-      return navigateTo('/dashboard')
+      return navigateTo({ path: '/dashboard', query: to.query })
     },
   ],
 })

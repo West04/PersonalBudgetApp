@@ -6,7 +6,7 @@
       <div class="month-selector">
         <input 
           type="month" 
-          v-model="currentMonth" 
+          v-model="monthModel" 
           class="month-input"
         />
       </div>
@@ -153,7 +153,7 @@
               </div>
             </div>
             <div class="card-footer">
-              <NuxtLink to="/transactions" class="link-btn">View All</NuxtLink>
+              <NuxtLink :to="{ path: '/transactions', query: { month: selectedMonth } }" class="link-btn">View All</NuxtLink>
             </div>
           </div>
 
@@ -165,17 +165,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
+import { useBudgetMonth, isValidMonth } from '~/composables/useBudgetMonth'
 
 const API_BASE = '/api'
 
-// --- State ---
-const currentMonth = ref(new Date().toISOString().slice(0, 7)) // YYYY-MM
+// --- State & Month Synchronization ---
+const { selectedMonth, setMonth, syncRouteMonth } = useBudgetMonth()
+const route = useRoute()
+
+const monthModel = computed({
+  get: () => selectedMonth.value,
+  set: (val: string) => {
+    if (val && isValidMonth(val)) {
+      setMonth(val)
+    }
+  }
+})
+
+onMounted(() => {
+  syncRouteMonth()
+})
+
+watch(
+  () => route.query.month,
+  (newMonth) => {
+    if (isValidMonth(newMonth) && newMonth !== selectedMonth.value) {
+      selectedMonth.value = newMonth
+    } else if (!isValidMonth(newMonth)) {
+      syncRouteMonth()
+    }
+  }
+)
 
 // --- Data Fetching ---
 const { data, pending, error, refresh } = await useFetch(`${API_BASE}/summary/dashboard`, {
-  query: { month: currentMonth },
-  watch: [currentMonth],
+  query: { month: selectedMonth },
+  watch: [selectedMonth],
   server: false
 })
 
