@@ -1,0 +1,5 @@
+Date,Description,Category,Amount,Status
+2026-06-25,VALID ROW ONE,Test,-10.00,posted
+not-a-date,BAD DATE ROW,Test,-20.00,posted
+2026-06-27,BAD AMOUNT ROW,Test,not-a-number,posted
+2026-06-28,VALID ROW TWO,Test,-30.00,pending

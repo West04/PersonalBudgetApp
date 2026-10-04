@@ -1,0 +1,10 @@
+Date,Description,Category,Amount,Status
+2026-06-01,PAYROLL - ACME,Income,2500.00,posted
+2026-06-02,RENT,Housing,-1400.00,posted
+2026-06-03,GROCERY MART,Food,-125.42,posted
+2026-06-04,UTILITY COMPANY,Housing,-84.17,posted
+2026-06-05,GAS STATION,Transportation,-48.30,posted
+2026-06-06,COFFEE SHOP,Food,-6.75,posted
+2026-06-07,PHARMACY,Health,-22.19,posted
+2026-06-08,ONLINE SUBSCRIPTION,Bills,-15.99,pending
+2026-06-09,REFUND - GROCERY MART,Food,35.00,posted

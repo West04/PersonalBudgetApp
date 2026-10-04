@@ -72,6 +72,7 @@ Thumbs.db
 # Nuxt Folder
 # ---------------------------------
 .nuxt
+.output
 node_modules
 
 # ---------------------------------
