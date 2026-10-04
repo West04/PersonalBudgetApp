@@ -1,29 +1,27 @@
 <template>
   <div class="accounts-page">
-    <header class="page-header">
-      <h1 class="page-title">Accounts</h1>
-      <button class="primary-btn" @click="openAddModal">+ Add Account</button>
-    </header>
+    <PageHeader title="Accounts">
+      <template #actions>
+        <button type="button" class="btn btn-primary" @click="openAddModal">+ Add Account</button>
+      </template>
+    </PageHeader>
 
     <!-- Error Banner -->
-    <div v-if="error" class="error-banner">
-      {{ error }}
-      <button class="close-btn" @click="error = null">✕</button>
-    </div>
+    <ErrorBanner :error="error" @dismiss="error = null" />
 
     <!-- Loading -->
-    <div v-if="pending" class="loading-state">
-      <div class="spinner"></div>
-      <p>Loading accounts...</p>
-    </div>
+    <LoadingState v-if="pending" message="Loading accounts..." />
 
     <!-- Empty -->
-    <div v-else-if="!accounts.length" class="empty-state">
-      <div class="empty-icon">🏦</div>
-      <h2>No accounts yet</h2>
-      <p>Add your bank accounts to start tracking.</p>
-      <button class="primary-btn" @click="openAddModal">+ Add Account</button>
-    </div>
+    <EmptyState
+      v-else-if="!accounts.length"
+      title="No accounts yet"
+      description="Add your bank accounts to start tracking."
+    >
+      <template #actions>
+        <button type="button" class="btn btn-primary" @click="openAddModal">+ Add Account</button>
+      </template>
+    </EmptyState>
 
     <!-- Accounts grouped by type -->
     <template v-else>
@@ -46,16 +44,38 @@
           >
             <span class="account-name">{{ account.name }}</span>
             <span class="account-subtype">{{ getSubtypeLabel(account.type, account.subtype ?? '') || '—' }}</span>
-            <span class="right mono">{{ formatCurrency(account.starting_balance) }}</span>
-            <span class="right mono">{{ formatCurrency(account.current_balance) }}</span>
+            <span class="right font-mono">{{ formatCurrency(account.starting_balance) }}</span>
+            <span class="right font-mono">{{ formatCurrency(account.current_balance) }}</span>
             <span>
               <span :class="['status-badge', account.is_active ? 'active' : 'inactive']">
                 {{ account.is_active ? 'Active' : 'Inactive' }}
               </span>
             </span>
             <span class="row-actions">
-              <button class="icon-btn" @click="openEditModal(account)" title="Edit">✏️</button>
-              <button class="icon-btn delete" @click="confirmDelete(account)" title="Delete">🗑️</button>
+              <button
+                type="button"
+                class="btn-icon"
+                @click="openEditModal(account)"
+                aria-label="Edit account"
+                title="Edit account"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="btn-icon btn-icon-danger"
+                @click="confirmDelete(account)"
+                aria-label="Delete account"
+                title="Delete account"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+              </button>
             </span>
           </div>
         </div>
@@ -63,74 +83,91 @@
     </template>
 
     <!-- Add / Edit Modal -->
-    <div v-if="modalOpen" class="modal-backdrop" @click.self="closeModal">
-      <div class="modal">
-        <div class="modal-header">
-          <h2 class="modal-title">{{ editingAccount ? 'Edit Account' : 'Add Account' }}</h2>
-          <button class="close-btn" @click="closeModal">✕</button>
-        </div>
+    <AppDialog
+      :open="modalOpen"
+      :title="editingAccount ? 'Edit Account' : 'Add Account'"
+      @close="closeModal"
+    >
+      <FormField label="Name" required v-slot="{ id }">
+        <input
+          :id="id"
+          v-model="form.name"
+          class="form-input"
+          placeholder="e.g. USAA Checking"
+        />
+      </FormField>
 
-        <div class="modal-body">
-          <div class="field">
-            <label class="field-label">Name <span class="required">*</span></label>
-            <input v-model="form.name" class="input" placeholder="e.g. USAA Checking" />
-          </div>
+      <div class="field-row">
+        <FormField label="Type" required v-slot="{ id }">
+          <select :id="id" v-model="form.type" class="form-select" @change="onTypeChange">
+            <option v-for="t in ACCOUNT_TYPES" :key="t.value" :value="t.value">
+              {{ t.label }}
+            </option>
+          </select>
+        </FormField>
 
-          <div class="field-row">
-            <div class="field">
-              <label class="field-label">Type <span class="required">*</span></label>
-              <select v-model="form.type" class="select" @change="onTypeChange">
-                <option v-for="t in ACCOUNT_TYPES" :key="t.value" :value="t.value">
-                  {{ t.label }}
-                </option>
-              </select>
-            </div>
-
-            <div class="field">
-              <label class="field-label">Subtype</label>
-              <select v-model="form.subtype" class="select">
-                <option v-for="s in getSubtypes(form.type)" :key="s.value" :value="s.value">
-                  {{ s.label }}
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <div class="field-row">
-            <div class="field">
-              <label class="field-label">
-                Starting Balance ($)
-                <span class="field-hint">Balance when you started tracking</span>
-              </label>
-              <input v-model="form.starting_balance" type="number" step="0.01" class="input" placeholder="0.00" />
-            </div>
-            <div class="field">
-              <label class="field-label">
-                Current Balance ($)
-                <span class="field-hint">Today's actual balance</span>
-              </label>
-              <input v-model="form.current_balance" type="number" step="0.01" class="input" placeholder="0.00" />
-            </div>
-          </div>
-
-          <div class="field">
-            <label class="checkbox-label">
-              <input type="checkbox" v-model="form.is_active" />
-              <span>Active</span>
-            </label>
-          </div>
-
-          <div v-if="modalError" class="error-banner">{{ modalError }}</div>
-        </div>
-
-        <div class="modal-footer">
-          <button class="ghost-btn" @click="closeModal">Cancel</button>
-          <button class="primary-btn" :disabled="!form.name || saving" @click="saveAccount">
-            {{ saving ? 'Saving…' : (editingAccount ? 'Save Changes' : 'Add Account') }}
-          </button>
-        </div>
+        <FormField label="Subtype" v-slot="{ id }">
+          <select :id="id" v-model="form.subtype" class="form-select">
+            <option v-for="s in getSubtypes(form.type)" :key="s.value" :value="s.value">
+              {{ s.label }}
+            </option>
+          </select>
+        </FormField>
       </div>
-    </div>
+
+      <div class="field-row">
+        <FormField
+          label="Starting Balance ($)"
+          hint="Balance when you started tracking"
+          v-slot="{ id }"
+        >
+          <input
+            :id="id"
+            v-model="form.starting_balance"
+            type="number"
+            step="0.01"
+            class="form-input font-mono"
+            placeholder="0.00"
+          />
+        </FormField>
+
+        <FormField
+          label="Current Balance ($)"
+          hint="Today's actual balance"
+          v-slot="{ id }"
+        >
+          <input
+            :id="id"
+            v-model="form.current_balance"
+            type="number"
+            step="0.01"
+            class="form-input font-mono"
+            placeholder="0.00"
+          />
+        </FormField>
+      </div>
+
+      <div class="status-toggle-wrapper">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="form.is_active" class="form-checkbox" />
+          <span>Active</span>
+        </label>
+      </div>
+
+      <ErrorBanner v-if="modalError" :error="modalError" :dismissible="false" />
+
+      <template #footer>
+        <button type="button" class="btn btn-ghost" @click="closeModal">Cancel</button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="!form.name || saving"
+          @click="saveAccount"
+        >
+          {{ saving ? 'Saving…' : (editingAccount ? 'Save Changes' : 'Add Account') }}
+        </button>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
@@ -287,87 +324,6 @@ const formatCurrency = (val: number | string) => {
   margin: 0 auto;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 32px;
-}
-
-.page-title {
-  font-size: 1.8rem;
-  font-weight: 700;
-  margin: 0;
-  color: var(--text-color);
-}
-
-.primary-btn {
-  background: var(--accent-color);
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-  font-size: 0.9rem;
-}
-.primary-btn:hover:not(:disabled) { opacity: 0.9; }
-.primary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.ghost-btn {
-  background: white;
-  border: 1px solid var(--border-color);
-  color: var(--text-muted);
-  padding: 10px 20px;
-  border-radius: 8px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.ghost-btn:hover { background: var(--nav-hover-bg); }
-
-.error-banner {
-  background: #fee2e2;
-  color: #dc2626;
-  padding: 12px 16px;
-  border-radius: 8px;
-  margin-bottom: 24px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.9rem;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: inherit;
-  font-size: 1rem;
-  padding: 0 4px;
-}
-
-.loading-state, .empty-state {
-  text-align: center;
-  padding: 60px;
-  color: var(--text-muted);
-}
-.empty-icon { font-size: 3rem; margin-bottom: 16px; }
-.empty-state h2 { margin: 0 0 8px; }
-.empty-state p { margin: 0 0 24px; }
-
-.spinner {
-  border: 3px solid #f3f3f3;
-  border-top: 3px solid var(--accent-color);
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 16px;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
 /* Type groups */
 .type-group { margin-bottom: 36px; }
 
@@ -419,7 +375,6 @@ const formatCurrency = (val: number | string) => {
 .account-subtype { color: var(--text-muted); text-transform: capitalize; }
 
 .right { text-align: right; }
-.mono { font-variant-numeric: tabular-nums; font-weight: 500; }
 
 .status-badge {
   font-size: 0.72rem;
@@ -433,99 +388,15 @@ const formatCurrency = (val: number | string) => {
 
 .row-actions { display: flex; gap: 4px; justify-content: flex-end; }
 
-.icon-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 5px 7px;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  transition: background 0.15s;
-}
-.icon-btn:hover { background: #f1f5f9; }
-.icon-btn.delete:hover { background: #fee2e2; }
-
-/* Modal */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
-  padding: 16px;
+/* Modal form layout */
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
 }
 
-.modal {
-  background: white;
-  border-radius: 16px;
-  width: 100%;
-  max-width: 520px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
-  overflow: hidden;
+.status-toggle-wrapper {
+  margin-top: var(--space-xs);
+  margin-bottom: var(--space-md);
 }
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border-color);
-}
-.modal-title { margin: 0; font-size: 1.1rem; font-weight: 700; }
-
-.modal-body { padding: 24px; display: flex; flex-direction: column; gap: 4px; }
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 24px;
-  border-top: 1px solid var(--border-color);
-  background: #f8fafc;
-}
-
-/* Form fields */
-.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
-.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.field-label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.field-hint { font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 0.78rem; }
-.required { color: #ef4444; }
-
-.input, .select {
-  padding: 9px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 0.9rem;
-  color: var(--text-color);
-  background: white;
-  width: 100%;
-  box-sizing: border-box;
-  transition: border-color 0.15s, box-shadow 0.15s;
-  outline: none;
-}
-.input:focus, .select:focus {
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
-}
-
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  color: var(--text-color);
-}
-.checkbox-label input { cursor: pointer; width: 16px; height: 16px; }
 </style>

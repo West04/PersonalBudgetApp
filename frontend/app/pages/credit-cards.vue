@@ -1,14 +1,15 @@
 <template>
   <div class="cc-page">
-    <header class="page-header">
-      <div class="header-left">
-        <h1 class="page-title">Credit Cards</h1>
-        <input type="month" v-model="monthModel" class="month-picker" />
-      </div>
-      <button class="secondary-btn" @click="loadCandidates" :disabled="candidatesLoading">
-        🔍 Find Transfer Matches
-      </button>
-    </header>
+    <PageHeader title="Credit Cards">
+      <template #controls>
+        <MonthNavigator />
+      </template>
+      <template #actions>
+        <button class="btn btn-secondary" @click="loadCandidates" :disabled="candidatesLoading">
+          🔍 Find Transfer Matches
+        </button>
+      </template>
+    </PageHeader>
 
     <!-- Error Banner -->
     <div v-if="error" class="error-banner">
@@ -199,32 +200,7 @@ interface TransferCandidate {
 }
 
 // --- State & Month Synchronization ---
-const { selectedMonth, setMonth, syncRouteMonth } = useBudgetMonth()
-const route = useRoute()
-
-const monthModel = computed({
-  get: () => selectedMonth.value,
-  set: (val: string) => {
-    if (val && isValidMonth(val)) {
-      setMonth(val)
-    }
-  }
-})
-
-onMounted(() => {
-  syncRouteMonth()
-})
-
-watch(
-  () => route.query.month,
-  (newMonth) => {
-    if (isValidMonth(newMonth) && newMonth !== selectedMonth.value) {
-      selectedMonth.value = newMonth
-    } else if (!isValidMonth(newMonth)) {
-      syncRouteMonth()
-    }
-  }
-)
+const { selectedMonth } = useBudgetMonth()
 const summary = ref<CreditCardSummaryResponse | null>(null)
 const candidates = ref<TransferCandidate[]>([])
 const pending = ref(true)
@@ -303,35 +279,6 @@ const formatDate = (d: string) => formatDateOnly(d)
   padding: 24px;
   max-width: 1100px;
   margin: 0 auto;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 32px;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 1.8rem;
-  font-weight: 700;
-  color: var(--text-color);
-}
-
-.month-picker {
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 1rem;
-  color: var(--text-color);
-  background: white;
 }
 
 .secondary-btn {

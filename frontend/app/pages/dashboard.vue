@@ -1,16 +1,11 @@
 <template>
   <div class="dashboard">
     <!-- Header -->
-    <header class="page-header">
-      <h1 class="page-title">Dashboard</h1>
-      <div class="month-selector">
-        <input 
-          type="month" 
-          v-model="monthModel" 
-          class="month-input"
-        />
-      </div>
-    </header>
+    <PageHeader title="Dashboard">
+      <template #controls>
+        <MonthNavigator />
+      </template>
+    </PageHeader>
 
     <!-- Loading State -->
     <div v-if="pending" class="loading-state">
@@ -165,39 +160,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
-import { useBudgetMonth, isValidMonth } from '~/composables/useBudgetMonth'
+import { useBudgetMonth } from '~/composables/useBudgetMonth'
 import { formatDateOnly } from '~/utils/formatDate'
 
 const API_BASE = '/api'
 
-// --- State & Month Synchronization ---
-const { selectedMonth, setMonth, syncRouteMonth } = useBudgetMonth()
-const route = useRoute()
-
-const monthModel = computed({
-  get: () => selectedMonth.value,
-  set: (val: string) => {
-    if (val && isValidMonth(val)) {
-      setMonth(val)
-    }
-  }
-})
-
-onMounted(() => {
-  syncRouteMonth()
-})
-
-watch(
-  () => route.query.month,
-  (newMonth) => {
-    if (isValidMonth(newMonth) && newMonth !== selectedMonth.value) {
-      selectedMonth.value = newMonth
-    } else if (!isValidMonth(newMonth)) {
-      syncRouteMonth()
-    }
-  }
-)
+const { selectedMonth } = useBudgetMonth()
 
 // --- Data Fetching ---
 const { data, pending, error, refresh } = await useFetch(`${API_BASE}/summary/dashboard`, {
@@ -231,29 +199,6 @@ const calculatePercentage = (actual: number | string, planned: number | string) 
   padding: 24px;
   max-width: 1200px;
   margin: 0 auto;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.page-title {
-  font-size: 1.8rem;
-  font-weight: 700;
-  margin: 0;
-}
-
-.month-input {
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 1rem;
-  font-family: inherit;
-  color: var(--text-color);
-  background: white;
 }
 
 .summary-grid {

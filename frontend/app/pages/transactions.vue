@@ -1,18 +1,11 @@
 <template>
   <div class="transactions-page">
     <!-- Header -->
-    <header class="page-header">
-      <h1 class="page-title">Transactions</h1>
-      <div class="header-actions">
-        <div class="month-selector">
-          <input 
-            type="month" 
-            v-model="monthModel" 
-            class="month-input"
-          />
-        </div>
-      </div>
-    </header>
+    <PageHeader title="Transactions">
+      <template #controls>
+        <MonthNavigator />
+      </template>
+    </PageHeader>
 
     <!-- Filters Section -->
     <div class="filters-card card">
@@ -152,7 +145,7 @@ const API_BASE = '/api'
 // --- State & Month Synchronization ---
 const route = useRoute()
 const router = useRouter()
-const { selectedMonth, setMonth, syncRouteMonth } = useBudgetMonth()
+const { selectedMonth } = useBudgetMonth()
 
 const getRouteAccountId = () => {
   return typeof route.query.account_id === 'string' && route.query.account_id
@@ -167,32 +160,11 @@ const uncategorizedOnly = ref(false)
 const limit = ref(50)
 const offset = ref(0)
 
-const monthModel = computed({
-  get: () => selectedMonth.value,
-  set: (val: string) => {
-    if (val && isValidMonth(val)) {
-      setMonth(val)
-    }
-  }
-})
-
-onMounted(() => {
-  syncRouteMonth()
-})
-
-// Atomic route filter synchronization: update selectedMonth and selectedAccount together
+// Route synchronization for account_id
 watch(
-  () => [route.query.account_id, route.query.month],
-  ([newAccount, newMonth]) => {
+  () => route.query.account_id,
+  (newAccount) => {
     const accountId = typeof newAccount === 'string' ? newAccount : ''
-    const validMonth = isValidMonth(newMonth) ? newMonth : null
-
-    if (validMonth && validMonth !== selectedMonth.value) {
-      selectedMonth.value = validMonth
-    } else if (!validMonth) {
-      syncRouteMonth()
-    }
-
     if (selectedAccount.value !== accountId) {
       selectedAccount.value = accountId
     }
@@ -290,29 +262,6 @@ const formatDate = (dateStr: string) => formatDateOnly(dateStr, { includeYear: t
   padding: 24px;
   max-width: 1200px;
   margin: 0 auto;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
-}
-
-.page-title {
-  font-size: 1.8rem;
-  font-weight: 700;
-  margin: 0;
-}
-
-.month-input {
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 1rem;
-  font-family: inherit;
-  color: var(--text-color);
-  background: white;
 }
 
 .card {

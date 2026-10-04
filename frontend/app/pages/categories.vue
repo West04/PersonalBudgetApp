@@ -1,18 +1,15 @@
 <template>
   <div class="categories-page">
-    <header class="page-header">
-      <div class="header-left">
-        <h1 class="page-title">Categories</h1>
-        <input
-          type="month"
-          v-model="monthModel"
-          class="month-picker"
-        />
-      </div>
-      <button class="primary-btn" @click="addGroup">
-        + Add Category Group
-      </button>
-    </header>
+    <PageHeader title="Categories">
+      <template #controls>
+        <MonthNavigator />
+      </template>
+      <template #actions>
+        <button class="btn btn-primary" @click="addGroup">
+          + Add Category Group
+        </button>
+      </template>
+    </PageHeader>
 
     <!-- Error Banner -->
     <div v-if="error" class="error-banner">
@@ -333,32 +330,7 @@ interface CategoryGroup {
 }
 
 // --- State & Month Synchronization ---
-const { selectedMonth, setMonth, syncRouteMonth } = useBudgetMonth()
-const route = useRoute()
-
-const monthModel = computed({
-  get: () => selectedMonth.value,
-  set: (val: string) => {
-    if (val && isValidMonth(val)) {
-      setMonth(val)
-    }
-  }
-})
-
-onMounted(() => {
-  syncRouteMonth()
-})
-
-watch(
-  () => route.query.month,
-  (newMonth) => {
-    if (isValidMonth(newMonth) && newMonth !== selectedMonth.value) {
-      selectedMonth.value = newMonth
-    } else if (!isValidMonth(newMonth)) {
-      syncRouteMonth()
-    }
-  }
-)
+const { selectedMonth } = useBudgetMonth()
 
 const categoryGroups = ref<CategoryGroup[]>([])
 const budgetSummary = ref<BudgetSummary | null>(null)
@@ -642,35 +614,6 @@ const formatCurrency = (amount: number | string) => {
   padding: 24px;
   max-width: 1000px;
   margin: 0 auto;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 32px;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 1.8rem;
-  font-weight: 700;
-  color: var(--text-color);
-}
-
-.month-picker {
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 1rem;
-  color: var(--text-color);
-  background: white;
 }
 
 .primary-btn {

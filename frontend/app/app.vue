@@ -70,31 +70,6 @@ const { selectedMonth } = useBudgetMonth()
 </script>
 
 <style>
-:root {
-  --sidebar-width: 260px;
-  --sidebar-collapsed-width: 68px;
-  --bg-color: #f8fafc;
-  --sidebar-bg: #ffffff;
-  --text-color: #1e293b;
-  --text-muted: #64748b;
-  --accent-color: #2563eb;
-  --border-color: #e2e8f0;
-  --nav-hover-bg: #f1f5f9;
-  --nav-active-bg: #eff6ff;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: var(--text-color);
-  background-color: var(--bg-color);
-}
-
 .layout {
   display: flex;
   min-height: 100vh;
