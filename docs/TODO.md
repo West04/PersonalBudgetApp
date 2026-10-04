@@ -1,248 +1,268 @@
-# Budget App VBD Modernization — TODO
+# Budget App — Canonical Product & Modernization TODO
 
-**Current stopping point:** CSV-first acceptance fixes complete at commit `5f4e4e5`: International CSV date-format configuration corrected, affected test data recovered, date-format regression tests added, and Transactions route-query synchronization bug resolved.
+**Last Updated:** October 3, 2026  
+**Status:** Active Canonical TODO  
+**Purpose:** Single source of truth replacing previous split TODO files. Tracks completed milestones, acceptance results, deferred product/UX decisions, and upcoming engineering phases.
 
-**Verified regression state at current HEAD:**
+---
+
+## Issue Classification Taxonomy
+
+To maintain architectural integrity, items in this repository are categorized under a strict taxonomy:
+
+- **Known Defect:** Code or schema behavior believed to be incorrect relative to contracts (e.g. description nullability mismatch).
+- **Unresolved Domain Decision:** Business or financial semantics intentionally left undecided pending explicit product direction (e.g. closest-date transfer matching, credit-card transfer inclusion).
+- **Product / UX Observation:** Current implementation functions correctly and consistently with characterized behavior, but user experience, visual presentation, or placement can be refined in future redesigns.
+
+---
+
+## Active Roadmap
 
 ```text
-Backend:  656 passed, 27 warnings (python3 -m pytest)
-Frontend: npm run build -> PASS
+CSV-first acceptance
+    ✓ COMPLETE
+
+CSV-first real use
+    ↓
+Frontend redesign
+    ↓
+Transactions-first UX
+    ↓
+Categorization automation
 ```
 
-> Always rerun the full suite and treat the latest result as authoritative.
+---
+
+## Current Phase — Product / Frontend Redesign
+
+Detailed plan:
+[`docs/PRODUCT_REDESIGN_PLAN.md`](PRODUCT_REDESIGN_PLAN.md)
+
+Real-use findings and competitor pattern research have been incorporated into the redesign plan.
+
+Next implementation phases:
+1. **Frontend design foundation:** shared tokens, typography, buttons, dialogs, MonthNavigator, feedback states.
+2. **Budget/Categories redesign:** whole-row expansion, distinct creation flows, improved editing, month navigation.
+3. **Dashboard redesign:** account overview, spending by group/category, actionable cards, reconsidering planned-vs-actual totals.
+4. **Transactions UX foundation:** filter persistence, inline editing, preparing for review/transfer/bulk workflows.
+5. **Accounts/Credit Cards consolidation:** credit cards represented as accounts, starting balance moved to setup metadata, overpayment styling.
 
 ---
 
-## Completed Slices & Milestones
+# Current Checkpoint
 
-- [x] **Slice 1:** Budget Summary Manager (`backend/managers/budget_summary_manager.py`)
-- [x] **Slice 2:** Dashboard Summary Manager (`backend/managers/dashboard_summary_manager.py`)
-- [x] **Slice 3:** Credit Card Summary Manager (`backend/managers/credit_card_summary_manager.py`)
-- [x] **Slice 4:** Transfer Reconciliation Manager (`backend/managers/transfer_reconciliation_manager.py`)
-- [x] **Slice 5:** CSV Import Confirmation Manager (`backend/managers/csv_import_manager.py`)
-- [x] **Slice 6:** Plaid Account Sync Manager (`backend/managers/plaid_account_sync_manager.py`)
-- [x] **Slice 7 & 9:** Plaid Transaction Sync Manager (`backend/managers/plaid_transaction_sync_manager.py`) & Transaction ResourceAccess
-- [x] **Slice 10:** Manual Transaction CRUD ResourceAccess (`backend/access/transaction_access.py`)
-- [x] **Slice 11:** Account CRUD ResourceAccess (`backend/access/account_access.py`)
-- [x] **Slice 12:** Category & CategoryGroup CRUD / Reorder ResourceAccess (`backend/access/category_access.py`, retired `backend/crud/category.py`)
-- [x] **Slice 13:** Budget Allocation ResourceAccess (`backend/access/budget_access.py`, retired `backend/crud/budget.py`)
-- [x] **Slice 14:** Transfer Confirmation ResourceAccess (`backend/access/transaction_access.py:mark_transfers_as_reconciled`)
-- [x] **Slice 15:** Plaid Link-Token Creation ResourceAccess (`backend/access/plaid_access.py:create_link_token`)
-- [x] **Slice 16:** Upload Preview Account Lookup ResourceAccess (`backend/access/account_access.py:get_account_by_id`)
-- [x] **Custom CSV Formats & Upload-First Ingestion:**
-  - Persisted `CSVFormat` PostgreSQL Resource and `backend/access/csv_format_access.py`
-  - Configurable `MappedStatementLoader` and immutable `MappedCSVFormatConfig` in `backend/bank_statement_loader.py`
-  - Header auto-detection helper function (`detect_csv_format`) with exact matching rules
-  - Stateless upload inspection endpoint (`POST /upload/inspect`)
-  - Custom format management endpoints (`GET /upload/formats`, `POST /upload/formats`)
-  - Upload-first frontend workflow in `frontend/app/pages/upload.vue` (Step 1: Upload / Inspect / Resolve $\rightarrow$ Step 2: Account $\rightarrow$ Step 3: Preview & Confirm $\rightarrow$ Step 4: Done)
-- [x] **CSV-First Acceptance Incident & Transactions Navigation Fix (`5f4e4e5`):**
-  - **Incident Discovery:** Discovered during CSV-first acceptance testing with an international sample statement containing `DD/MM/YYYY` dates.
-  - **Root Cause:** A persisted custom format was misconfigured with `%m/%d/%Y`, causing ambiguous European dates (e.g. `01/09/2026`, `12/09/2026`) to be silently reinterpreted into January and December, while unambiguous dates (e.g. `15/09/2026`) failed parsing.
-  - **Test-Data Recovery:** The custom `International` format in the local database was corrected to `%d/%m/%Y`, and only the five erroneous test transactions created by the misconfigured import were removed, leaving existing legitimate September transactions intact.
-  - **Regression Coverage:** Added focused unit tests in `tests/test_unit_mapped_csv_parsing.py` reproducing the incident and proving that the configured format string strictly controls parsing without heuristic inference, plus end-to-end integration coverage in `tests/test_integration_custom_csv_upload.py`.
-  - **Transactions Route-State Fix:** Updated `frontend/app/pages/transactions.vue` so that local filter state (`currentMonth` and `selectedAccount`) synchronizes with `route.query`, ensuring direct/sidebar navigation (`/transactions`) resets to the current month and All Accounts, while query-driven navigation preserves target account and month.
+## Completed Milestones
+
+- [x] **VBD Architectural Slices 1–16:** Slices complete and regression verified.
+- [x] **Orchestration Managers:** Budget summary, dashboard summary, credit-card summary, transfer reconciliation, CSV import confirmation, and Plaid sync managers where multi-step coordination was justified.
+- [x] **Pure Business Engines:** Infrastructure-free domain engines for zero-based budgeting math, credit-card state calculation, date range evaluation, and transfer candidate detection.
+- [x] **Concrete ResourceAccess:** Clean persistence boundaries for Accounts, Budgets, Categories, Transactions, CSV Formats, and Plaid.
+- [x] **CSV Ingestion Pipeline:** Upload-first inspection (`/upload/inspect`), custom format management (`/upload/formats`), configurable mapped CSV parser (`MappedStatementLoader`), and automated format detection.
+- [x] **Timezone & Navigation Fixes:** UTC-safe transaction date calculation and route-synchronized month state across views.
 
 ---
 
-## Active Direction: CSV-First Product Validation
+# Milestone 1 — CSV-First Product Acceptance (Completed)
 
-> **Important Work Direction:**
-> Do NOT resume a broad backend VBD audit merely because the sections below list auditing tasks.
-> CSV-first product validation remains the primary active direction. Engineering effort should prioritize real acceptance, concrete product workflows, and data integrity over speculative architectural cleanup unless real usage reveals concrete defects.
+## Acceptance Gate: CSV-FIRST READY FOR REAL USE (Achieved)
 
----
-
-## Next Known Issue — Frontend UTC `end_date` Calculation
-
-- [ ] **Characterize & Fix Frontend Timezone `end_date` Offset:**
-  - **Location:** `frontend/app/pages/transactions.vue` line 193 (`const end_date = new Date(Number(year), Number(month), 0).toISOString().slice(0, 10)`).
-  - **Problem:** `new Date(year, month, 0)` constructs local midnight for the last day of the month; `.toISOString()` converts local midnight to UTC. In positive UTC offset timezones (UTC+1 to UTC+14), local midnight converts back into the previous UTC calendar day (e.g. `2026-09-29` instead of `2026-09-30`), cutting off the last day of transactions.
-  - **Status:** Independent issue from route-query synchronization; characterized separately without modifying implementation yet.
-
----
-
-- [ ] Audit routers and managers for direct SQLAlchemy queries or session management that belong in ResourceAccess:
-  - [ ] Search for `db.query(`
-  - [ ] Search for `db.add(`
-  - [ ] Search for `db.delete(`
-  - [ ] Search for `db.commit(`
-  - [ ] Search for direct ORM construction inside routers
-- [ ] Ensure any remaining raw queries are encapsulated in concrete `backend/access/` modules.
+### Acceptance Summary
+- **Outcome:** The user completed the end-to-end acceptance pass using the synthetic user-test pack (`bank_statements/budget_app_user_test_guide.md`).
+- **Core Workflows Verified:**
+  - Manual CSV upload, inspection, preview, and confirmation.
+  - Built-in format parsing (USAA, Discover) and custom format handling (international `%d/%m/%Y`).
+  - Account creation, category creation, and zero-based budget assignment (`to_be_assigned`).
+  - Transaction ledger viewing, filtering, and manual category assignment.
+  - Automated transfer candidate discovery and confirmation.
+  - Multi-month statement imports and date boundary preservation.
+  - Exact-match deduplication and partial-overlap import safety.
+  - Row-level error handling on malformed rows without data loss.
+  - Persistent month selection across app-wide navigation.
+- **Blockers:** Zero blocking CSV, import, or data-integrity issues remained.
+- **Deferred Findings:** Two UX/product observations were identified during testing and deferred to the upcoming frontend redesign phase (see below). Future improvements should be prioritized from these observations and real personal usage.
 
 ---
 
-## Priority 2 — Backend VBD Audit & Consistency
+# Milestone 2 — Real-Use Validation
 
-- [ ] Verify Routers contain Presentation concerns only (HTTP validation, error mapping, serialization).
-- [ ] Verify Managers exist only for meaningful multi-step orchestration.
-- [ ] Verify Engines remain pure and infrastructure-free.
-- [ ] Verify Accessors own concrete persistence/external-resource mechanics.
-- [ ] Check for dead code or legacy compatibility wrappers (e.g. audit remaining `backend/crud/plaid.py`).
-- [ ] Confirm no unnecessary Managers, Engines, repositories, or DTO layers.
+Once real personal budgeting commences:
 
-- [ ] Verify Routers contain Presentation concerns only where intended.
-- [ ] Verify Managers exist only for meaningful orchestration.
-- [ ] Verify Engines remain pure and infrastructure-free.
-- [ ] Verify Accessors own persistence/external-resource mechanics.
-- [ ] Search for duplicated domain calculations.
-- [ ] Search for stale legacy CRUD modules.
-- [ ] Remove dead compatibility wrappers.
-- [ ] Confirm no unnecessary:
-  - [ ] Managers
-  - [ ] Engines
-  - [ ] repositories
-  - [ ] DTO layers
-  - [ ] Unit of Work
-  - [ ] provider abstractions
-- [ ] Reconcile architecture documentation with actual code.
+- [ ] Enter real accounts and accurate starting balances.
+- [ ] Establish initial real monthly budget.
+- [ ] Import real bank and credit-card statements.
+- [ ] Categorize transactions and confirm transfers.
+- [ ] Use the application through at least one full monthly budgeting cycle.
+- [ ] Log real-world friction and usability notes to inform the frontend redesign.
 
 ---
 
-## Priority 8 — Separate product / behavior decisions
+# Milestone 3 — Frontend Redesign (Transactions-First UX)
 
-These must remain separate from structural refactors.
+Begin the complete UI modernization around the proven, reliable backend workflows.
 
-### Transaction description mismatch
+## Design Foundation
+- [ ] Define visual design tokens:
+  - [ ] Typography scale
+  - [ ] Spacing & layout grids
+  - [ ] Semantic colors (inflow, outflow, warnings, overpayments)
+  - [ ] Border radii & elevation
+  - [ ] Responsive breakpoints
+- [ ] Establish standard UI states: loading skeletons, empty states, error banners, and success confirmations.
+- [ ] Build reusable UI primitives only where justified by repeated patterns.
 
-- [ ] Decide how to resolve DB-nullable vs API-non-null `Transaction.description`.
-- [ ] Add targeted characterization/migration tests before changing behavior.
+## Vertical Slices in Priority Order
 
-### CategoryGroup deletion inconsistency
+### 1. Transactions & Transfers (Primary Redesign Target)
+Surfacing transaction review and categorization as a first-class workflow:
+- [ ] Fast inline category editing.
+- [ ] Advanced filter controls (account, category, date range, uncategorized toggle).
+- [ ] Full-text search over descriptions and payees.
+- [ ] **Transfer review placement (from Acceptance Finding 2):** Surface inter-account transfer candidate discovery, side-by-side pair review, and confirmation directly within transaction workflows rather than restricting discovery to the credit-cards page.
+- [ ] Filter state preservation across navigation (route query synchronization for secondary filters).
+- [ ] Clear transfer and pending badges.
+- [ ] Bulk selection and actions.
+- [ ] Explored future affordances: notes, tags, split transactions, suggestion badges.
 
-Current state:
+### 2. Credit Cards View
+- [ ] **Negative balance presentation (from Acceptance Finding 1):** Explicitly present negative `balance_owed` as an "Overpayment / Credit Balance" to prevent user confusion with outstanding debt owed.
+- [ ] Clear display of starting balance, monthly charges, and monthly payments.
+- [ ] Inline editing of starting balances.
 
-```text
-Frontend blocks deleting non-empty groups.
-Backend cascades deletion if the request is sent.
-```
+### 3. Budget View
+- [ ] Rapid planned amount entry.
+- [ ] Clear visual separation between income and expense groups.
+- [ ] Progress bars and remaining balance health indicators.
+- [ ] Prominent zero-based `to_be_assigned` indicator.
 
-- [ ] Decide whether backend should reject non-empty deletion.
-- [ ] Or decide whether frontend should permit the cascade.
-- [ ] Make this a dedicated behavior/product slice.
+### 4. Dashboard
+- [ ] High-level budget health indicators.
+- [ ] Depository and credit account balance summaries.
+- [ ] Recent transactions feed.
 
-### Credit-card semantics
+### 5. Accounts & Categories
+- [ ] Starting balance guidance during account creation.
+- [ ] Intuitive drag-and-drop category and group reordering.
+- [ ] Safe deletion protections.
 
-- [ ] Decide whether `balance_owed` should include transfers.
-- [ ] Decide whether payments should include negative transfers.
-- [ ] Decide whether future-dated transactions belong in current `balance_owed`.
-
-### Transfer matching
-
-- [ ] Decide whether matching should remain greedy/order-dependent.
-- [ ] Decide whether closest-date preference is desired.
-- [ ] If changed, treat as an intentional domain-policy update.
-
-### Plaid amount signs
-
-- [ ] Decide whether the current Plaid amount inversion is correct for the app-wide sign convention.
-- [ ] Keep any correction separate from sync architecture.
-
----
-
-## Priority 9 — Plaid token security migration
-
-Current token storage is not real encryption.
-
-- [ ] Design actual encryption/key-management approach.
-- [ ] Define configuration/key-loading strategy.
-- [ ] Plan migration for already-stored Plaid tokens.
-- [ ] Add migration tests.
-- [ ] Verify existing-user data path.
-- [ ] Verify fresh-install path.
-- [ ] Keep this separate from normal Plaid sync refactors.
-
----
-
-## Priority 10 — Frontend modernization
-
-Begin after backend/API behavior is stable.
-
-### Foundation
-
-- [ ] Define design tokens.
-- [ ] Build reusable UI primitives.
-- [ ] Standardize spacing, typography, states, and responsive rules.
-
-### Vertical slices
-
-- [ ] Dashboard
-- [ ] Budget
-- [ ] Accounts
-- [ ] Transactions
-- [ ] Credit cards
-- [ ] Transfers
-- [ ] CSV import
-- [ ] Plaid/settings
-
-### UX hardening
-
-- [ ] Loading states
-- [ ] Empty states
-- [ ] Error states
-- [ ] Mobile/responsive behavior
-- [ ] Keyboard accessibility
-- [ ] Screen-reader semantics
-- [ ] Reusable Vue components/composables where justified
+### 6. CSV Upload & Import
+- [ ] Polished drag-and-drop upload zone.
+- [ ] Detailed format detection and sample preview table.
+- [ ] Clear import confirmation summary (imported count, duplicate skips, row errors).
 
 ---
 
-## Priority 11 — Final hardening
+# Milestone 4 — Transaction Automation & Auto-Categorization
 
-- [ ] Run the complete PostgreSQL-backed suite.
-- [ ] Add/verify E2E and smoke tests.
-- [ ] Verify Docker Compose from a clean environment.
-- [ ] Verify fresh database initialization.
-- [ ] Verify migrations.
-- [ ] Remove dead files/config.
-- [ ] Reconcile README/setup instructions.
-- [ ] Test a clean clone/setup.
-- [ ] Perform final architecture/doc audit.
+Build incrementally on top of the redesigned Transactions interface:
 
----
+### Phase A — Data Foundation
+- [ ] Treat user-confirmed category assignments as authoritative ground truth.
+- [ ] Establish normalized merchant / payee data model.
+- [ ] Retain raw bank narrative alongside normalized payee.
 
-# Guardrails to keep using
+### Phase B — Deterministic Rules Engine
+- [ ] Exact merchant-to-category matching.
+- [ ] Configurable user rules (e.g. IF description CONTAINS 'TRADER JOE' THEN Groceries).
+- [ ] Preview rule applications prior to bulk execution.
+- [ ] Override and correction recording.
 
-```text
-domain noun != component
-CRUD != Manager
-CRUD != Engine
-possible future change != observed volatility
-```
+### Phase C — ML Category Suggestions
+- [ ] Train lightweight baseline model on user-confirmed categorization history.
+- [ ] Present probabilistic suggestions with confidence scores; do not mutate records without user review.
+- [ ] Feed user overrides back into training signals.
 
-Workflow:
-
-```text
-preserve behavior first
--> characterize odd behavior
--> extract one justified boundary
--> run full suite
--> review
--> update docs
--> commit
--> repeat
-```
-
-For simple CRUD, prefer:
-
-```text
-Router -> Accessor -> Resource
-```
-
-Do not introduce speculative abstractions unless a real independent volatility axis is demonstrated.
+### Phase D — Optional LLM Assistance
+- [ ] Evaluate LLM extraction for ambiguous or unstructured narratives only where deterministic rules and ML abstain.
+- [ ] Financial data privacy and strict user confirmation safeguards.
 
 ---
 
-# Resume checkpoint
+# Milestone 5 — Mature Budgeting Features (Candidate Roadmap)
 
-When returning to the project, the current baseline is:
+Optional features to consider based on actual personal budgeting needs:
 
-> **All Slices 1–16 and Custom CSV Format / Upload-First ingestion are complete and regression-verified at HEAD (`df4f6b0`). Documentation audit is complete.**
+- **Account Reconciliation:** Distinct from transfer reconciliation; mark cleared/uncleared transactions against bank statements.
+- **Recurring Transactions & Bills:** Scheduled income and bill tracking.
+- **Reporting & Analytics:** Category breakdown charts, cash flow graphs, income vs. expense trends.
+- **Savings Goals & Targets:** Sinking funds and progress targets.
 
-Next steps:
-- Human review of the refreshed documentation.
-- Select the next prioritized slice:
-  - **Priority 1 & 2:** Auditing remaining persistence leaks and legacy wrappers (e.g. `backend/crud/plaid.py`).
-  - **Priority 3:** Separate product/behavior decisions (Transaction description nullability, CategoryGroup cascade deletion, Credit card transfer/future-dated balance semantics).
-  - **Priority 4:** Plaid token security migration (replacing base64 with cryptographic key management).
+---
 
+# Deferred Product & Domain Decisions
+
+These are documented decisions intentionally kept separate from architectural refactoring:
+
+### Credit-card negative balance presentation
+- **Classification:** Product / UX observation (NOT a calculation defect)
+- **Status:** Deferred product/UX decision
+- **Observed during CSV-first acceptance:**
+  On the Discover test account, `balance_owed` displayed as `-$178.16`.
+  - Starting balance: `$0.00`
+  - Charges (positive outflows): `+$82.15` + `+$46.20` + `+$17.99` = `+$146.34`
+  - Inflows (negative payments & refunds): `-$300.00` + `-$24.50` = `-$324.50`
+  - Net: `$0.00 + $146.34 - $324.50 = -$178.16`
+- **Context & Characterized Behavior:**
+  The calculation is mathematically and internally consistent with the characterized credit-card debt model:
+  $$\text{balance\_owed} = \text{starting\_balance} + \sum_{\text{all-time}} \text{Transaction.amount}$$
+  When cumulative payments and credits exceed charges from a zero starting balance, `balance_owed` is negative.
+- **Deferred Presentation Direction:**
+  Positive `balance_owed` indicates debt owed to the card issuer. Negative `balance_owed` indicates a credit balance / overpayment. Surfacing this status with intuitive visual styling and labeling (e.g. "Credit Balance / Overpaid: $178.16") will be resolved during the credit-cards view redesign. Formula remains unchanged.
+
+### Transfer review placement
+- **Classification:** Product / UX architecture observation (NOT an architecture defect)
+- **Status:** Deferred frontend UX decision
+- **Observed during CSV-first acceptance:**
+  The "Find Transfer Matches" discovery button and review panel are currently located on the Credit Cards page (`/credit-cards`). However, inter-account transfers conceptually apply across all account types (e.g. Checking &rarr; Savings, Savings &rarr; Checking, Checking &rarr; Credit Card). In Step 5 of acceptance, a checking-to-savings transfer pair was reviewed and confirmed from the credit-card page.
+- **Context & Architecture Integrity:**
+  The backend architecture already correctly decouples this workflow: `TransferReconciliationManager` and the pure engine `detect_transfer_candidates` operate agnostically across all account pairs, not just credit cards. The existing backend implementation is preserved.
+- **Deferred UX Direction:**
+  Surfacing transfer candidate discovery, review, and approval will be elevated to the redesigned Transactions view as a first-class workflow.
+
+### Transaction description nullability
+- **Classification:** Known defect
+- **Status:** Preserved pending migration slice
+- `models.Transaction.description` is nullable in PostgreSQL, while Pydantic schemas enforce non-null `str`. Requires a dedicated characterization and migration slice.
+
+### CategoryGroup deletion cascade inconsistency
+- **Classification:** Known defect / behavior inconsistency
+- **Status:** Preserved pending product decision
+- Backend allows cascading deletion of category groups, while frontend blocks deleting non-empty groups.
+
+### Credit-card transfer & future-date semantics
+- **Classification:** Unresolved domain decision
+- **Status:** Preserved characterized behavior
+- `balance_owed` includes transfers, while `charges_this_month` excludes transfers. Future-dated transactions are currently evaluated in `balance_owed`.
+
+### Transfer matching heuristic
+- **Classification:** Unresolved domain decision
+- **Status:** Preserved characterized behavior
+- `detect_transfer_candidates` pairs transactions greedily in database retrieval sequence without closest-date tie-breaking.
+
+### Budget Summary transfer exclusion
+- **Classification:** Unresolved domain decision
+- **Status:** Preserved characterized behavior
+- `get_actuals_by_category` does not filter out transaction-level `is_transfer = True`; high-level exclusion relies on the category being configured as type `transfer`.
+
+---
+
+# Deferred Backend & Plaid Cleanup
+
+Do not perform speculative cleanup until driven by real product requirements:
+
+- **Backend VBD Consistency Audit:** Verify presentation purity in routers, check for legacy compatibility wrappers, ensure Accessors encapsulate all persistence mechanics.
+- **Plaid Strategy Decision:**
+  - If Plaid is retained: migrate token storage from base64 encoding to real cryptographic key management (Fernet/KMS), resolve legacy `backend/crud/plaid.py`, and complete Plaid-specific acceptance.
+  - If Plaid is retired: cleanly disable Plaid UI and routes, verify CSV independence, and remove Plaid-only code in a dedicated cleanup slice.
+
+---
+
+# Core Architectural Principles & Guardrails
+
+- `domain noun != component`
+- `CRUD != Manager`
+- `CRUD != Engine`
+- `possible future change != observed volatility`
+- Standard workflow: `Presentation -> Manager -> Engine / Accessor -> Resource`
+- Simple CRUD: `Presentation -> Accessor -> Resource`
+- CSV parsing remains an ingestion/parser boundary, not a business Engine.
+- Do not introduce speculative abstractions without demonstrated independent volatility.

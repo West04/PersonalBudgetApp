@@ -97,6 +97,7 @@ backend/
    $$\text{balance\_owed} = \text{starting\_balance} + \sum_{\text{all-time}} \text{Transaction.amount}$$
    - Charges: Sum of positive non-transfer transactions in current month.
    - Payments: Absolute sum of negative transactions in current month.
+   - Note on Sign Convention: When cumulative payments and credits exceed charges from a $0.00 baseline, `balance_owed` calculates as negative. Surfacing negative balances as an overpayment / credit balance vs. outstanding debt is a deferred presentation decision, not a calculation defect; the underlying calculation is preserved.
 4. **Transfer Matching Heuristic:**
    - Evaluates unlinked inflows (`amount < 0`, `is_transfer == False`) against unlinked outflows (`amount > 0`, `is_transfer == False`).
    - Pairs them if $|\text{date}_{\text{outflow}} - \text{date}_{\text{inflow}}| \le 2\text{ days}$ and $\text{account}_{\text{outflow}} \ne \text{account}_{\text{inflow}}$.
