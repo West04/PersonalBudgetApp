@@ -491,3 +491,35 @@ def test_delete_manual_transaction_mock_commit():
     mock_db.delete.assert_not_called()
     mock_db.commit.assert_not_called()
 
+
+# 8. Aggregation: get_transaction_net_by_account
+def test_get_transaction_net_by_account_empty(db_session):
+    # Empty account list returns empty dict without error
+    result = transaction_access.get_transaction_net_by_account(db_session, [])
+    assert result == {}
+
+
+def test_get_transaction_net_by_account_aggregation(db_session):
+    acc1 = models.Account(name="Acc 1", type="depository")
+    acc2 = models.Account(name="Acc 2", type="depository")
+    db_session.add_all([acc1, acc2])
+    db_session.commit()
+
+    tx1 = models.Transaction(account_id=acc1.id, amount=Decimal("50.00"), date=date(2026, 6, 1), description="T1")
+    tx2 = models.Transaction(account_id=acc1.id, amount=Decimal("-20.00"), date=date(2026, 6, 2), description="T2")
+    tx3 = models.Transaction(account_id=acc2.id, amount=Decimal("15.50"), date=date(2026, 6, 3), description="T3")
+    db_session.add_all([tx1, tx2, tx3])
+    db_session.commit()
+
+    # Query all
+    all_net = transaction_access.get_transaction_net_by_account(db_session)
+    assert all_net[acc1.id] == Decimal("30.00")
+    assert all_net[acc2.id] == Decimal("15.50")
+
+    # Query filtered
+    filtered_net = transaction_access.get_transaction_net_by_account(db_session, [acc1.id])
+    assert acc1.id in filtered_net
+    assert filtered_net[acc1.id] == Decimal("30.00")
+    assert acc2.id not in filtered_net
+
+

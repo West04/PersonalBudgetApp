@@ -90,7 +90,8 @@ def test_list_accounts_single_manual_account_shape(client: TestClient, db_sessio
     assert item["name"] == "Checking Alpha"
     assert item["type"] == "depository"
     assert item["subtype"] == "checking"
-    assert Decimal(str(item["current_balance"])) == Decimal("123.45")
+    # Derived from starting_balance (100.00) - net_transactions (0.00) = 100.00
+    assert Decimal(str(item["current_balance"])) == Decimal("100.00")
     assert Decimal(str(item["starting_balance"])) == Decimal("100.00")
     assert item["currency"] == "USD"
     assert item["is_active"] is True

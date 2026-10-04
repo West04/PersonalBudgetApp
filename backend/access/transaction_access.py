@@ -411,5 +411,29 @@ def mark_transactions_as_transfers(
     return updated_count
 
 
+def get_transaction_net_by_account(
+    db: Session,
+    account_ids: Optional[Sequence[UUID]] = None,
+) -> dict[UUID, Decimal]:
+    """
+    Aggregates transaction amount sums grouped by account_id.
+    Positive amounts represent outflows/spending, negative amounts represent inflows/income.
+    If account_ids is provided, limits aggregation to the specified accounts.
+    """
+    if account_ids is not None and len(account_ids) == 0:
+        return {}
+
+    query = db.query(
+        models.Transaction.account_id,
+        func.coalesce(func.sum(models.Transaction.amount), ZERO).label("net_amount"),
+    ).group_by(models.Transaction.account_id)
+
+    if account_ids is not None:
+        query = query.filter(models.Transaction.account_id.in_(account_ids))
+
+    return {row[0]: Decimal(str(row[1])) for row in query.all()}
+
+
+
 
 

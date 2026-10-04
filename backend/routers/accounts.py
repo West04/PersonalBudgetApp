@@ -1,11 +1,13 @@
+from typing import List
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
 
+from .. import schemas
 from ..access import account_access
 from ..database import get_db
-from .. import schemas
+from ..managers import account_summary_manager
 
 router = APIRouter(prefix="/accounts", tags=["Accounts"])
 
@@ -18,7 +20,8 @@ def get_account_types():
 
 @router.get("/", response_model=List[schemas.AccountRead])
 def list_accounts(db: Session = Depends(get_db)):
-    return account_access.get_all_accounts_ordered(db)
+    return account_summary_manager.get_accounts_summary(db)
+
 
 
 @router.post("/", response_model=schemas.AccountRead, status_code=201)
