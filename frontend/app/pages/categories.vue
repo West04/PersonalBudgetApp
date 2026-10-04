@@ -1,46 +1,40 @@
 <template>
   <div class="categories-page">
-    <PageHeader title="Categories">
+    <PageHeader title="Budget" subtitle="Plan and track monthly spending across category groups">
       <template #controls>
         <MonthNavigator />
       </template>
       <template #actions>
-        <button class="btn btn-primary" @click="addGroup">
-          + Add Category Group
+        <button type="button" class="btn btn-primary" @click="openAddGroupModal">
+          + Add Group
         </button>
       </template>
     </PageHeader>
 
     <!-- Error Banner -->
-    <div v-if="error" class="error-banner">
-      {{ error }}
-      <button class="close-btn" @click="error = null">x</button>
-    </div>
+    <ErrorBanner :error="error" @dismiss="error = null" />
 
     <!-- Loading State -->
-    <div v-if="pending" class="loading-state">
-      <div class="spinner"></div>
-      <p>Loading categories...</p>
-    </div>
+    <LoadingState v-if="pending" message="Loading budget..." />
 
     <template v-else>
       <!-- Summary Cards -->
-      <section class="summary-cards">
-        <div class="card summary-card income">
+      <section class="summary-cards" aria-label="Monthly budget summary">
+        <div class="surface-card summary-card income">
           <div class="card-label">Planned Income</div>
-          <div class="card-value">{{ formatCurrency(totalIncomePlanned) }}</div>
-          <div class="card-sub">Actual: {{ formatCurrency(totalIncomeActual) }}</div>
+          <div class="card-value font-mono">{{ formatCurrency(totalIncomePlanned) }}</div>
+          <div class="card-sub font-mono">Actual: {{ formatCurrency(totalIncomeActual) }}</div>
         </div>
 
-        <div class="card summary-card expense">
+        <div class="surface-card summary-card expense">
           <div class="card-label">Planned Expenses</div>
-          <div class="card-value">{{ formatCurrency(totalExpensePlanned) }}</div>
-          <div class="card-sub">Actual: {{ formatCurrency(totalExpenseActual) }}</div>
+          <div class="card-value font-mono">{{ formatCurrency(totalExpensePlanned) }}</div>
+          <div class="card-sub font-mono">Actual: {{ formatCurrency(totalExpenseActual) }}</div>
         </div>
 
-        <div class="card summary-card assign" :class="{ 'warning': toBeAssigned < 0 }">
+        <div class="surface-card summary-card assign" :class="{ 'warning': toBeAssigned < 0 }">
           <div class="card-label">To Be Assigned</div>
-          <div class="card-value">{{ formatCurrency(toBeAssigned) }}</div>
+          <div class="card-value font-mono">{{ formatCurrency(toBeAssigned) }}</div>
           <div class="card-sub" v-if="toBeAssigned === 0">Every dollar has a job!</div>
           <div class="card-sub" v-else-if="toBeAssigned > 0">You have money to budget</div>
           <div class="card-sub" v-else>You are over-budgeted!</div>
@@ -48,11 +42,17 @@
       </section>
 
       <!-- Empty State -->
-      <div v-if="!categoryGroups.length" class="empty-state">
-        <div class="empty-icon">*</div>
-        <h2>No categories yet</h2>
-        <p>Create category groups to organize your budget.</p>
-      </div>
+      <EmptyState
+        v-if="!categoryGroups.length"
+        title="No category groups yet"
+        description="Create category groups to organize your budget and allocate planned spending."
+      >
+        <template #actions>
+          <button type="button" class="btn btn-primary" @click="openAddGroupModal">
+            + Add Group
+          </button>
+        </template>
+      </EmptyState>
 
       <!-- Draggable Group List -->
       <draggable
@@ -65,125 +65,189 @@
         class="groups-list"
       >
         <template #item="{ element: group }">
-          <div class="group-section" :class="{ 'is-collapsed': isGroupCollapsed(group.category_group_id) }">
-            <!-- Group Row -->
-            <div
-              class="group-header"
-              :class="{ 'expanded': expandedGroupId === group.category_group_id }"
-            >
-              <div class="group-header-left">
-                <span class="drag-handle group-drag-handle" title="Drag to reorder">:::</span>
+          <section
+            class="group-section surface-card"
+            :class="{ 'is-collapsed': isGroupCollapsed(group.category_group_id) }"
+            :aria-label="group.name"
+          >
+            <!-- Group Header -->
+            <div class="group-header">
+              <span
+                class="drag-handle group-drag-handle"
+                title="Drag to reorder group"
+                aria-label="Drag group to reorder"
+                tabindex="-1"
+              >⋮⋮</span>
 
-                <!-- Collapse Toggle -->
-                <button
-                  class="collapse-toggle"
-                  @click="toggleGroupCollapse(group.category_group_id)"
-                  title="Toggle categories"
-                >
+              <!-- Entire reasonable non-interactive area toggles expand/collapse -->
+              <button
+                type="button"
+                class="group-toggle-btn"
+                :aria-expanded="!isGroupCollapsed(group.category_group_id)"
+                :aria-controls="`group-categories-${group.category_group_id}`"
+                :aria-label="`${group.name} group, ${isGroupCollapsed(group.category_group_id) ? 'collapsed' : 'expanded'}`"
+                @click="toggleGroupCollapse(group.category_group_id)"
+              >
+                <div class="group-identity">
                   <svg
-                    class="collapse-icon"
+                    class="group-chevron"
                     :class="{ 'collapsed': isGroupCollapsed(group.category_group_id) }"
                     viewBox="0 0 24 24"
-                    width="20"
-                    height="20"
+                    width="18"
+                    height="18"
                     fill="none"
                     stroke="currentColor"
-                    stroke-width="2"
+                    stroke-width="2.5"
                     stroke-linecap="round"
                     stroke-linejoin="round"
+                    aria-hidden="true"
                   >
                     <polyline points="6 9 12 15 18 9"></polyline>
                   </svg>
+                  <h2 class="group-title">{{ group.name }}</h2>
+                  <span class="group-count text-muted">({{ group.categories.length }})</span>
+                </div>
+
+                <div class="group-totals font-mono">
+                  <span class="group-metric">
+                    <span class="metric-label">Planned:</span>
+                    <span class="metric-val">{{ formatCurrency(getGroupTotalPlanned(group)) }}</span>
+                  </span>
+                  <span class="group-metric">
+                    <span class="metric-label">Activity:</span>
+                    <span class="metric-val text-muted">{{ formatCurrency(getGroupTotalActual(group)) }}</span>
+                  </span>
+                  <span
+                    class="group-metric"
+                    :class="{ 'negative': getGroupTotalRemaining(group) < 0 }"
+                  >
+                    <span class="metric-label">Remaining:</span>
+                    <span class="metric-val">{{ formatCurrency(getGroupTotalRemaining(group)) }}</span>
+                  </span>
+                </div>
+              </button>
+
+              <!-- Group Actions -->
+              <div class="group-actions">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openAddCategoryModal(group)"
+                  :aria-label="`Add category to ${group.name}`"
+                  title="Add Category"
+                >
+                  + Add Category
                 </button>
-
-                <!-- Collapsed View -->
-                <template v-if="expandedGroupId !== group.category_group_id">
-                  <h2 class="group-title" @click="toggleGroupExpand(group.category_group_id)">
-                    {{ group.name }}
-                  </h2>
-                </template>
-
-                <!-- Expanded View (Edit Mode) -->
-                <template v-else>
-                  <input
-                    type="text"
-                    v-model="group.name"
-                    @blur="saveGroup(group)"
-                    @keydown.enter="($event.target as HTMLInputElement).blur()"
-                    class="inline-input group-name-input"
-                    placeholder="Group name"
-                  />
-                </template>
-              </div>
-
-              <div class="group-header-right">
-                <!-- Collapsed: Show totals -->
-                <template v-if="expandedGroupId !== group.category_group_id">
-                  <div class="group-totals" @click="toggleGroupExpand(group.category_group_id)">
-                    <span>Planned: {{ formatCurrency(getGroupTotalPlanned(group)) }}</span>
-                    <span>Remaining: {{ formatCurrency(getGroupTotalRemaining(group)) }}</span>
-                  </div>
-                  <button class="icon-btn expand-btn" @click="toggleGroupExpand(group.category_group_id)" title="Edit group">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                    </svg>
-                  </button>
-                </template>
-
-                <!-- Expanded: Show delete button -->
-                <template v-else>
-                  <button class="icon-btn delete-btn" @click="confirmDeleteGroup(group)" title="Delete group">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                      <polyline points="3 6 5 6 21 6"></polyline>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                    </svg>
-                  </button>
-                  <button class="icon-btn done-btn" @click="toggleGroupExpand(null)" title="Done editing">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                  </button>
-                </template>
+                <button
+                  type="button"
+                  class="btn-icon"
+                  @click="openEditGroupModal(group)"
+                  :aria-label="`Edit ${group.name} group`"
+                  title="Edit Group"
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="btn-icon btn-icon-danger"
+                  @click="confirmDeleteGroup(group)"
+                  :aria-label="`Delete ${group.name} group`"
+                  title="Delete Group"
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                </button>
               </div>
             </div>
 
-            <!-- Category List -->
-            <draggable
+            <!-- Categories Container -->
+            <div
+              :id="`group-categories-${group.category_group_id}`"
               v-show="!isGroupCollapsed(group.category_group_id)"
-              v-model="group.categories"
-              item-key="category_id"
-              handle=".category-drag-handle"
-              ghost-class="ghost"
-              @end="onCategoryDragEnd(group)"
-              class="category-list"
+              class="group-body"
             >
-              <template #item="{ element: category }">
-                <div
-                  class="category-row"
-                  :class="{ 'expanded': expandedCategoryId === category.category_id }"
+              <!-- Empty state inside group -->
+              <div v-if="!group.categories.length" class="empty-group-body">
+                <p class="text-muted">No categories in this group yet.</p>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="openAddCategoryModal(group)"
                 >
-                  <span class="drag-handle category-drag-handle" title="Drag to reorder">:::</span>
+                  + Add First Category
+                </button>
+              </div>
 
-                  <!-- Collapsed View -->
-                  <template v-if="expandedCategoryId !== category.category_id">
-                    <div class="category-info" @click="toggleCategoryExpand(category.category_id)">
+              <!-- Categories Draggable List -->
+              <draggable
+                v-else
+                v-model="group.categories"
+                item-key="category_id"
+                handle=".category-drag-handle"
+                ghost-class="ghost"
+                @end="onCategoryDragEnd(group)"
+                class="category-list"
+              >
+                <template #item="{ element: category }">
+                  <div class="category-row">
+                    <span
+                      class="drag-handle category-drag-handle"
+                      title="Drag to reorder category"
+                      aria-label="Drag category to reorder"
+                      tabindex="-1"
+                    >⋮⋮</span>
+
+                    <!-- Info: Name & badges -->
+                    <div class="category-info">
                       <span class="category-name">{{ category.name }}</span>
                       <span :class="['type-badge', category.type]">{{ category.type }}</span>
                       <span v-if="!category.is_active" class="inactive-badge">Inactive</span>
                     </div>
-                    <div class="category-budget">
-                      <div class="budget-numbers">
-                        <span class="budget-planned">{{ formatCurrency(getCategoryPlanned(category)) }}</span>
-                        <span class="budget-separator">/</span>
-                        <span class="budget-actual">{{ formatCurrency(getCategoryActual(category)) }}</span>
-                        <span
-                          class="budget-remaining"
-                          :class="{ 'negative': getCategoryRemaining(category) < 0 }"
-                        >
-                          ({{ formatCurrency(getCategoryRemaining(category)) }})
-                        </span>
+
+                    <!-- Planned Amount Input -->
+                    <div class="category-planned">
+                      <label :for="`planned-${category.category_id}`" class="sr-only">
+                        Planned amount for {{ category.name }}
+                      </label>
+                      <div class="amount-input-box">
+                        <span class="currency-symbol" aria-hidden="true">$</span>
+                        <input
+                          :id="`planned-${category.category_id}`"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          :value="getCategoryPlanned(category)"
+                          @change="onPlannedAmountChange(category, ($event.target as HTMLInputElement).value)"
+                          @keydown.enter="($event.target as HTMLInputElement).blur()"
+                          @keydown.escape="revertPlannedAmount(category, $event.target as HTMLInputElement)"
+                          class="form-input font-mono amount-input"
+                          placeholder="0.00"
+                        />
                       </div>
+                    </div>
+
+                    <!-- Activity / Actual -->
+                    <div class="category-metric category-actual font-mono text-muted">
+                      <span class="metric-mobile-label">Activity: </span>
+                      <span>{{ formatCurrency(getCategoryActual(category)) }}</span>
+                    </div>
+
+                    <!-- Remaining -->
+                    <div
+                      class="category-metric category-remaining font-mono"
+                      :class="{ 'negative': getCategoryRemaining(category) < 0 }"
+                    >
+                      <span class="metric-mobile-label">Remaining: </span>
+                      <span>{{ formatCurrency(getCategoryRemaining(category)) }}</span>
+                    </div>
+
+                    <!-- Progress Bar -->
+                    <div class="category-progress" :title="`${Math.round(calculateProgress(category))}% of planned`" aria-hidden="true">
                       <div class="progress-bar-bg">
                         <div
                           class="progress-bar-fill"
@@ -192,93 +256,274 @@
                         ></div>
                       </div>
                     </div>
-                    <button class="icon-btn expand-btn" @click.stop="toggleCategoryExpand(category.category_id)" title="Edit category">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                      </svg>
-                    </button>
-                  </template>
 
-                  <!-- Expanded View (Edit Mode) -->
-                  <template v-else>
-                    <div class="category-edit-form">
-                      <input
-                        type="text"
-                        v-model="category.name"
-                        @blur="saveCategory(category)"
-                        @keydown.enter="($event.target as HTMLInputElement).blur()"
-                        class="inline-input category-name-input"
-                        placeholder="Category name"
-                      />
-                      <select
-                        v-model="category.type"
-                        @change="saveCategory(category)"
-                        class="inline-select"
+                    <!-- Actions -->
+                    <div class="category-actions">
+                      <button
+                        type="button"
+                        class="btn-icon"
+                        @click="openEditCategoryModal(category)"
+                        :aria-label="`Edit ${category.name}`"
+                        title="Edit Category"
                       >
-                        <option value="expense">Expense</option>
-                        <option value="income">Income</option>
-                        <option value="transfer">Transfer</option>
-                      </select>
-                      <label class="active-toggle">
-                        <input
-                          type="checkbox"
-                          v-model="category.is_active"
-                          @change="saveCategory(category)"
-                        />
-                        <span>Active</span>
-                      </label>
-                      <div class="planned-input-group">
-                        <span class="planned-input-label">Planned</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          :value="getCategoryPlanned(category)"
-                          @blur="savePlannedAmount(category, ($event.target as HTMLInputElement).value)"
-                          @keydown.enter="($event.target as HTMLInputElement).blur()"
-                          class="inline-input planned-amount-input"
-                          placeholder="0.00"
-                        />
-                      </div>
-                    </div>
-                    <div class="category-edit-actions">
-                      <button class="icon-btn delete-btn" @click="confirmDeleteCategory(category)" title="Delete category">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn-icon btn-icon-danger"
+                        @click="confirmDeleteCategory(category)"
+                        :aria-label="`Delete ${category.name}`"
+                        title="Delete Category"
+                      >
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                           <polyline points="3 6 5 6 21 6"></polyline>
                           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                         </svg>
                       </button>
-                      <button class="icon-btn done-btn" @click="toggleCategoryExpand(null)" title="Done editing">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                      </button>
                     </div>
-                  </template>
-                </div>
-              </template>
-            </draggable>
-
-            <!-- Add Category Button -->
-            <button
-              v-show="!isGroupCollapsed(group.category_group_id)"
-              class="add-category-btn"
-              @click="addCategory(group)"
-            >
-              + Add Category
-            </button>
-          </div>
+                  </div>
+                </template>
+              </draggable>
+            </div>
+          </section>
         </template>
       </draggable>
     </template>
+
+    <!-- Dialog: Add Group -->
+    <AppDialog
+      :open="isAddGroupOpen"
+      title="Add Category Group"
+      @close="closeAddGroupModal"
+    >
+      <FormField label="Group Name" required :error="groupFormErrors.name" v-slot="{ id }">
+        <input
+          :id="id"
+          v-model="groupForm.name"
+          class="form-input"
+          placeholder="e.g. Housing, Utilities, Food"
+          autofocus
+          @keydown.enter.prevent="submitAddGroup"
+        />
+      </FormField>
+
+      <ErrorBanner v-if="groupModalError" :error="groupModalError" :dismissible="false" />
+
+      <template #footer>
+        <button type="button" class="btn btn-ghost" @click="closeAddGroupModal">Cancel</button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="!groupForm.name.trim() || isSubmittingGroup"
+          @click="submitAddGroup"
+        >
+          {{ isSubmittingGroup ? 'Adding…' : 'Add Group' }}
+        </button>
+      </template>
+    </AppDialog>
+
+    <!-- Dialog: Edit Group -->
+    <AppDialog
+      :open="isEditGroupOpen"
+      title="Edit Category Group"
+      @close="closeEditGroupModal"
+    >
+      <FormField label="Group Name" required :error="groupFormErrors.name" v-slot="{ id }">
+        <input
+          :id="id"
+          v-model="groupEditForm.name"
+          class="form-input"
+          placeholder="Group name"
+          autofocus
+          @keydown.enter.prevent="submitEditGroup"
+        />
+      </FormField>
+
+      <ErrorBanner v-if="groupModalError" :error="groupModalError" :dismissible="false" />
+
+      <template #footer>
+        <button type="button" class="btn btn-ghost" @click="closeEditGroupModal">Cancel</button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="!groupEditForm.name.trim() || isSubmittingGroup"
+          @click="submitEditGroup"
+        >
+          {{ isSubmittingGroup ? 'Saving…' : 'Save Changes' }}
+        </button>
+      </template>
+    </AppDialog>
+
+    <!-- Dialog: Add Category -->
+    <AppDialog
+      :open="isAddCategoryOpen"
+      title="Add Category"
+      @close="closeAddCategoryModal"
+    >
+      <div v-if="selectedGroupForCategory" class="target-group-badge">
+        <span class="target-group-label">Group:</span>
+        <strong class="target-group-name">{{ selectedGroupForCategory.name }}</strong>
+      </div>
+
+      <FormField v-else label="Category Group" required v-slot="{ id }">
+        <select :id="id" v-model="categoryForm.group_id" class="form-select">
+          <option
+            v-for="g in categoryGroups"
+            :key="g.category_group_id"
+            :value="g.category_group_id"
+          >
+            {{ g.name }}
+          </option>
+        </select>
+      </FormField>
+
+      <FormField label="Category Name" required :error="categoryFormErrors.name" v-slot="{ id }">
+        <input
+          :id="id"
+          v-model="categoryForm.name"
+          class="form-input"
+          placeholder="e.g. Groceries, Rent, Electric"
+          autofocus
+          @keydown.enter.prevent="submitAddCategory"
+        />
+      </FormField>
+
+      <div class="field-row">
+        <FormField label="Type" required v-slot="{ id }">
+          <select :id="id" v-model="categoryForm.type" class="form-select">
+            <option value="expense">Expense</option>
+            <option value="income">Income</option>
+            <option value="transfer">Transfer</option>
+          </select>
+        </FormField>
+
+        <FormField
+          label="Planned Amount ($)"
+          hint="Initial monthly allocation"
+          v-slot="{ id }"
+        >
+          <input
+            :id="id"
+            v-model="categoryForm.planned_amount"
+            type="number"
+            min="0"
+            step="0.01"
+            class="form-input font-mono"
+            placeholder="0.00"
+            @keydown.enter.prevent="submitAddCategory"
+          />
+        </FormField>
+      </div>
+
+      <div class="status-toggle-wrapper">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="categoryForm.is_active" class="form-checkbox" />
+          <span>Active</span>
+        </label>
+      </div>
+
+      <ErrorBanner v-if="categoryModalError" :error="categoryModalError" :dismissible="false" />
+
+      <template #footer>
+        <button type="button" class="btn btn-ghost" @click="closeAddCategoryModal">Cancel</button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="!categoryForm.name.trim() || isSubmittingCategory"
+          @click="submitAddCategory"
+        >
+          {{ isSubmittingCategory ? 'Adding…' : 'Add Category' }}
+        </button>
+      </template>
+    </AppDialog>
+
+    <!-- Dialog: Edit Category -->
+    <AppDialog
+      :open="isEditCategoryOpen"
+      title="Edit Category"
+      @close="closeEditCategoryModal"
+    >
+      <FormField label="Category Group" required v-slot="{ id }">
+        <select :id="id" v-model="categoryEditForm.group_id" class="form-select">
+          <option
+            v-for="g in categoryGroups"
+            :key="g.category_group_id"
+            :value="g.category_group_id"
+          >
+            {{ g.name }}
+          </option>
+        </select>
+      </FormField>
+
+      <FormField label="Category Name" required :error="categoryFormErrors.name" v-slot="{ id }">
+        <input
+          :id="id"
+          v-model="categoryEditForm.name"
+          class="form-input"
+          placeholder="Category name"
+          autofocus
+          @keydown.enter.prevent="submitEditCategory"
+        />
+      </FormField>
+
+      <div class="field-row">
+        <FormField label="Type" required v-slot="{ id }">
+          <select :id="id" v-model="categoryEditForm.type" class="form-select">
+            <option value="expense">Expense</option>
+            <option value="income">Income</option>
+            <option value="transfer">Transfer</option>
+          </select>
+        </FormField>
+
+        <FormField
+          label="Planned Amount ($)"
+          hint="Monthly planned amount"
+          v-slot="{ id }"
+        >
+          <input
+            :id="id"
+            v-model="categoryEditForm.planned_amount"
+            type="number"
+            min="0"
+            step="0.01"
+            class="form-input font-mono"
+            placeholder="0.00"
+            @keydown.enter.prevent="submitEditCategory"
+          />
+        </FormField>
+      </div>
+
+      <div class="status-toggle-wrapper">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="categoryEditForm.is_active" class="form-checkbox" />
+          <span>Active</span>
+        </label>
+      </div>
+
+      <ErrorBanner v-if="categoryModalError" :error="categoryModalError" :dismissible="false" />
+
+      <template #footer>
+        <button type="button" class="btn btn-ghost" @click="closeEditCategoryModal">Cancel</button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="!categoryEditForm.name.trim() || isSubmittingCategory"
+          @click="submitEditCategory"
+        >
+          {{ isSubmittingCategory ? 'Saving…' : 'Save Changes' }}
+        </button>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import draggable from 'vuedraggable'
-import { useBudgetMonth, isValidMonth } from '~/composables/useBudgetMonth'
+import { useBudgetMonth } from '~/composables/useBudgetMonth'
 
 const API_BASE = '/api'
 
@@ -337,12 +582,59 @@ const budgetSummary = ref<BudgetSummary | null>(null)
 const pending = ref(true)
 const error = ref<string | null>(null)
 
-// Expansion state - only one expanded at a time
-const expandedGroupId = ref<string | null>(null)
-const expandedCategoryId = ref<string | null>(null)
-
 // Collapse state for groups (to hide/show categories)
 const collapsedGroups = ref<Record<string, boolean>>({})
+
+// Modal Open States
+const isAddGroupOpen = ref(false)
+const isEditGroupOpen = ref(false)
+const isAddCategoryOpen = ref(false)
+const isEditCategoryOpen = ref(false)
+
+// Forms State
+const groupForm = ref({ name: '' })
+const groupEditForm = ref<{ id: string; name: string; sort_order: number }>({
+  id: '',
+  name: '',
+  sort_order: 0
+})
+const groupFormErrors = ref<{ name?: string }>({})
+const groupModalError = ref<string | null>(null)
+const isSubmittingGroup = ref(false)
+
+const selectedGroupForCategory = ref<CategoryGroup | null>(null)
+const categoryForm = ref<{
+  name: string
+  group_id: string
+  type: 'expense' | 'income' | 'transfer'
+  planned_amount: string | number
+  is_active: boolean
+}>({
+  name: '',
+  group_id: '',
+  type: 'expense',
+  planned_amount: '',
+  is_active: true
+})
+const categoryFormErrors = ref<{ name?: string }>({})
+
+const categoryEditForm = ref<{
+  id: string
+  name: string
+  group_id: string
+  type: 'expense' | 'income' | 'transfer'
+  planned_amount: string | number
+  is_active: boolean
+}>({
+  id: '',
+  name: '',
+  group_id: '',
+  type: 'expense',
+  planned_amount: '',
+  is_active: true
+})
+const categoryModalError = ref<string | null>(null)
+const isSubmittingCategory = ref(false)
 
 // --- Data Fetching ---
 const fetchData = async () => {
@@ -365,7 +657,19 @@ const fetchData = async () => {
 // Watch month changes
 watch(selectedMonth, fetchData, { immediate: true })
 
-// --- Budget Summary Helpers ---
+// Refresh summary data
+const refreshSummary = async () => {
+  try {
+    const summaryRes = await $fetch<BudgetSummary>(`${API_BASE}/summary/budget`, {
+      query: { month: selectedMonth.value }
+    })
+    budgetSummary.value = summaryRes
+  } catch (err: any) {
+    error.value = err.message || 'Failed to refresh budget summary'
+  }
+}
+
+// --- Budget Summary Calculation Helpers ---
 const getBudgetCategory = (categoryId: string): BudgetSummaryCategory | null => {
   if (!budgetSummary.value) return null
   for (const group of budgetSummary.value.groups) {
@@ -394,6 +698,10 @@ const getGroupTotalPlanned = (group: CategoryGroup): number => {
   return group.categories.reduce((sum, cat) => sum + getCategoryPlanned(cat), 0)
 }
 
+const getGroupTotalActual = (group: CategoryGroup): number => {
+  return group.categories.reduce((sum, cat) => sum + getCategoryActual(cat), 0)
+}
+
 const getGroupTotalRemaining = (group: CategoryGroup): number => {
   return group.categories.reduce((sum, cat) => sum + getCategoryRemaining(cat), 0)
 }
@@ -406,14 +714,14 @@ const calculateProgress = (category: Category): number => {
   return Math.min(Math.max(pct, 0), 100)
 }
 
-// --- Computed Totals ---
+// --- Computed Summary Totals ---
 const totalIncomePlanned = computed(() => budgetSummary.value?.total_income_planned ?? 0)
 const totalIncomeActual = computed(() => budgetSummary.value?.total_income_actual ?? 0)
 const totalExpensePlanned = computed(() => budgetSummary.value?.total_expense_planned ?? 0)
 const totalExpenseActual = computed(() => budgetSummary.value?.total_expense_actual ?? 0)
 const toBeAssigned = computed(() => budgetSummary.value?.to_be_assigned ?? 0)
 
-// --- Collapse Toggle (show/hide categories) ---
+// --- Group Collapse Toggle ---
 const toggleGroupCollapse = (groupId: string) => {
   collapsedGroups.value[groupId] = !collapsedGroups.value[groupId]
 }
@@ -422,18 +730,7 @@ const isGroupCollapsed = (groupId: string): boolean => {
   return !!collapsedGroups.value[groupId]
 }
 
-// --- Expansion Toggle (edit mode) ---
-const toggleGroupExpand = (groupId: string | null) => {
-  expandedCategoryId.value = null // Close any expanded category
-  expandedGroupId.value = expandedGroupId.value === groupId ? null : groupId
-}
-
-const toggleCategoryExpand = (categoryId: string | null) => {
-  expandedGroupId.value = null // Close any expanded group
-  expandedCategoryId.value = expandedCategoryId.value === categoryId ? null : categoryId
-}
-
-// --- Drag and Drop ---
+// --- Drag and Drop Handlers ---
 const onGroupDragEnd = async () => {
   const orderedIds = categoryGroups.value.map(g => g.category_group_id)
   try {
@@ -460,44 +757,99 @@ const onCategoryDragEnd = async (group: CategoryGroup) => {
   }
 }
 
-// --- Group Actions ---
-const addGroup = async () => {
+// --- Group Actions & Modals ---
+const openAddGroupModal = () => {
+  groupForm.value = { name: '' }
+  groupFormErrors.value = {}
+  groupModalError.value = null
+  isAddGroupOpen.value = true
+}
+
+const closeAddGroupModal = () => {
+  isAddGroupOpen.value = false
+  groupFormErrors.value = {}
+  groupModalError.value = null
+}
+
+const submitAddGroup = async () => {
+  const name = groupForm.value.name.trim()
+  if (!name) {
+    groupFormErrors.value = { name: 'Group name is required' }
+    return
+  }
+  groupFormErrors.value = {}
+  groupModalError.value = null
+  isSubmittingGroup.value = true
+
   const maxOrder = categoryGroups.value.reduce((max, g) => Math.max(max, g.sort_order), -1)
   try {
     const newGroup = await $fetch<CategoryGroup>(`${API_BASE}/category-groups`, {
       method: 'POST',
       body: {
-        name: 'New Group',
+        name,
         sort_order: maxOrder + 1
       }
     })
-    // Add to local state with empty categories
     categoryGroups.value.push({ ...newGroup, categories: [] })
-    // Expand for editing
-    expandedGroupId.value = newGroup.category_group_id
+    closeAddGroupModal()
   } catch (err: any) {
-    error.value = 'Failed to create group'
+    groupModalError.value = err.data?.detail || err.message || 'Failed to create group'
+  } finally {
+    isSubmittingGroup.value = false
   }
 }
 
-const saveGroup = async (group: CategoryGroup) => {
+const openEditGroupModal = (group: CategoryGroup) => {
+  groupEditForm.value = {
+    id: group.category_group_id,
+    name: group.name,
+    sort_order: group.sort_order
+  }
+  groupFormErrors.value = {}
+  groupModalError.value = null
+  isEditGroupOpen.value = true
+}
+
+const closeEditGroupModal = () => {
+  isEditGroupOpen.value = false
+  groupFormErrors.value = {}
+  groupModalError.value = null
+}
+
+const submitEditGroup = async () => {
+  const name = groupEditForm.value.name.trim()
+  if (!name) {
+    groupFormErrors.value = { name: 'Group name is required' }
+    return
+  }
+  groupFormErrors.value = {}
+  groupModalError.value = null
+  isSubmittingGroup.value = true
+
   try {
-    await $fetch(`${API_BASE}/category-groups/${group.category_group_id}`, {
+    await $fetch(`${API_BASE}/category-groups/${groupEditForm.value.id}`, {
       method: 'PUT',
       body: {
-        name: group.name,
-        sort_order: group.sort_order
+        name,
+        sort_order: groupEditForm.value.sort_order
       }
     })
+    const group = categoryGroups.value.find(g => g.category_group_id === groupEditForm.value.id)
+    if (group) {
+      group.name = name
+    }
+    closeEditGroupModal()
   } catch (err: any) {
-    error.value = 'Failed to save group'
-    await fetchData()
+    groupModalError.value = err.data?.detail || err.message || 'Failed to update group'
+  } finally {
+    isSubmittingGroup.value = false
   }
 }
 
 const confirmDeleteGroup = async (group: CategoryGroup) => {
   if (group.categories.length > 0) {
-    alert('Cannot delete a group that contains categories. Move or delete categories first.')
+    const count = group.categories.length
+    error.value = `Cannot delete "${group.name}" because it contains ${count} ${count === 1 ? 'category' : 'categories'}. Move or delete categories first.`
     return
   }
   if (!confirm(`Are you sure you want to delete "${group.name}"?`)) return
@@ -507,52 +859,183 @@ const confirmDeleteGroup = async (group: CategoryGroup) => {
       method: 'DELETE'
     })
     categoryGroups.value = categoryGroups.value.filter(g => g.category_group_id !== group.category_group_id)
-    expandedGroupId.value = null
   } catch (err: any) {
-    error.value = 'Failed to delete group'
+    error.value = err.data?.detail || err.message || 'Failed to delete group'
   }
 }
 
-// --- Category Actions ---
-const addCategory = async (group: CategoryGroup) => {
-  const maxOrder = group.categories.reduce((max, c) => Math.max(max, c.sort_order), -1)
+// --- Category Actions & Modals ---
+const openAddCategoryModal = (group: CategoryGroup) => {
+  selectedGroupForCategory.value = group
+  categoryForm.value = {
+    name: '',
+    group_id: group.category_group_id,
+    type: 'expense',
+    planned_amount: '',
+    is_active: true
+  }
+  categoryFormErrors.value = {}
+  categoryModalError.value = null
+  isAddCategoryOpen.value = true
+}
+
+const closeAddCategoryModal = () => {
+  isAddCategoryOpen.value = false
+  selectedGroupForCategory.value = null
+  categoryFormErrors.value = {}
+  categoryModalError.value = null
+}
+
+const submitAddCategory = async () => {
+  const name = categoryForm.value.name.trim()
+  const groupId = categoryForm.value.group_id
+  if (!name) {
+    categoryFormErrors.value = { name: 'Category name is required' }
+    return
+  }
+  categoryFormErrors.value = {}
+  categoryModalError.value = null
+  isSubmittingCategory.value = true
+
+  const targetGroup = categoryGroups.value.find(g => g.category_group_id === groupId)
+  const maxOrder = targetGroup ? targetGroup.categories.reduce((max, c) => Math.max(max, c.sort_order), -1) : -1
+
   try {
     const newCategory = await $fetch<Category>(`${API_BASE}/categories`, {
       method: 'POST',
       body: {
-        name: 'New Category',
-        group_id: group.category_group_id,
+        name,
+        group_id: groupId,
         sort_order: maxOrder + 1,
-        type: 'expense',
-        is_active: true
+        type: categoryForm.value.type,
+        is_active: categoryForm.value.is_active
       }
     })
-    group.categories.push(newCategory)
-    // Expand for editing
-    expandedCategoryId.value = newCategory.category_id
+
+    // If initial planned amount provided, create budget entry
+    const plannedVal = parseFloat(String(categoryForm.value.planned_amount)) || 0
+    if (plannedVal > 0) {
+      await $fetch(`${API_BASE}/budget/`, {
+        method: 'POST',
+        body: {
+          category_id: newCategory.category_id,
+          budget_month: `${selectedMonth.value}-01`,
+          planned_amount: plannedVal
+        }
+      })
+    }
+
+    if (targetGroup) {
+      targetGroup.categories.push(newCategory)
+    }
+
+    await refreshSummary()
+    closeAddCategoryModal()
   } catch (err: any) {
-    error.value = 'Failed to create category'
+    categoryModalError.value = err.data?.detail || err.message || 'Failed to create category'
+  } finally {
+    isSubmittingCategory.value = false
   }
 }
 
-const saveCategory = async (category: Category) => {
+const openEditCategoryModal = (category: Category) => {
+  categoryEditForm.value = {
+    id: category.category_id,
+    name: category.name,
+    group_id: category.group_id,
+    type: category.type,
+    planned_amount: getCategoryPlanned(category),
+    is_active: category.is_active
+  }
+  categoryFormErrors.value = {}
+  categoryModalError.value = null
+  isEditCategoryOpen.value = true
+}
+
+const closeEditCategoryModal = () => {
+  isEditCategoryOpen.value = false
+  categoryFormErrors.value = {}
+  categoryModalError.value = null
+}
+
+const submitEditCategory = async () => {
+  const name = categoryEditForm.value.name.trim()
+  const groupId = categoryEditForm.value.group_id
+  if (!name) {
+    categoryFormErrors.value = { name: 'Category name is required' }
+    return
+  }
+  categoryFormErrors.value = {}
+  categoryModalError.value = null
+  isSubmittingCategory.value = true
+
   try {
-    await $fetch(`${API_BASE}/categories/${category.category_id}`, {
+    const updatedCategory = await $fetch<Category>(`${API_BASE}/categories/${categoryEditForm.value.id}`, {
       method: 'PUT',
       body: {
-        name: category.name,
-        type: category.type,
-        is_active: category.is_active
+        name,
+        group_id: groupId,
+        type: categoryEditForm.value.type,
+        is_active: categoryEditForm.value.is_active
       }
     })
+
+    // Check if planned amount changed
+    const currentPlanned = getCategoryPlanned(updatedCategory)
+    const newPlanned = parseFloat(String(categoryEditForm.value.planned_amount)) || 0
+    if (newPlanned !== currentPlanned) {
+      await savePlannedAmount(updatedCategory, newPlanned)
+    }
+
+    // Handle group migration in local state if group changed
+    for (const group of categoryGroups.value) {
+      const idx = group.categories.findIndex(c => c.category_id === updatedCategory.category_id)
+      if (idx !== -1) {
+        if (group.category_group_id !== groupId) {
+          group.categories.splice(idx, 1)
+          const newParent = categoryGroups.value.find(g => g.category_group_id === groupId)
+          if (newParent) {
+            newParent.categories.push(updatedCategory)
+          }
+        } else {
+          group.categories[idx] = updatedCategory
+        }
+        break
+      }
+    }
+
+    await refreshSummary()
+    closeEditCategoryModal()
   } catch (err: any) {
-    error.value = 'Failed to save category'
-    await fetchData()
+    categoryModalError.value = err.data?.detail || err.message || 'Failed to update category'
+  } finally {
+    isSubmittingCategory.value = false
   }
 }
 
-const savePlannedAmount = async (category: Category, rawValue: string) => {
-  const amount = parseFloat(rawValue) || 0
+const confirmDeleteCategory = async (category: Category) => {
+  if (!confirm(`Are you sure you want to delete "${category.name}"?`)) return
+
+  try {
+    await $fetch(`${API_BASE}/categories/${category.category_id}`, {
+      method: 'DELETE'
+    })
+    for (const group of categoryGroups.value) {
+      const idx = group.categories.findIndex(c => c.category_id === category.category_id)
+      if (idx !== -1) {
+        group.categories.splice(idx, 1)
+        break
+      }
+    }
+    await refreshSummary()
+  } catch (err: any) {
+    error.value = err.data?.detail || err.message || 'Failed to delete category'
+  }
+}
+
+// --- Planned Amount Editing ---
+const savePlannedAmount = async (category: Category, rawValue: string | number) => {
+  const amount = typeof rawValue === 'number' ? rawValue : (parseFloat(rawValue) || 0)
   const budgetCat = getBudgetCategory(category.category_id)
   try {
     if (budgetCat?.budget_id) {
@@ -570,33 +1053,22 @@ const savePlannedAmount = async (category: Category, rawValue: string) => {
         }
       })
     }
-    // Refresh summary so totals and budget_id update
-    const summaryRes = await $fetch<BudgetSummary>(`${API_BASE}/summary/budget`, { query: { month: selectedMonth.value } })
-    budgetSummary.value = summaryRes
+    await refreshSummary()
   } catch (err: any) {
-    error.value = 'Failed to save planned amount'
+    error.value = err.data?.detail || err.message || 'Failed to save planned amount'
   }
 }
 
-const confirmDeleteCategory = async (category: Category) => {
-  if (!confirm(`Are you sure you want to delete "${category.name}"?`)) return
+const onPlannedAmountChange = async (category: Category, rawValue: string) => {
+  const amount = parseFloat(rawValue) || 0
+  const current = getCategoryPlanned(category)
+  if (amount === current) return
+  await savePlannedAmount(category, amount)
+}
 
-  try {
-    await $fetch(`${API_BASE}/categories/${category.category_id}`, {
-      method: 'DELETE'
-    })
-    // Remove from local state
-    for (const group of categoryGroups.value) {
-      const idx = group.categories.findIndex(c => c.category_id === category.category_id)
-      if (idx !== -1) {
-        group.categories.splice(idx, 1)
-        break
-      }
-    }
-    expandedCategoryId.value = null
-  } catch (err: any) {
-    error.value = 'Failed to delete category'
-  }
+const revertPlannedAmount = (category: Category, inputEl: HTMLInputElement) => {
+  inputEl.value = String(getCategoryPlanned(category))
+  inputEl.blur()
 }
 
 // --- Helpers ---
@@ -611,276 +1083,221 @@ const formatCurrency = (amount: number | string) => {
 
 <style scoped>
 .categories-page {
-  padding: 24px;
-  max-width: 1000px;
+  padding: var(--space-lg);
+  max-width: var(--page-max-width);
   margin: 0 auto;
-}
-
-.primary-btn {
-  background: var(--accent-color);
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.primary-btn:hover {
-  opacity: 0.9;
-}
-
-.error-banner {
-  background: #fee2e2;
-  color: #dc2626;
-  padding: 12px 16px;
-  border-radius: 8px;
-  margin-bottom: 24px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 1.2rem;
-  color: inherit;
-  cursor: pointer;
-  padding: 0 4px;
-}
-
-.loading-state, .empty-state {
-  text-align: center;
-  padding: 60px;
-  color: var(--text-muted);
-}
-
-.empty-icon {
-  font-size: 3rem;
-  margin-bottom: 16px;
-}
-
-.spinner {
-  border: 3px solid #f3f3f3;
-  border-top: 3px solid var(--accent-color);
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 16px;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
 }
 
 /* Summary Cards */
 .summary-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 24px;
-  margin-bottom: 40px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
 }
 
-.card {
-  background: white;
-  padding: 24px;
-  border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  border: 1px solid var(--border-color);
+.summary-card {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
 }
 
 .card-label {
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  margin-bottom: 8px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .card-value {
-  font-size: 2rem;
-  font-weight: 700;
-  color: var(--text-color);
-  margin-bottom: 4px;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  margin-bottom: var(--space-2xs);
 }
 
 .card-sub {
-  font-size: 0.9rem;
-  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
 }
 
-.summary-card.income .card-value { color: #10b981; }
-.summary-card.expense .card-value { color: #f59e0b; }
-.summary-card.assign .card-value { color: var(--accent-color); }
-.summary-card.assign.warning .card-value { color: #ef4444; }
+.summary-card.income .card-value { color: var(--color-success); }
+.summary-card.expense .card-value { color: var(--color-warning); }
+.summary-card.assign .card-value { color: var(--color-primary); }
+.summary-card.assign.warning .card-value { color: var(--color-danger); }
 
 /* Groups List */
 .groups-list {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-md);
 }
 
 .group-section {
-  background: white;
-  border-radius: 16px;
-  border: 1px solid var(--border-color);
   overflow: hidden;
+  transition: box-shadow 0.15s ease;
+}
+
+.group-section:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .group-header {
-  padding: 16px 20px;
-  background: #f8fafc;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  min-height: 60px;
-  transition: background-color 0.2s;
-}
-
-.group-header:hover {
-  background: #f1f5f9;
-}
-
-.group-header.expanded {
-  background: #eff6ff;
-}
-
-.group-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 1;
-}
-
-.collapse-toggle {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.collapse-toggle:hover {
-  background: #e2e8f0;
-  color: var(--text-color);
-}
-
-.collapse-icon {
-  transition: transform 0.2s ease;
-}
-
-.collapse-icon.collapsed {
-  transform: rotate(-90deg);
+  padding: var(--space-xs) var(--space-sm);
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  min-height: 56px;
+  gap: var(--space-xs);
 }
 
 .group-section.is-collapsed .group-header {
   border-bottom: none;
 }
 
-.group-header-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 .drag-handle {
   cursor: grab;
-  color: var(--text-muted);
-  font-weight: bold;
-  font-size: 1rem;
-  letter-spacing: -2px;
+  color: var(--color-text-light);
+  font-size: 1.1rem;
+  padding: var(--space-xs) var(--space-sm);
   user-select: none;
-  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.drag-handle:hover {
+  color: var(--color-text);
 }
 
 .drag-handle:active {
   cursor: grabbing;
 }
 
+/* Group toggle button spans entire non-interactive middle area */
+.group-toggle-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  transition: background-color 0.15s ease;
+  min-width: 0;
+}
+
+.group-toggle-btn:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.group-toggle-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.group-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.group-chevron {
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.group-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
 .group-title {
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-color);
-  cursor: pointer;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-count {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+  flex-shrink: 0;
 }
 
 .group-totals {
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  display: flex;
-  gap: 16px;
-  cursor: pointer;
-}
-
-.inline-input {
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  font-size: 1rem;
-  background: white;
-}
-
-.inline-input:focus {
-  outline: none;
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-.group-name-input {
-  width: 250px;
-  font-weight: 600;
-}
-
-.inline-select {
-  padding: 6px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  font-size: 0.9rem;
-  background: white;
-}
-
-.icon-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 6px;
-  color: var(--text-muted);
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
+  gap: var(--space-lg);
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
 }
 
-.icon-btn:hover {
-  background: #e2e8f0;
-  color: var(--text-color);
+.group-metric {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
 }
 
-.icon-btn.delete-btn:hover {
-  background: #fee2e2;
-  color: #dc2626;
+.metric-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
-.icon-btn.done-btn:hover {
-  background: #dcfce7;
-  color: #166534;
+.metric-val {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
 }
 
-/* Category List */
+.group-metric.negative .metric-val {
+  color: var(--color-danger);
+  font-weight: var(--font-weight-semibold);
+}
+
+.group-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding-right: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-sm);
+}
+
+/* Category List Container */
+.group-body {
+  background-color: var(--color-surface);
+}
+
+.empty-group-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  font-size: var(--font-size-sm);
+}
+
 .category-list {
   display: flex;
   flex-direction: column;
@@ -889,19 +1306,15 @@ const formatCurrency = (amount: number | string) => {
 .category-row {
   display: flex;
   align-items: center;
-  padding: 12px 20px;
-  border-bottom: 1px solid #f1f5f9;
-  gap: 12px;
-  min-height: 54px;
-  transition: background-color 0.2s;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border-subtle);
+  gap: var(--space-sm);
+  min-height: 48px;
+  transition: background-color 0.12s ease;
 }
 
 .category-row:hover {
-  background: #fafafa;
-}
-
-.category-row.expanded {
-  background: #eff6ff;
+  background-color: var(--color-surface-hover);
 }
 
 .category-row:last-child {
@@ -911,175 +1324,200 @@ const formatCurrency = (amount: number | string) => {
 .category-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   flex: 1;
-  cursor: pointer;
-  min-width: 0;
+  min-width: 140px;
 }
 
 .category-name {
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .type-badge {
-  font-size: 0.65rem;
+  font-size: var(--font-size-2xs);
   text-transform: uppercase;
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   flex-shrink: 0;
+  letter-spacing: 0.03em;
 }
 
 .type-badge.income {
-  background: #dcfce7;
-  color: #166534;
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
 }
 
 .type-badge.expense {
-  background: #f1f5f9;
-  color: #475569;
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
 }
 
 .type-badge.transfer {
-  background: #fef9c3;
-  color: #854d0e;
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning);
 }
 
 .inactive-badge {
-  font-size: 0.65rem;
-  background: #fee2e2;
-  color: #991b1b;
+  font-size: var(--font-size-2xs);
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
+  font-weight: var(--font-weight-semibold);
   flex-shrink: 0;
 }
 
-.category-budget {
+.category-planned {
+  width: 110px;
+  flex-shrink: 0;
+}
+
+.amount-input-box {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 200px;
+  align-items: center;
 }
 
-.budget-numbers {
-  display: flex;
-  gap: 4px;
-  font-size: 0.9rem;
-  font-variant-numeric: tabular-nums;
-  justify-content: flex-end;
+.currency-symbol {
+  position: absolute;
+  left: 8px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  pointer-events: none;
+  font-family: var(--font-family-mono);
 }
 
-.budget-planned {
-  color: var(--text-color);
-  font-weight: 500;
+.amount-input {
+  padding: 5px 8px 5px 18px;
+  height: 32px;
+  font-size: var(--font-size-sm);
+  text-align: right;
 }
 
-.budget-separator {
-  color: var(--text-muted);
+.category-metric {
+  width: 100px;
+  text-align: right;
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
 }
 
-.budget-actual {
-  color: var(--text-muted);
+.category-remaining.negative {
+  color: var(--color-danger);
+  font-weight: var(--font-weight-semibold);
 }
 
-.budget-remaining {
-  color: var(--text-muted);
-  font-size: 0.85rem;
+.metric-mobile-label {
+  display: none;
 }
 
-.budget-remaining.negative {
-  color: #ef4444;
+.category-progress {
+  width: 80px;
+  flex-shrink: 0;
 }
 
 .progress-bar-bg {
-  background: #e2e8f0;
+  background: var(--color-border);
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--radius-full);
   width: 100%;
   overflow: hidden;
 }
 
 .progress-bar-fill {
-  background: #10b981;
+  background: var(--color-success);
   height: 100%;
-  border-radius: 2px;
-  transition: width 0.3s ease;
+  border-radius: var(--radius-full);
+  transition: width 0.25s ease;
 }
 
 .progress-bar-fill.over-budget {
-  background: #ef4444;
+  background: var(--color-danger);
 }
 
-/* Category Edit Form */
-.category-edit-form {
+.category-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex: 1;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: var(--space-xs);
 }
 
-.category-name-input {
-  width: 180px;
-}
-
-.active-toggle {
-  display: flex;
+/* Modals & Dialogs */
+.target-group-badge {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  cursor: pointer;
+  gap: var(--space-xs);
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-md);
 }
 
-.active-toggle input {
-  cursor: pointer;
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
 }
 
-.planned-input-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.status-toggle-wrapper {
+  margin-bottom: var(--space-md);
 }
 
-.planned-input-label {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.planned-amount-input {
-  width: 110px;
-}
-
-.category-edit-actions {
-  display: flex;
-  gap: 4px;
-}
-
-/* Add Category Button */
-.add-category-btn {
-  width: 100%;
-  padding: 12px 20px;
-  background: none;
-  border: none;
-  border-top: 1px solid #f1f5f9;
-  color: var(--accent-color);
-  font-weight: 600;
-  cursor: pointer;
-  text-align: left;
-  transition: background-color 0.2s;
-}
-
-.add-category-btn:hover {
-  background: #f8fafc;
-}
-
-/* Drag Ghost */
 .ghost {
-  opacity: 0.5;
-  background: #c8ebfb;
+  opacity: 0.4;
+  background: var(--color-primary-light);
+}
+
+/* Responsive Adaptations */
+@media (max-width: 850px) {
+  .group-totals {
+    gap: var(--space-sm);
+  }
+  .category-progress {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .group-header {
+    flex-wrap: wrap;
+    padding: var(--space-sm);
+  }
+  .group-toggle-btn {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    padding: var(--space-xs);
+  }
+  .group-totals {
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+  }
+  .category-row {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+  }
+  .category-info {
+    width: 100%;
+    flex: none;
+  }
+  .category-planned {
+    width: 100px;
+  }
+  .metric-mobile-label {
+    display: inline;
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
+  }
 }
 </style>
