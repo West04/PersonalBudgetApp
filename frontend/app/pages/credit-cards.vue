@@ -72,9 +72,15 @@
                 <h2 class="cc-card-name">{{ card.account_name }}</h2>
               </div>
               <div class="cc-balance-owed">
-                <div class="balance-label">Balance Owed</div>
-                <div class="balance-amount" :class="{ 'positive-balance': card.balance_owed > 0 }">
-                  {{ formatCurrency(card.balance_owed) }}
+                <div class="balance-label">{{ formatCardBalance(card.balance_owed).isCredit ? 'Overpayment Credit' : 'Balance Owed' }}</div>
+                <div
+                  class="balance-amount"
+                  :class="{
+                    'positive-balance': formatCardBalance(card.balance_owed).isOwed,
+                    'credit-balance': formatCardBalance(card.balance_owed).isCredit
+                  }"
+                >
+                  {{ formatCardBalance(card.balance_owed).displayLabel }}
                 </div>
               </div>
             </div>
@@ -155,6 +161,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useBudgetMonth, isValidMonth } from '~/composables/useBudgetMonth'
 import { formatDateOnly } from '~/utils/formatDate'
+import { formatCardBalance } from '~/utils/dashboardMath'
 
 const API_BASE = '/api'
 
@@ -469,6 +476,7 @@ const formatDate = (d: string) => formatDateOnly(d)
   color: var(--text-color);
 }
 .balance-amount.positive-balance { color: #ef4444; }
+.balance-amount.credit-balance { color: #10b981; }
 
 /* Stats */
 .cc-stats {
