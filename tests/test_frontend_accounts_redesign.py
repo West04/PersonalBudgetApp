@@ -170,7 +170,6 @@ def test_credit_cards_page_preservation(require_node):
         hasTransferCandidates: ccCode.includes('transfer-candidates'),
         hasMarkTransfers: ccCode.includes('mark-transfers'),
         hasTransferMatchButton: ccCode.includes('Find Transfer Matches') || ccCode.includes('loadCandidates'),
-        navRetainedInApp: appCode.includes('/credit-cards') && appCode.includes('Credit Cards'),
     };
 
     const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);

@@ -8,6 +8,18 @@
       <template #controls>
         <MonthNavigator />
       </template>
+      <template #actions>
+        <button
+          type="button"
+          class="btn-transfer-matches"
+          @click="toggleTransfersPanel"
+          :disabled="candidatesLoading"
+          aria-label="Find and review transfer matches"
+        >
+          🔍 Find Transfer Matches
+          <span v-if="candidates.length > 0" class="cand-badge">({{ candidates.length }})</span>
+        </button>
+      </template>
     </PageHeader>
 
     <!-- Error Banner -->
@@ -16,6 +28,70 @@
       :error="displayError"
       @dismiss="clearErrors"
     />
+
+    <!-- Transfer Review Panel -->
+    <section v-if="showTransfersPanel" class="transfer-panel card" aria-label="Transfer matches review">
+      <div class="panel-header">
+        <div class="panel-title-row">
+          <div class="panel-title-with-badge">
+            <h2 class="panel-title">Potential Transfers</h2>
+            <span v-if="candidates.length > 0" class="panel-count-badge">{{ candidates.length }} {{ candidates.length === 1 ? 'match' : 'matches' }}</span>
+          </div>
+          <button type="button" class="btn-close-panel" @click="showTransfersPanel = false" aria-label="Close transfer matches panel">✕</button>
+        </div>
+        <p class="panel-sub">
+          These look like transfers appearing on both accounts (credit card payments, savings moves, etc.). Confirm pairs to mark them as transfers.
+        </p>
+      </div>
+
+      <LoadingState v-if="candidatesLoading" message="Finding transfer matches..." />
+
+      <div v-else-if="transferError" class="panel-error">
+        {{ transferError }}
+      </div>
+
+      <div v-else-if="candidates.length === 0" class="empty-candidates">
+        <p>No potential transfer matches found.</p>
+      </div>
+
+      <div v-else class="candidate-list">
+        <div v-for="(pair, idx) in candidates" :key="idx" class="candidate-row">
+          <div class="candidate-side outflow">
+            <div class="cand-account">{{ pair.outflow_account_name }}</div>
+            <div class="cand-desc" :title="pair.outflow_side.description">{{ pair.outflow_side.description }}</div>
+            <div class="cand-meta">{{ formatDate(pair.outflow_side.date) }}</div>
+          </div>
+          <div class="candidate-arrow">
+            <span class="amount-badge">{{ formatCurrency(Math.abs(Number(pair.outflow_side.amount))) }}</span>
+            <span class="arrow" aria-hidden="true">→</span>
+          </div>
+          <div class="candidate-side inflow">
+            <div class="cand-account">{{ pair.inflow_account_name }}</div>
+            <div class="cand-desc" :title="pair.inflow_side.description">{{ pair.inflow_side.description }}</div>
+            <div class="cand-meta">{{ formatDate(pair.inflow_side.date) }}</div>
+          </div>
+          <div class="candidate-actions">
+            <button
+              type="button"
+              class="confirm-btn"
+              @click="confirmTransfer(pair, idx)"
+              :disabled="confirmingPair"
+              :aria-label="`Confirm transfer between ${pair.outflow_account_name} and ${pair.inflow_account_name}`"
+            >
+              ✓ Confirm
+            </button>
+            <button
+              type="button"
+              class="dismiss-btn"
+              @click="dismissTransfer(idx)"
+              :aria-label="`Dismiss candidate match between ${pair.outflow_account_name} and ${pair.inflow_account_name}`"
+            >
+              ✕ Dismiss
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- Filters Section -->
     <div class="filters-card card" aria-label="Transaction filters">
@@ -90,6 +166,21 @@
             </optgroup>
           </select>
         </div>
+
+        <!-- Review Status Filter -->
+        <div class="filter-group">
+          <label for="tx-review-select">Review Status</label>
+          <select
+            id="tx-review-select"
+            v-model="reviewFilter"
+            class="filter-input"
+            aria-label="Filter by review status"
+          >
+            <option value="all">All</option>
+            <option value="needs_review">Needs Review</option>
+            <option value="reviewed">Reviewed</option>
+          </select>
+        </div>
       </div>
 
       <!-- Filters Meta Row: Uncategorized toggle, active indicators, and reset -->
@@ -145,6 +236,7 @@
                 <th scope="col" class="account-col">Account</th>
                 <th scope="col" class="category-col">Category</th>
                 <th scope="col" class="amount-col">Amount</th>
+                <th scope="col" class="status-col">Review</th>
               </tr>
             </thead>
             <tbody>
@@ -155,6 +247,7 @@
                 <td class="date-cell font-mono">{{ formatDate(tx.date) }}</td>
                 <td class="desc-cell">
                   <div class="desc-text" :title="tx.description">{{ tx.description }}</div>
+                  <span v-if="tx.is_transfer" class="transfer-tag">transfer</span>
                 </td>
                 <td class="account-cell">
                   <span class="account-tag">{{ tx.account?.name || 'Unknown' }}</span>
@@ -190,9 +283,26 @@
                 >
                   {{ tx.amount < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(tx.amount))) }}
                 </td>
+                <td class="status-cell">
+                  <button
+                    type="button"
+                    class="review-toggle-btn"
+                    :class="tx.is_reviewed ? 'is-reviewed' : 'needs-review'"
+                    @click="toggleReviewStatus(tx)"
+                    :disabled="updatingReviewId === tx.transaction_id"
+                    :aria-label="tx.is_reviewed ? `Mark transaction ${tx.description} as needs review` : `Mark transaction ${tx.description} as reviewed`"
+                  >
+                    <span v-if="tx.is_reviewed" class="status-label">
+                      <span class="check-icon" aria-hidden="true">✓</span> Reviewed
+                    </span>
+                    <span v-else class="status-label">
+                      Needs Review
+                    </span>
+                  </button>
+                </td>
               </tr>
               <tr v-if="transactionsData?.items.length === 0">
-                <td colspan="5" class="empty-row">
+                <td colspan="6" class="empty-row">
                   No transactions found matching current filters.
                 </td>
               </tr>
@@ -248,12 +358,75 @@ const {
   searchQuery,
   selectedCategory,
   uncategorizedOnly,
+  reviewFilter,
   offset,
   hasActiveSecondaryFilters,
   clearSecondaryFilters,
 } = useTransactionFilters()
 
 const limit = ref(50)
+
+// Transfer Reconciliation
+interface TransferCandidate {
+  inflow_side: any
+  inflow_account_name: string
+  outflow_side: any
+  outflow_account_name: string
+}
+
+const showTransfersPanel = ref(false)
+const candidates = ref<TransferCandidate[]>([])
+const candidatesLoading = ref(false)
+const confirmingPair = ref(false)
+const transferError = ref<string | null>(null)
+
+const loadTransferCandidates = async () => {
+  candidatesLoading.value = true
+  transferError.value = null
+  try {
+    candidates.value = await $fetch<TransferCandidate[]>(`${API_BASE}/transactions/transfer-candidates`)
+    showTransfersPanel.value = true
+  } catch (err: any) {
+    transferError.value = err.message || 'Failed to load transfer candidates'
+    showTransfersPanel.value = true
+  } finally {
+    candidatesLoading.value = false
+  }
+}
+
+const toggleTransfersPanel = () => {
+  if (!showTransfersPanel.value && candidates.value.length === 0) {
+    loadTransferCandidates()
+  } else {
+    showTransfersPanel.value = !showTransfersPanel.value
+  }
+}
+
+const confirmTransfer = async (pair: TransferCandidate, idx: number) => {
+  confirmingPair.value = true
+  transferError.value = null
+  try {
+    await $fetch(`${API_BASE}/transactions/mark-transfers`, {
+      method: 'POST',
+      body: {
+        transaction_ids: [
+          pair.inflow_side.transaction_id,
+          pair.outflow_side.transaction_id,
+        ],
+      },
+    })
+    candidates.value.splice(idx, 1)
+    await refresh()
+  } catch (err: any) {
+    transferError.value = 'Failed to mark transfers'
+  } finally {
+    confirmingPair.value = false
+  }
+}
+
+const dismissTransfer = (idx: number) => {
+  candidates.value.splice(idx, 1)
+}
 
 // Route-backed Account Filter
 const getRouteAccountId = () => {
@@ -301,6 +474,7 @@ const queryParams = computed(() => {
     categoryId: selectedCategory.value,
     search: searchQuery.value,
     uncategorized: uncategorizedOnly.value,
+    reviewFilter: reviewFilter.value,
     limit: limit.value,
     offset: offset.value,
   })
@@ -318,7 +492,7 @@ const {
 
 // Reset offset to 0 when any filter or month changes
 watch(
-  [searchQuery, selectedAccount, selectedCategory, uncategorizedOnly, selectedMonth],
+  [searchQuery, selectedAccount, selectedCategory, uncategorizedOnly, reviewFilter, selectedMonth],
   () => {
     offset.value = 0
   }
@@ -347,6 +521,11 @@ const filterSummaryParts = computed(() => {
   }
   if (uncategorizedOnly.value) {
     parts.push('Uncategorized')
+  }
+  if (reviewFilter.value === 'needs_review') {
+    parts.push('Needs Review')
+  } else if (reviewFilter.value === 'reviewed') {
+    parts.push('Reviewed')
   }
   return parts
 })
@@ -385,6 +564,32 @@ const updateTransactionCategory = async (transactionId: string, categoryId: stri
     console.error(err)
   } finally {
     updatingId.value = null
+  }
+}
+
+// Inline Review Status Toggle
+const updatingReviewId = ref<string | null>(null)
+
+const toggleReviewStatus = async (tx: any) => {
+  updateError.value = null
+  updatingReviewId.value = tx.transaction_id
+  const targetState = !tx.is_reviewed
+  try {
+    const response = await fetch(`${API_BASE}/transactions/${tx.transaction_id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_reviewed: targetState }),
+    })
+
+    if (!response.ok) throw new Error('Failed to update review status')
+
+    tx.is_reviewed = targetState
+    await refresh()
+  } catch (err: any) {
+    updateError.value = err.message || 'Failed to update review status. Please try again.'
+    console.error(err)
+  } finally {
+    updatingReviewId.value = null
   }
 }
 
@@ -754,5 +959,312 @@ const clearErrors = () => {
 .page-info {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
+}
+
+/* Header Transfer Button */
+.btn-transfer-matches {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 8px 16px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-transfer-matches:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-hover);
+}
+
+.btn-transfer-matches:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cand-badge {
+  background: var(--color-primary);
+  color: white;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+}
+
+/* Transfer Panel */
+.transfer-panel {
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+  background: #f8fafc;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-lg);
+}
+
+.panel-header {
+  margin-bottom: var(--space-md);
+}
+
+.panel-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-title-with-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.panel-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  margin: 0;
+}
+
+.panel-count-badge {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.panel-sub {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.btn-close-panel {
+  background: transparent;
+  border: none;
+  font-size: 1.1rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.btn-close-panel:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.empty-candidates {
+  padding: var(--space-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  text-align: center;
+}
+
+.panel-error {
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-md);
+}
+
+.candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.candidate-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  flex-wrap: wrap;
+}
+
+.candidate-side {
+  flex: 1;
+  min-width: 140px;
+}
+
+.cand-account {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.cand-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.cand-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.candidate-arrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.amount-badge {
+  background: #f1f5f9;
+  border: 1px solid var(--color-border);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text);
+}
+
+.arrow {
+  color: var(--color-text-muted);
+  font-weight: bold;
+}
+
+.candidate-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.confirm-btn {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.confirm-btn:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dismiss-btn {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dismiss-btn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+/* Review Status Column & Button */
+.status-col {
+  width: 140px;
+  text-align: center;
+}
+
+.status-cell {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.review-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.review-toggle-btn.is-reviewed {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+
+.review-toggle-btn.is-reviewed:hover:not(:disabled) {
+  background: #d1fae5;
+  border-color: #6ee7b7;
+}
+
+.review-toggle-btn.needs-review {
+  background: #fffbeb;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.review-toggle-btn.needs-review:hover:not(:disabled) {
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+.review-toggle-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.review-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.check-icon {
+  font-weight: bold;
+}
+
+.status-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.transfer-tag {
+  display: inline-block;
+  margin-left: var(--space-xs);
+  padding: 1px 6px;
+  background: #f1f5f9;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 </style>

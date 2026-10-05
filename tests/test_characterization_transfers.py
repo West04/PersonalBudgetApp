@@ -405,6 +405,7 @@ def test_transfer_candidates_response_contract_and_enrichment(client, db_session
         "datetime",
         "pending",
         "is_transfer",
+        "is_reviewed",
         "account",
     }
     assert set(outflow.keys()) == expected_outflow_keys
@@ -418,6 +419,7 @@ def test_transfer_candidates_response_contract_and_enrichment(client, db_session
     assert outflow["datetime"] is None
     assert outflow["pending"] is False
     assert outflow["is_transfer"] is False
+    assert outflow["is_reviewed"] is False
 
     # Verify nested outflow account (AccountRead schema contract)
     acc = outflow["account"]

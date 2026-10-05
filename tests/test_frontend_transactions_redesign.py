@@ -249,7 +249,8 @@ def test_transactions_route_and_filter_coordination(require_node):
         watchesRouteAccount: code.includes('watch(') && code.includes('route.query.account_id'),
         watchesSelectedAccount: code.includes('watch(selectedAccount'),
         replacesRouterQuery: code.includes('router.replace({ query: nextQuery })'),
-        resetsOffsetOnFilterChange: code.includes('[searchQuery, selectedAccount, selectedCategory, uncategorizedOnly, selectedMonth]') &&
+        resetsOffsetOnFilterChange: (code.includes('[searchQuery, selectedAccount, selectedCategory, uncategorizedOnly, selectedMonth]') ||
+                                    code.includes('[searchQuery, selectedAccount, selectedCategory, uncategorizedOnly, reviewFilter, selectedMonth]')) &&
                                    code.includes('offset.value = 0'),
     };
 

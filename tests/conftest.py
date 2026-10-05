@@ -19,6 +19,9 @@ assert "budget_app_data" not in DATABASE_URL, f"FATAL: Danger of connecting to p
 def setup_test_database():
     """Create all tables in the isolated test database once per session."""
     models.Base.metadata.create_all(bind=engine)
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_reviewed BOOLEAN NOT NULL DEFAULT FALSE;"))
+        conn.commit()
     yield
     # Tables can remain in test DB for next run or inspectability
 

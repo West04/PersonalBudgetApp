@@ -36,11 +36,6 @@
           <span v-if="!isCollapsed" class="label">Accounts</span>
         </NuxtLink>
 
-        <NuxtLink :to="{ path: '/credit-cards', query: { month: selectedMonth } }" class="nav-item">
-          <span class="icon" title="Credit Cards">💳</span>
-          <span v-if="!isCollapsed" class="label">Credit Cards</span>
-        </NuxtLink>
-
         <NuxtLink to="/upload" class="nav-item">
           <span class="icon" title="Upload">📤</span>
           <span v-if="!isCollapsed" class="label">Upload</span>

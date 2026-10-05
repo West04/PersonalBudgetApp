@@ -77,6 +77,7 @@ class Transaction(Base):
     datetime = Column(TIMESTAMP(timezone=True), nullable=True)
     pending = Column(Boolean, default=False, nullable=False)
     is_transfer = Column(Boolean, default=False, nullable=False)
+    is_reviewed = Column(Boolean, default=False, nullable=False, server_default="false")
 
     category = relationship("Category", back_populates="transactions")
     account = relationship("Account", back_populates="transactions")

@@ -277,13 +277,14 @@ def list_transactions(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     uncategorized: Optional[bool] = None,
+    is_reviewed: Optional[bool] = None,
     q: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
     """
     Lists transactions with optional filters for account, category,
-    date range, uncategorized status, and description search text.
+    date range, uncategorized status, review status, and description search text.
     Preserves eager-loaded account, total count before pagination,
     ordering by date DESC then transaction_id DESC, and pagination offset/limit.
     Does not commit or refresh.
@@ -300,6 +301,10 @@ def list_transactions(
         query = query.filter(models.Transaction.date <= end_date)
     if uncategorized is True:
         query = query.filter(models.Transaction.category_id == None)
+    if is_reviewed is True:
+        query = query.filter(models.Transaction.is_reviewed == True)
+    elif is_reviewed is False:
+        query = query.filter(models.Transaction.is_reviewed == False)
     if q:
         query = query.filter(models.Transaction.description.ilike(f"%{q}%"))
 
@@ -325,6 +330,7 @@ def create_manual_transaction(
     transaction_datetime: Optional[datetime],
     pending: bool,
     plaid_transaction_id: Optional[str],
+    is_reviewed: bool = False,
 ) -> models.Transaction:
     """
     Creates, commits, and refreshes a new manual Transaction from scalar values.
@@ -339,6 +345,7 @@ def create_manual_transaction(
         date=transaction_date,
         datetime=transaction_datetime,
         pending=pending,
+        is_reviewed=is_reviewed,
         plaid_transaction_id=plaid_transaction_id,
     )
     db.add(new_txn)

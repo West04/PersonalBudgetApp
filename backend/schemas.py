@@ -133,6 +133,7 @@ class TransactionCreate(BaseModel):
     date: date
     datetime: Optional[DateTime] = None
     pending: bool = False
+    is_reviewed: bool = False
     plaid_transaction_id: Optional[str] = None
 
 
@@ -140,6 +141,7 @@ class TransactionUpdate(BaseModel):
     category_id: Optional[UUID] = None
     description: Optional[str] = None
     is_transfer: Optional[bool] = None
+    is_reviewed: Optional[bool] = None
 
 
 class TransactionRead(BaseModel):
@@ -153,6 +155,7 @@ class TransactionRead(BaseModel):
     datetime: Optional[DateTime] = None
     pending: bool
     is_transfer: bool = False
+    is_reviewed: bool = False
     account: Optional[AccountRead] = None
 
     model_config = ConfigDict(from_attributes=True)

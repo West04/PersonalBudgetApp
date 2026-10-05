@@ -11,6 +11,7 @@ export interface TransactionQueryParams {
   account_id?: string
   category_id?: string
   uncategorized?: boolean
+  is_reviewed?: boolean
 }
 
 /**
@@ -40,6 +41,8 @@ export function buildTransactionQuery(options: {
   categoryId?: string | null
   search?: string | null
   uncategorized?: boolean | null
+  reviewFilter?: 'all' | 'needs_review' | 'reviewed' | null
+  is_reviewed?: boolean | null
   limit?: number | null
   offset?: number | null
 }): TransactionQueryParams {
@@ -66,6 +69,12 @@ export function buildTransactionQuery(options: {
 
   if (options.uncategorized === true) {
     params.uncategorized = true
+  }
+
+  if (options.reviewFilter === 'needs_review' || options.is_reviewed === false) {
+    params.is_reviewed = false
+  } else if (options.reviewFilter === 'reviewed' || options.is_reviewed === true) {
+    params.is_reviewed = true
   }
 
   return params
