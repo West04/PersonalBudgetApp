@@ -19,6 +19,7 @@ from ..access import (
     plaid_transaction_access,
     transaction_access,
 )
+from ..domain.merchant_normalization import normalize_merchant
 from ..security import decrypt_token
 
 
@@ -86,6 +87,17 @@ def _process_upsert_event(db: Session, tx_data: dict[str, Any]) -> None:
 
     amount_for_budget = -Decimal(str(tx_data["amount"]))
 
+    provider_merchant = tx_data.get("merchant_name")
+    if not provider_merchant and tx_data.get("counterparties"):
+        cps = tx_data["counterparties"]
+        if isinstance(cps, list) and len(cps) > 0 and isinstance(cps[0], dict):
+            provider_merchant = cps[0].get("name")
+
+    normalized_merchant = normalize_merchant(
+        raw_description=tx_data["name"],
+        provider_merchant=provider_merchant,
+    )
+
     transaction_access.stage_or_update_plaid_transaction(
         db=db,
         plaid_transaction_id=tx_data["transaction_id"],
@@ -95,6 +107,7 @@ def _process_upsert_event(db: Session, tx_data: dict[str, Any]) -> None:
         transaction_date=tx_date,
         transaction_datetime=tx_datetime,
         pending=tx_data["pending"],
+        merchant=normalized_merchant,
     )
     db.commit()
 

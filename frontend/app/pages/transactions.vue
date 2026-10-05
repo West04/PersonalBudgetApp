@@ -104,9 +104,9 @@
               id="tx-search-input"
               type="text"
               v-model="searchQuery"
-              placeholder="Search description..."
+              placeholder="Search description or merchant..."
               class="filter-input"
-              aria-label="Search transaction description"
+              aria-label="Search transaction description or merchant"
             />
             <button
               v-if="searchQuery"
@@ -232,7 +232,7 @@
             <thead>
               <tr>
                 <th scope="col" class="date-col">Date</th>
-                <th scope="col" class="desc-col">Description</th>
+                <th scope="col" class="desc-col">Merchant / Description</th>
                 <th scope="col" class="account-col">Account</th>
                 <th scope="col" class="category-col">Category</th>
                 <th scope="col" class="amount-col">Amount</th>
@@ -245,9 +245,65 @@
                 :key="tx.transaction_id"
               >
                 <td class="date-cell font-mono">{{ formatDate(tx.date) }}</td>
-                <td class="desc-cell">
-                  <div class="desc-text" :title="tx.description">{{ tx.description }}</div>
-                  <span v-if="tx.is_transfer" class="transfer-tag">transfer</span>
+                <td class="desc-cell" :class="{ 'is-editing': editingMerchantId === tx.transaction_id }">
+                  <template v-if="editingMerchantId === tx.transaction_id">
+                    <form @submit.prevent="saveMerchant(tx)" class="merchant-edit-form">
+                      <input
+                        ref="merchantInputRef"
+                        type="text"
+                        v-model="editMerchantValue"
+                        class="merchant-edit-input"
+                        :aria-label="`Edit merchant for ${tx.description}`"
+                        @keydown.esc="cancelEditingMerchant"
+                        :disabled="savingMerchant"
+                      />
+                      <div class="merchant-edit-actions">
+                        <button
+                          type="submit"
+                          class="btn-save-merchant"
+                          :disabled="savingMerchant"
+                          aria-label="Save merchant"
+                          title="Save"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          type="button"
+                          class="btn-cancel-merchant"
+                          @click="cancelEditingMerchant"
+                          :disabled="savingMerchant"
+                          aria-label="Cancel editing merchant"
+                          title="Cancel"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </form>
+                  </template>
+                  <template v-else>
+                    <div class="merchant-row">
+                      <span class="merchant-name" :class="{ 'is-overridden': tx.is_merchant_overridden }">
+                        {{ tx.merchant || tx.description }}
+                      </span>
+                      <button
+                        type="button"
+                        class="btn-edit-merchant"
+                        @click="startEditingMerchant(tx)"
+                        :aria-label="`Edit merchant for ${tx.merchant || tx.description}`"
+                        title="Edit merchant"
+                      >
+                        ✎
+                      </button>
+                      <span v-if="tx.is_transfer" class="transfer-tag">transfer</span>
+                    </div>
+                  </template>
+                  <div
+                    v-if="tx.merchant && tx.merchant.toLowerCase() !== tx.description.toLowerCase()"
+                    class="raw-desc-text"
+                    :title="`Original description: ${tx.description}`"
+                  >
+                    {{ tx.description }}
+                  </div>
                 </td>
                 <td class="account-cell">
                   <span class="account-tag">{{ tx.account?.name || 'Unknown' }}</span>
@@ -340,7 +396,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBudgetMonth } from '~/composables/useBudgetMonth'
 import { useTransactionFilters } from '~/composables/useTransactionFilters'
@@ -534,6 +590,55 @@ const transactionCountLabel = computed(() => {
   const count = transactionsData.value?.total ?? 0
   return `${count} ${count === 1 ? 'transaction' : 'transactions'}`
 })
+
+// Inline Merchant Editing
+const editingMerchantId = ref<string | null>(null)
+const editMerchantValue = ref('')
+const savingMerchant = ref(false)
+const merchantInputRef = ref<HTMLInputElement | null>(null)
+
+const startEditingMerchant = (tx: any) => {
+  editingMerchantId.value = tx.transaction_id
+  editMerchantValue.value = tx.merchant || tx.description || ''
+  nextTick(() => {
+    if (merchantInputRef.value) {
+      merchantInputRef.value.focus()
+      merchantInputRef.value.select()
+    }
+  })
+}
+
+const cancelEditingMerchant = () => {
+  editingMerchantId.value = null
+  editMerchantValue.value = ''
+}
+
+const saveMerchant = async (tx: any) => {
+  if (savingMerchant.value) return
+  savingMerchant.value = true
+  updateError.value = null
+  const trimmed = editMerchantValue.value.trim()
+  try {
+    const response = await fetch(`${API_BASE}/transactions/${tx.transaction_id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ merchant: trimmed }),
+    })
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.detail || 'Failed to update merchant')
+    }
+    const updated = await response.json()
+    tx.merchant = updated.merchant
+    tx.is_merchant_overridden = updated.is_merchant_overridden
+    editingMerchantId.value = null
+  } catch (err: any) {
+    updateError.value = err.message || 'Failed to update merchant. Please try again.'
+    console.error(err)
+  } finally {
+    savingMerchant.value = false
+  }
+}
 
 // Inline Category Editing
 const updateError = ref<string | null>(null)
@@ -839,11 +944,11 @@ const clearErrors = () => {
 }
 
 .desc-col {
-  min-width: 200px;
+  min-width: 220px;
 }
 
 .desc-cell {
-  max-width: 320px;
+  max-width: 340px;
 }
 
 .desc-text {
@@ -851,6 +956,115 @@ const clearErrors = () => {
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: var(--font-weight-medium);
+}
+
+.merchant-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.merchant-name {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-base);
+}
+
+.merchant-name.is-overridden {
+  color: var(--color-text-emphasis, #0f172a);
+}
+
+.btn-edit-merchant {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  opacity: 0.6;
+  transition: opacity 0.15s ease, background 0.15s ease;
+  line-height: 1;
+}
+
+.btn-edit-merchant:hover {
+  opacity: 1;
+  background: var(--color-surface-hover);
+  color: var(--color-primary);
+}
+
+.btn-edit-merchant:focus-visible {
+  outline: 2px solid var(--color-primary);
+  opacity: 1;
+}
+
+.raw-desc-text {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+.merchant-edit-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.merchant-edit-input {
+  padding: 3px 6px;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  width: 100%;
+  max-width: 180px;
+}
+
+.merchant-edit-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-primary-focus);
+}
+
+.merchant-edit-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.btn-save-merchant,
+.btn-cancel-merchant {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.btn-save-merchant {
+  color: var(--color-success);
+  border-color: var(--color-success-border, #86efac);
+}
+
+.btn-save-merchant:hover:not(:disabled) {
+  background: var(--color-success-bg, #f0fdf4);
+}
+
+.btn-cancel-merchant {
+  color: var(--color-text-muted);
+}
+
+.btn-cancel-merchant:hover:not(:disabled) {
+  background: var(--color-surface-hover);
 }
 
 .account-col {

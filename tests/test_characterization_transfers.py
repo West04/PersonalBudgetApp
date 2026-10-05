@@ -408,6 +408,8 @@ def test_transfer_candidates_response_contract_and_enrichment(client, db_session
         "is_reviewed",
         "is_cleared",
         "is_reconciled",
+        "merchant",
+        "is_merchant_overridden",
         "account",
     }
     assert set(outflow.keys()) == expected_outflow_keys

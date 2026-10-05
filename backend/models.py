@@ -72,6 +72,8 @@ class Transaction(Base):
     category_id = Column(UUID, ForeignKey("categories.category_id", ondelete="SET NULL"), nullable=True, index=True)
 
     description = Column(Text)
+    merchant = Column(String, nullable=True)
+    is_merchant_overridden = Column(Boolean, default=False, nullable=False, server_default="false")
     amount = Column(DECIMAL(10, 2), nullable=False)  # Positive = outflow, Negative = inflow
     date = Column(DATE, nullable=False, index=True)
     datetime = Column(TIMESTAMP(timezone=True), nullable=True)

@@ -168,6 +168,7 @@ def create_transaction(
         pending=payload.pending,
         is_reviewed=payload.is_reviewed,
         plaid_transaction_id=payload.plaid_transaction_id,
+        merchant=payload.merchant,
     )
 
 

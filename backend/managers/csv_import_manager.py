@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..access import account_access, transaction_access
 from ..bank_statement_loader import BankStatementLoader
+from ..domain.merchant_normalization import normalize_merchant
 
 
 @dataclass(frozen=True)
@@ -85,6 +86,7 @@ def confirm_csv_import(
                 skipped += 1
                 continue
 
+            merchant = normalize_merchant(txn.description)
             transaction_access.stage_csv_import_transaction(
                 db,
                 account_id=txn.account_id,
@@ -94,6 +96,7 @@ def confirm_csv_import(
                 pending=txn.pending,
                 category_id=txn.category_id,
                 transaction_datetime=txn.datetime,
+                merchant=merchant,
             )
 
             imported += 1

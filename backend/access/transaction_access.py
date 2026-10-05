@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from .. import models
@@ -159,16 +159,25 @@ def stage_csv_import_transaction(
     pending: bool = False,
     category_id: Optional[UUID] = None,
     transaction_datetime: Optional[datetime] = None,
+    merchant: Optional[str] = None,
 ) -> models.Transaction:
     """
     Instantiates and stages a new manual CSV import Transaction in the session.
     Explicitly sets plaid_transaction_id = None.
+    If merchant is omitted, normalizes merchant from description.
+    Sets is_merchant_overridden = False.
     Does not flush or commit.
     """
+    from ..domain.merchant_normalization import normalize_merchant
+
+    resolved_merchant = merchant if merchant is not None else normalize_merchant(description)
+
     txn = models.Transaction(
         account_id=account_id,
         category_id=category_id,
         description=description,
+        merchant=resolved_merchant,
+        is_merchant_overridden=False,
         amount=amount,
         date=transaction_date,
         datetime=transaction_datetime,
@@ -203,16 +212,24 @@ def stage_or_update_plaid_transaction(
     transaction_date: date,
     transaction_datetime: Optional[datetime] = None,
     pending: bool = False,
+    merchant: Optional[str] = None,
 ) -> models.Transaction:
     """
     Stages an insert or update of a Plaid transaction:
     - If no existing transaction matches plaid_transaction_id:
-      stages a new models.Transaction record with category_id=None and is_transfer=False.
+      stages a new models.Transaction record with category_id=None, is_transfer=False,
+      and normalized merchant with is_merchant_overridden=False.
     - If existing transaction matches:
       updates description, amount, date, datetime, pending while preserving
       transaction_id, plaid_transaction_id, account_id, category_id, and is_transfer.
+      If is_merchant_overridden is True: preserves existing user-corrected merchant.
+      If is_merchant_overridden is False: updates merchant to new normalized merchant.
     Calls db.add(txn). Does not commit or refresh.
     """
+    from ..domain.merchant_normalization import normalize_merchant
+
+    resolved_merchant = merchant if merchant is not None else normalize_merchant(description)
+
     txn = get_transaction_by_plaid_id(db, plaid_transaction_id)
     if txn is None:
         txn = models.Transaction(
@@ -220,6 +237,8 @@ def stage_or_update_plaid_transaction(
             account_id=account_id,
             category_id=None,
             description=description,
+            merchant=resolved_merchant,
+            is_merchant_overridden=False,
             amount=amount,
             date=transaction_date,
             datetime=transaction_datetime,
@@ -230,6 +249,8 @@ def stage_or_update_plaid_transaction(
         return txn
 
     txn.description = description
+    if not getattr(txn, "is_merchant_overridden", False):
+        txn.merchant = resolved_merchant
     txn.amount = amount
     txn.date = transaction_date
     txn.datetime = transaction_datetime
@@ -306,7 +327,12 @@ def list_transactions(
     elif is_reviewed is False:
         query = query.filter(models.Transaction.is_reviewed == False)
     if q:
-        query = query.filter(models.Transaction.description.ilike(f"%{q}%"))
+        query = query.filter(
+            or_(
+                models.Transaction.description.ilike(f"%{q}%"),
+                models.Transaction.merchant.ilike(f"%{q}%"),
+            )
+        )
 
     total = query.count()
     query = query.order_by(models.Transaction.date.desc(), models.Transaction.transaction_id.desc())
@@ -331,16 +357,30 @@ def create_manual_transaction(
     pending: bool,
     plaid_transaction_id: Optional[str],
     is_reviewed: bool = False,
+    merchant: Optional[str] = None,
 ) -> models.Transaction:
     """
     Creates, commits, and refreshes a new manual Transaction from scalar values.
     Preserves model defaults for transaction_id (uuid4) and is_transfer (False).
+    If merchant is explicitly provided: sets merchant and is_merchant_overridden = True.
+    If merchant is omitted/None: normalizes merchant from description and sets is_merchant_overridden = False.
     Owns the standalone CRUD transaction boundary.
     """
+    from ..domain.merchant_normalization import normalize_merchant
+
+    if merchant is not None and merchant.strip():
+        resolved_merchant = merchant.strip()
+        is_overridden = True
+    else:
+        resolved_merchant = normalize_merchant(description)
+        is_overridden = False
+
     new_txn = models.Transaction(
         account_id=account_id,
         category_id=category_id,
         description=description,
+        merchant=resolved_merchant,
+        is_merchant_overridden=is_overridden,
         amount=amount,
         date=transaction_date,
         datetime=transaction_datetime,
@@ -365,7 +405,14 @@ def update_manual_transaction(
     Commits, refreshes, and returns updated Transaction, or None if not found.
     Owns the standalone CRUD transaction boundary.
     Guards reconciled transactions against changes to financial facts (amount, date, account_id).
+    Handles merchant updates:
+    - If 'merchant' is in update_data: updates merchant and marks is_merchant_overridden = True.
+    - If 'description' is updated without 'merchant', and is_merchant_overridden is False:
+      renormalizes merchant from the updated description.
+    - If is_merchant_overridden is True, unrelated description edits preserve existing merchant.
     """
+    from ..domain.merchant_normalization import normalize_merchant
+
     transaction = get_transaction_by_id(db, transaction_id)
     if transaction is None:
         return None
@@ -381,8 +428,23 @@ def update_manual_transaction(
                 elif update_data[key] != current_val:
                     raise ValueError("Cannot modify financial fields (amount, date, account_id) of a reconciled transaction")
 
+    # Handle merchant / description interaction
+    if "merchant" in update_data:
+        m_val = update_data["merchant"]
+        if m_val is not None and isinstance(m_val, str) and m_val.strip():
+            transaction.merchant = m_val.strip()
+            transaction.is_merchant_overridden = True
+        elif m_val is None or (isinstance(m_val, str) and not m_val.strip()):
+            desc = update_data.get("description", transaction.description)
+            transaction.merchant = normalize_merchant(desc)
+            transaction.is_merchant_overridden = False
+    elif "description" in update_data:
+        if not getattr(transaction, "is_merchant_overridden", False):
+            transaction.merchant = normalize_merchant(update_data["description"])
+
     for key, value in update_data.items():
-        setattr(transaction, key, value)
+        if key != "merchant":
+            setattr(transaction, key, value)
 
     db.add(transaction)
     db.commit()

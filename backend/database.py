@@ -98,6 +98,67 @@ def migrate_reconciliation_state(engine) -> bool:
     return applied
 
 
+def migrate_merchant_state(engine) -> bool:
+    """
+    Applies one-time schema and idempotent backfill migration for Phase 8 merchant normalization:
+    - Adds 'merchant' VARCHAR to transactions if missing.
+    - Adds 'is_merchant_overridden' BOOLEAN NOT NULL DEFAULT FALSE to transactions if missing.
+    - Idempotently backfills pre-existing transactions where merchant IS NULL using normalize_merchant.
+    - Never overwrites user corrections or pre-populated merchant fields.
+    Returns True if schema was modified or rows backfilled, False otherwise.
+    """
+    from .domain.merchant_normalization import normalize_merchant
+
+    applied = False
+    with engine.connect() as conn:
+        exists_merchant = conn.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'transactions' AND column_name = 'merchant';"
+            )
+        ).scalar()
+        if not exists_merchant:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN merchant VARCHAR;"))
+            applied = True
+
+        exists_override = conn.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'transactions' AND column_name = 'is_merchant_overridden';"
+            )
+        ).scalar()
+        if not exists_override:
+            conn.execute(
+                text(
+                    "ALTER TABLE transactions ADD COLUMN is_merchant_overridden BOOLEAN NOT NULL DEFAULT FALSE;"
+                )
+            )
+            applied = True
+
+        rows = conn.execute(
+            text(
+                "SELECT transaction_id, description FROM transactions "
+                "WHERE merchant IS NULL AND description IS NOT NULL;"
+            )
+        ).fetchall()
+        for row in rows:
+            tx_id, desc = row[0], row[1]
+            norm = normalize_merchant(desc)
+            if norm:
+                conn.execute(
+                    text(
+                        "UPDATE transactions SET merchant = :merchant "
+                        "WHERE transaction_id = :tx_id AND merchant IS NULL;"
+                    ),
+                    {"merchant": norm, "tx_id": tx_id},
+                )
+                applied = True
+
+        if applied:
+            conn.commit()
+    return applied
+
+
 def get_db():
     db = SessionLocal()
     try:

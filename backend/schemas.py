@@ -131,6 +131,7 @@ class TransactionCreate(BaseModel):
     account_id: UUID
     category_id: Optional[UUID] = None
     description: str
+    merchant: Optional[str] = None
     amount: DecimalAmount
     date: date
     datetime: Optional[DateTime] = None
@@ -145,6 +146,7 @@ class TransactionUpdate(BaseModel):
     account_id: Optional[UUID] = None
     category_id: Optional[UUID] = None
     description: Optional[str] = None
+    merchant: Optional[str] = None
     amount: Optional[DecimalAmount] = None
     date: Optional[DateType] = None
     is_transfer: Optional[bool] = None
@@ -161,6 +163,8 @@ class TransactionRead(BaseModel):
     account_id: UUID
     category_id: Optional[UUID] = None
     description: str
+    merchant: Optional[str] = None
+    is_merchant_overridden: bool = False
     amount: DecimalAmount
     date: date
     datetime: Optional[DateTime] = None
@@ -179,6 +183,7 @@ class ReconciliationTransactionRead(BaseModel):
     account_id: UUID
     date: date
     description: str
+    merchant: Optional[str] = None
     amount: DecimalAmount
     pending: bool = False
     is_transfer: bool = False
