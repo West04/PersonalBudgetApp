@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from uuid import UUID
 from sqlalchemy.orm import Session
 
-from ..access import account_access, transaction_access
+from ..access import account_access, transaction_access, categorization_rule_access
 from ..bank_statement_loader import BankStatementLoader
 from ..domain.merchant_normalization import normalize_merchant
 
@@ -54,6 +54,7 @@ def confirm_csv_import(
        - Checks duplicate existence via csv_import_transaction_exists.
        - If duplicate, increments skipped counter.
        - If new, stages transaction via stage_csv_import_transaction and increments imported.
+       - Evaluates categorization rules for uncategorized rows.
        - Catches per-row exceptions and formats row error strings.
     4. Commits the transaction batch via db.commit().
     5. Returns CSVImportSummary.
@@ -68,6 +69,9 @@ def confirm_csv_import(
         parsed = loader.load_records_tolerant(raw_bytes)
     except ValueError as exc:
         raise CSVImportParseError(str(exc)) from exc
+
+    # 3. Rules lookup for O(1) matching during import
+    rules_lookup = categorization_rule_access.get_rules_lookup_dict(db)
 
     # 4. Import loop
     imported = 0
@@ -97,6 +101,7 @@ def confirm_csv_import(
                 category_id=txn.category_id,
                 transaction_datetime=txn.datetime,
                 merchant=merchant,
+                rules_lookup=rules_lookup,
             )
 
             imported += 1

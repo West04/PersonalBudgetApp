@@ -500,3 +500,57 @@ class CSVInspectResponse(BaseModel):
     detected_format: Optional[CSVFormatMatchRead] = None
     matches: list[CSVFormatMatchRead]
 
+
+# --- Categorization Rule Schemas ---
+
+class CategorizationRuleCreate(BaseModel):
+    merchant: str = Field(min_length=1)
+    category_id: UUID
+
+    @field_validator("merchant")
+    @classmethod
+    def validate_merchant(cls, v: str) -> str:
+        s = " ".join(v.split()).strip()
+        if not s:
+            raise ValueError("Merchant cannot be blank")
+        return s
+
+
+class CategorizationRuleUpdate(BaseModel):
+    merchant: Optional[str] = None
+    category_id: Optional[UUID] = None
+
+    @field_validator("merchant")
+    @classmethod
+    def validate_merchant(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        s = " ".join(v.split()).strip()
+        if not s:
+            raise ValueError("Merchant cannot be blank")
+        return s
+
+
+class CategorizationRuleRead(BaseModel):
+    id: UUID
+    merchant: str
+    category_id: UUID
+    created_at: datetime
+    updated_at: datetime
+    category: Optional[CategoryRead] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CategorizationRulePreviewResponse(BaseModel):
+    rule_id: UUID
+    merchant: str
+    category_id: UUID
+    matching_count: int
+
+
+class CategorizationRuleBatchApplyResponse(BaseModel):
+    rule_id: UUID
+    applied_count: int
+
+

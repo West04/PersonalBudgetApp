@@ -26,6 +26,8 @@ def setup_test_database():
         conn.execute(text("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_reconciled_date DATE;"))
         conn.execute(text("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_reconciled_balance DECIMAL(12, 2);"))
         conn.commit()
+    from backend.database import migrate_categorization_rules
+    migrate_categorization_rules(engine)
     yield
     # Tables can remain in test DB for next run or inspectability
 
@@ -38,7 +40,7 @@ def db_session():
     """
     session = SessionLocal()
     # Clean all tables before running test
-    session.execute(text("TRUNCATE TABLE transactions, budgets, categories, category_groups, accounts, plaid_items CASCADE;"))
+    session.execute(text("TRUNCATE TABLE transactions, budgets, categories, category_groups, accounts, plaid_items, categorization_rules CASCADE;"))
     session.commit()
 
     try:

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..access import (
     account_access,
+    categorization_rule_access,
     plaid_access,
     plaid_item_access,
     plaid_transaction_access,
@@ -73,7 +74,11 @@ class PlaidTransactionSyncNetworkError(Exception):
         self.detail = detail
 
 
-def _process_upsert_event(db: Session, tx_data: dict[str, Any]) -> None:
+def _process_upsert_event(
+    db: Session,
+    tx_data: dict[str, Any],
+    rules_lookup: Optional[dict[str, UUID]] = None,
+) -> None:
     remote_account_id = tx_data["account_id"]
     account = account_access.get_account_by_plaid_account_id(db, remote_account_id)
     if not account:
@@ -108,6 +113,7 @@ def _process_upsert_event(db: Session, tx_data: dict[str, Any]) -> None:
         transaction_datetime=tx_datetime,
         pending=tx_data["pending"],
         merchant=normalized_merchant,
+        rules_lookup=rules_lookup,
     )
     db.commit()
 
@@ -182,6 +188,8 @@ def sync_plaid_transactions(
 
     db.flush()
 
+    rules_lookup = categorization_rule_access.get_rules_lookup_dict(db)
+
     cursor = plaid_item.transactions_cursor
 
     has_more = True
@@ -209,11 +217,11 @@ def sync_plaid_transactions(
         cursor = page.next_cursor
 
         for tx_data in page.added:
-            _process_upsert_event(db, tx_data)
+            _process_upsert_event(db, tx_data, rules_lookup=rules_lookup)
             added_count += 1
 
         for tx_data in page.modified:
-            _process_upsert_event(db, tx_data)
+            _process_upsert_event(db, tx_data, rules_lookup=rules_lookup)
             modified_count += 1
 
         for tx_data in page.removed:

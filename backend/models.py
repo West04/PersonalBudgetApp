@@ -57,6 +57,7 @@ class Category(Base):
     group = relationship("CategoryGroup", back_populates="categories")
     transactions = relationship("Transaction", back_populates="category")
     budgets = relationship("Budget", back_populates="category")
+    categorization_rules = relationship("CategorizationRule", back_populates="category", cascade="all, delete-orphan")
 
     __table_args__ = (UniqueConstraint("group_id", "name", name="uq_category_group_name"),)
 
@@ -164,4 +165,30 @@ class CSVFormat(Base):
             name="chk_csv_formats_amount_sign_convention",
         ),
     )
+
+
+class CategorizationRule(Base):
+    __tablename__ = "categorization_rules"
+
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    merchant = Column(String, nullable=False)
+    category_id = Column(
+        UUID,
+        ForeignKey("categories.category_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    category = relationship("Category", back_populates="categorization_rules")
+
+    __table_args__ = (
+        Index(
+            "uq_categorization_rules_merchant_canonical",
+            func.lower(func.trim(merchant)),
+            unique=True,
+        ),
+    )
+
 

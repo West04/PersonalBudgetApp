@@ -159,9 +159,72 @@ def migrate_merchant_state(engine) -> bool:
     return applied
 
 
+def migrate_categorization_rules(engine) -> bool:
+    """
+    Applies one-time idempotent schema migration for Phase 9 categorization rules:
+    - Creates 'categorization_rules' table if it does not exist.
+    - Creates unique index 'uq_categorization_rules_merchant_lower' on LOWER(merchant) if not exists.
+    Returns True if schema was modified, False otherwise.
+    """
+    applied = False
+    with engine.connect() as conn:
+        table_exists = conn.execute(
+            text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_name = 'categorization_rules';"
+            )
+        ).scalar()
+        if not table_exists:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE categorization_rules (
+                        id UUID PRIMARY KEY,
+                        merchant VARCHAR NOT NULL,
+                        category_id UUID NOT NULL REFERENCES categories(category_id) ON DELETE CASCADE,
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+            )
+            applied = True
+
+        # Drop legacy non-trim unique index if present
+        legacy_index = conn.execute(
+            text(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE tablename = 'categorization_rules' AND indexname = 'uq_categorization_rules_merchant_lower';"
+            )
+        ).scalar()
+        if legacy_index:
+            conn.execute(text("DROP INDEX uq_categorization_rules_merchant_lower;"))
+            applied = True
+
+        canonical_index = conn.execute(
+            text(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE tablename = 'categorization_rules' AND indexname = 'uq_categorization_rules_merchant_canonical';"
+            )
+        ).scalar()
+        if not canonical_index:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX uq_categorization_rules_merchant_canonical "
+                    "ON categorization_rules (LOWER(TRIM(merchant)));"
+                )
+            )
+            applied = True
+
+        if applied:
+            conn.commit()
+    return applied
+
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+

@@ -160,21 +160,36 @@ def stage_csv_import_transaction(
     category_id: Optional[UUID] = None,
     transaction_datetime: Optional[datetime] = None,
     merchant: Optional[str] = None,
+    rules_lookup: Optional[Mapping[str, UUID]] = None,
 ) -> models.Transaction:
     """
     Instantiates and stages a new manual CSV import Transaction in the session.
     Explicitly sets plaid_transaction_id = None.
     If merchant is omitted, normalizes merchant from description.
     Sets is_merchant_overridden = False.
+    Evaluates matching categorization rule if category_id is None.
     Does not flush or commit.
     """
     from ..domain.merchant_normalization import normalize_merchant
+    from ..domain.categorization_rules import clean_merchant_key
 
     resolved_merchant = merchant if merchant is not None else normalize_merchant(description)
 
+    assigned_category_id = category_id
+    if assigned_category_id is None and resolved_merchant:
+        if rules_lookup is not None:
+            clean_key = clean_merchant_key(resolved_merchant)
+            if clean_key and clean_key in rules_lookup:
+                assigned_category_id = rules_lookup[clean_key]
+        else:
+            from . import categorization_rule_access
+            rule = categorization_rule_access.get_rule_by_merchant(db, resolved_merchant)
+            if rule:
+                assigned_category_id = rule.category_id
+
     txn = models.Transaction(
         account_id=account_id,
-        category_id=category_id,
+        category_id=assigned_category_id,
         description=description,
         merchant=resolved_merchant,
         is_merchant_overridden=False,
@@ -213,29 +228,45 @@ def stage_or_update_plaid_transaction(
     transaction_datetime: Optional[datetime] = None,
     pending: bool = False,
     merchant: Optional[str] = None,
+    rules_lookup: Optional[Mapping[str, UUID]] = None,
 ) -> models.Transaction:
     """
     Stages an insert or update of a Plaid transaction:
     - If no existing transaction matches plaid_transaction_id:
-      stages a new models.Transaction record with category_id=None, is_transfer=False,
-      and normalized merchant with is_merchant_overridden=False.
+      stages a new models.Transaction record with normalized merchant with is_merchant_overridden=False.
+      Evaluates matching categorization rule if category_id is None.
     - If existing transaction matches:
       updates description, amount, date, datetime, pending while preserving
-      transaction_id, plaid_transaction_id, account_id, category_id, and is_transfer.
+      transaction_id, plaid_transaction_id, account_id, and is_transfer.
+      If existing category_id is None and merchant matches a rule, assigns category.
+      If existing category_id is NOT None, preserves existing category.
       If is_merchant_overridden is True: preserves existing user-corrected merchant.
       If is_merchant_overridden is False: updates merchant to new normalized merchant.
     Calls db.add(txn). Does not commit or refresh.
     """
     from ..domain.merchant_normalization import normalize_merchant
+    from ..domain.categorization_rules import clean_merchant_key
 
     resolved_merchant = merchant if merchant is not None else normalize_merchant(description)
 
     txn = get_transaction_by_plaid_id(db, plaid_transaction_id)
     if txn is None:
+        matched_category_id = None
+        if resolved_merchant:
+            if rules_lookup is not None:
+                clean_key = clean_merchant_key(resolved_merchant)
+                if clean_key and clean_key in rules_lookup:
+                    matched_category_id = rules_lookup[clean_key]
+            else:
+                from . import categorization_rule_access
+                rule = categorization_rule_access.get_rule_by_merchant(db, resolved_merchant)
+                if rule:
+                    matched_category_id = rule.category_id
+
         txn = models.Transaction(
             plaid_transaction_id=plaid_transaction_id,
             account_id=account_id,
-            category_id=None,
+            category_id=matched_category_id,
             description=description,
             merchant=resolved_merchant,
             is_merchant_overridden=False,
@@ -255,6 +286,19 @@ def stage_or_update_plaid_transaction(
     txn.date = transaction_date
     txn.datetime = transaction_datetime
     txn.pending = pending
+
+    # If the transaction is currently uncategorized and merchant matches a rule, assign it
+    if txn.category_id is None and txn.merchant:
+        if rules_lookup is not None:
+            clean_key = clean_merchant_key(txn.merchant)
+            if clean_key and clean_key in rules_lookup:
+                txn.category_id = rules_lookup[clean_key]
+        else:
+            from . import categorization_rule_access
+            rule = categorization_rule_access.get_rule_by_merchant(db, txn.merchant)
+            if rule:
+                txn.category_id = rule.category_id
+
     db.add(txn)
     return txn
 
@@ -375,9 +419,16 @@ def create_manual_transaction(
         resolved_merchant = normalize_merchant(description)
         is_overridden = False
 
+    assigned_category_id = category_id
+    if assigned_category_id is None and resolved_merchant:
+        from . import categorization_rule_access
+        rule = categorization_rule_access.get_rule_by_merchant(db, resolved_merchant)
+        if rule:
+            assigned_category_id = rule.category_id
+
     new_txn = models.Transaction(
         account_id=account_id,
-        category_id=category_id,
+        category_id=assigned_category_id,
         description=description,
         merchant=resolved_merchant,
         is_merchant_overridden=is_overridden,
@@ -410,6 +461,8 @@ def update_manual_transaction(
     - If 'description' is updated without 'merchant', and is_merchant_overridden is False:
       renormalizes merchant from the updated description.
     - If is_merchant_overridden is True, unrelated description edits preserve existing merchant.
+    - If transaction.category_id is None and 'category_id' was not in update_data, evaluates
+      matching rule for the resulting merchant.
     """
     from ..domain.merchant_normalization import normalize_merchant
 
@@ -445,6 +498,13 @@ def update_manual_transaction(
     for key, value in update_data.items():
         if key != "merchant":
             setattr(transaction, key, value)
+
+    # If uncategorized and category_id was not explicitly in update_data, check matching rule
+    if transaction.category_id is None and "category_id" not in update_data and transaction.merchant:
+        from . import categorization_rule_access
+        rule = categorization_rule_access.get_rule_by_merchant(db, transaction.merchant)
+        if rule:
+            transaction.category_id = rule.category_id
 
     db.add(transaction)
     db.commit()
@@ -598,6 +658,51 @@ def mark_transactions_as_reconciled(
     )
     db.flush()
     return updated_count
+
+
+def count_uncategorized_transactions_by_merchant_key(
+    db: Session,
+    clean_merchant_key: str,
+) -> int:
+    """
+    Counts uncategorized transactions (category_id IS NULL) whose merchant matches clean_merchant_key.
+    Read-only inspection query.
+    """
+    return (
+        db.query(models.Transaction)
+        .filter(
+            models.Transaction.category_id.is_(None),
+            models.Transaction.merchant.isnot(None),
+            func.lower(func.trim(models.Transaction.merchant)) == clean_merchant_key,
+        )
+        .count()
+    )
+
+
+def apply_category_to_uncategorized_by_merchant_key(
+    db: Session,
+    clean_merchant_key: str,
+    category_id: UUID,
+) -> int:
+    """
+    Finds and updates uncategorized transactions matching clean_merchant_key to target category_id.
+    Flushes changes to the session without committing so the calling Manager owns the transaction boundary.
+    Returns count of updated rows.
+    """
+    matching_txs = (
+        db.query(models.Transaction)
+        .filter(
+            models.Transaction.category_id.is_(None),
+            models.Transaction.merchant.isnot(None),
+            func.lower(func.trim(models.Transaction.merchant)) == clean_merchant_key,
+        )
+        .all()
+    )
+    for tx in matching_txs:
+        tx.category_id = category_id
+        db.add(tx)
+    db.flush()
+    return len(matching_txs)
 
 
 

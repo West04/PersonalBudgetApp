@@ -2,9 +2,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import engine, SessionLocal, migrate_review_state, migrate_reconciliation_state, migrate_merchant_state
+from .database import (
+    engine,
+    SessionLocal,
+    migrate_review_state,
+    migrate_reconciliation_state,
+    migrate_merchant_state,
+    migrate_categorization_rules,
+)
 from . import models
-from .routers import categories, budgets, transactions, plaid, summaries, accounts, upload, credit_cards
+from .routers import categories, budgets, transactions, plaid, summaries, accounts, upload, credit_cards, rules
 from .initial_data import init_db
 
 
@@ -14,6 +21,7 @@ async def lifespan(app: FastAPI):
     migrate_review_state(engine)
     migrate_reconciliation_state(engine)
     migrate_merchant_state(engine)
+    migrate_categorization_rules(engine)
     
     # Initialize default data
     db = SessionLocal()
@@ -44,3 +52,5 @@ app.include_router(summaries.router)
 app.include_router(accounts.router)
 app.include_router(upload.router)
 app.include_router(credit_cards.router)
+app.include_router(rules.router)
+
