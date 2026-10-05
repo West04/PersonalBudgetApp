@@ -406,6 +406,8 @@ def test_transfer_candidates_response_contract_and_enrichment(client, db_session
         "pending",
         "is_transfer",
         "is_reviewed",
+        "is_cleared",
+        "is_reconciled",
         "account",
     }
     assert set(outflow.keys()) == expected_outflow_keys
@@ -420,6 +422,8 @@ def test_transfer_candidates_response_contract_and_enrichment(client, db_session
     assert outflow["pending"] is False
     assert outflow["is_transfer"] is False
     assert outflow["is_reviewed"] is False
+    assert outflow["is_cleared"] is False
+    assert outflow["is_reconciled"] is False
 
     # Verify nested outflow account (AccountRead schema contract)
     acc = outflow["account"]
@@ -437,6 +441,8 @@ def test_transfer_candidates_response_contract_and_enrichment(client, db_session
         "starting_balance",
         "currency",
         "balance_last_updated",
+        "last_reconciled_date",
+        "last_reconciled_balance",
         "is_active",
         "status",
     }

@@ -21,6 +21,10 @@ def setup_test_database():
     models.Base.metadata.create_all(bind=engine)
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_reviewed BOOLEAN NOT NULL DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_cleared BOOLEAN NOT NULL DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_reconciled BOOLEAN NOT NULL DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_reconciled_date DATE;"))
+        conn.execute(text("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_reconciled_balance DECIMAL(12, 2);"))
         conn.commit()
     yield
     # Tables can remain in test DB for next run or inspectability

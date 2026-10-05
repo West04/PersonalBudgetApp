@@ -57,7 +57,15 @@
             class="table-row"
           >
             <div class="account-info">
-              <span class="account-name">{{ account.name }}</span>
+              <div class="account-titles">
+                <span class="account-name">{{ account.name }}</span>
+                <span v-if="account.last_reconciled_date" class="reconciled-meta">
+                  Last reconciled {{ formatDateOnly(account.last_reconciled_date, { includeYear: true }) }}
+                </span>
+                <span v-else class="reconciled-meta text-muted">
+                  Never reconciled
+                </span>
+              </div>
             </div>
             <div class="account-type-cell">
               <span class="account-subtype">
@@ -68,6 +76,15 @@
               {{ formatCurrency(account.current_balance) }}
             </div>
             <div class="row-actions">
+              <button
+                type="button"
+                class="btn-reconcile"
+                @click="openReconcileModal(account)"
+                :aria-label="`Reconcile ${account.name}`"
+                title="Reconcile account"
+              >
+                ⚖ Reconcile
+              </button>
               <button
                 type="button"
                 class="btn-icon"
@@ -380,6 +397,159 @@
         </button>
       </template>
     </AppDialog>
+
+    <!-- Reconcile Account Dialog -->
+    <AppDialog
+      :open="reconcileModalOpen"
+      :title="`Reconcile ${reconcilingAccount?.name || 'Account'}`"
+      max-width="840px"
+      @close="closeReconcileModal"
+    >
+      <div class="reconcile-dialog-content">
+        <!-- Top Inputs: Ending Date and Ending Balance -->
+        <div class="reconcile-inputs-grid">
+          <FormField label="Statement Ending Date" required v-slot="{ id }">
+            <input
+              :id="id"
+              type="date"
+              v-model="reconcileForm.endingDate"
+              class="form-input"
+              @change="loadReconciliation"
+              required
+            />
+          </FormField>
+          <FormField label="Statement Ending Balance ($)" required v-slot="{ id }">
+            <input
+              :id="id"
+              type="number"
+              step="0.01"
+              v-model.number="reconcileForm.endingBalance"
+              class="form-input"
+              @input="recalculateDifference"
+              placeholder="0.00"
+              required
+            />
+          </FormField>
+        </div>
+
+        <!-- Summary Strip (Statement Balance, Cleared Balance, Difference) -->
+        <div class="reconcile-summary-strip">
+          <div class="summary-card">
+            <div class="card-label">Statement Balance</div>
+            <div class="card-value font-mono">{{ formatCurrency(Number(reconcileForm.endingBalance) || 0) }}</div>
+          </div>
+          <div class="summary-card">
+            <div class="card-label">Cleared Balance</div>
+            <div class="card-value font-mono">{{ formatCurrency(calculatedClearedBalance) }}</div>
+            <div class="card-subtext">
+              Baseline: {{ formatCurrency(Number(reconcileSummary?.prior_reconciled_balance) || 0) }}
+            </div>
+          </div>
+          <div
+            class="summary-card diff-card"
+            :class="{ 'diff-balanced': isBalanced, 'diff-mismatch': !isBalanced }"
+          >
+            <div class="card-label">Difference</div>
+            <div class="card-value font-mono">{{ formatCurrency(differenceAmount) }}</div>
+            <div class="card-status-text" aria-live="polite">
+              {{ isBalanced ? '✓ Balanced ($0.00)' : `${formatCurrency(Math.abs(differenceAmount))} to balance` }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Error Banner inside modal -->
+        <ErrorBanner
+          v-if="reconcileError"
+          :error="reconcileError"
+          @dismiss="reconcileError = null"
+        />
+
+        <!-- Loading State -->
+        <LoadingState v-if="reconcileLoading" message="Loading account transactions..." />
+
+        <!-- Transactions Section -->
+        <div v-else class="reconcile-transactions-section">
+          <div class="tx-header-bar">
+            <div class="tx-counts">
+              <span class="count-badge">
+                <strong>{{ clearedCount }}</strong> of <strong>{{ totalTxnCount }}</strong> cleared
+              </span>
+            </div>
+            <button
+              v-if="totalTxnCount > 0"
+              type="button"
+              class="btn-text"
+              @click="toggleClearAll"
+            >
+              {{ allCleared ? 'Unclear All' : 'Clear All' }}
+            </button>
+          </div>
+
+          <div v-if="!reconcileSummary?.transactions?.length" class="empty-reconcile-txns">
+            <p>No unreconciled transactions dated on or before {{ reconcileForm.endingDate }}.</p>
+          </div>
+
+          <div v-else class="reconcile-table-wrapper">
+            <table class="reconcile-table" aria-label="Transactions to reconcile">
+              <thead>
+                <tr>
+                  <th scope="col" class="th-cleared">Cleared</th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Description</th>
+                  <th scope="col" class="right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="tx in reconcileSummary.transactions"
+                  :key="tx.transaction_id"
+                  :class="{ 'row-cleared': tx.is_cleared }"
+                >
+                  <td class="td-cleared">
+                    <input
+                      type="checkbox"
+                      :checked="tx.is_cleared"
+                      @change="toggleTxCleared(tx)"
+                      :aria-label="`Mark ${tx.description} as cleared`"
+                      class="reconcile-checkbox"
+                    />
+                  </td>
+                  <td class="font-mono text-sm">{{ formatDateOnly(tx.date) }}</td>
+                  <td class="desc-cell">
+                    <span class="tx-desc" :title="tx.description">{{ tx.description }}</span>
+                    <span v-if="tx.is_transfer" class="badge-transfer">transfer</span>
+                    <span v-if="tx.pending" class="badge-pending">pending</span>
+                    <span v-if="tx.is_reviewed" class="badge-reviewed">reviewed</span>
+                  </td>
+                  <td
+                    class="font-mono right text-sm"
+                    :class="{ 'inflow': Number(tx.amount) < 0 }"
+                  >
+                    {{ Number(tx.amount) < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(tx.amount))) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="reconcile-footer">
+          <button type="button" class="btn btn-ghost" @click="closeReconcileModal">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="!isBalanced || completingReconcile || reconcileLoading"
+            @click="finishReconciliation"
+          >
+            {{ completingReconcile ? 'Finishing…' : 'Finish Reconciliation' }}
+          </button>
+        </div>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
@@ -387,6 +557,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ACCOUNT_TYPES, useAccountTypes } from '~/composables/useAccountTypes'
 import { formatCurrency, formatCardBalance } from '~/utils/dashboardMath'
+import { formatDateOnly } from '~/utils/formatDate'
 
 const { getSubtypes, getSubtypeLabel, getTypeLabel, defaultSubtype } = useAccountTypes()
 
@@ -403,6 +574,8 @@ interface Account {
   available_balance: number | null
   currency: string
   is_active: boolean
+  last_reconciled_date?: string | null
+  last_reconciled_balance?: number | null
 }
 
 interface CreditCardAccountSummary {
@@ -610,6 +783,179 @@ const confirmDelete = async (account: Account) => {
     error.value = e.data?.detail ?? e.message ?? 'Failed to delete account'
   }
 }
+
+// --- Reconciliation State & Handlers ---
+interface ReconciliationTransaction {
+  transaction_id: string
+  account_id: string
+  date: string
+  description: string
+  amount: number
+  pending: boolean
+  is_transfer: boolean
+  is_reviewed: boolean
+  is_cleared: boolean
+  is_reconciled: boolean
+}
+
+interface ReconciliationSummary {
+  account_id: string
+  account_name: string
+  account_type: string
+  starting_balance: number
+  last_reconciled_date: string | null
+  last_reconciled_balance: number | null
+  prior_reconciled_balance: number
+  statement_ending_date: string
+  statement_ending_balance: number
+  cleared_balance: number
+  difference: number
+  cleared_count: number
+  uncleared_count: number
+  is_balanced: boolean
+  transactions: ReconciliationTransaction[]
+}
+
+const reconcileModalOpen = ref(false)
+const reconcilingAccount = ref<Account | null>(null)
+const reconcileForm = ref({
+  endingDate: new Date().toISOString().slice(0, 10),
+  endingBalance: 0,
+})
+const reconcileSummary = ref<ReconciliationSummary | null>(null)
+const reconcileLoading = ref(false)
+const reconcileError = ref<string | null>(null)
+const completingReconcile = ref(false)
+
+const openReconcileModal = async (account: Account) => {
+  reconcilingAccount.value = account
+  reconcileError.value = null
+  const today = new Date().toISOString().slice(0, 10)
+  const defaultBalance = account.current_balance !== undefined ? Number(account.current_balance) : 0
+  reconcileForm.value = {
+    endingDate: today,
+    endingBalance: defaultBalance,
+  }
+  reconcileModalOpen.value = true
+  await loadReconciliation()
+}
+
+const closeReconcileModal = () => {
+  reconcileModalOpen.value = false
+  reconcilingAccount.value = null
+  reconcileSummary.value = null
+}
+
+const loadReconciliation = async () => {
+  if (!reconcilingAccount.value) return
+  reconcileLoading.value = true
+  reconcileError.value = null
+  try {
+    const data = await $fetch<ReconciliationSummary>(
+      `${API_BASE}/accounts/${reconcilingAccount.value.account_id}/reconciliation`,
+      {
+        query: {
+          ending_date: reconcileForm.value.endingDate,
+          ending_balance: reconcileForm.value.endingBalance,
+        },
+      }
+    )
+    reconcileSummary.value = data
+  } catch (err: any) {
+    reconcileError.value = err.data?.detail || err.message || 'Failed to load reconciliation data'
+  } finally {
+    reconcileLoading.value = false
+  }
+}
+
+const clearedCount = computed(() => {
+  return reconcileSummary.value?.transactions.filter(t => t.is_cleared).length || 0
+})
+
+const totalTxnCount = computed(() => {
+  return reconcileSummary.value?.transactions.length || 0
+})
+
+const allCleared = computed(() => {
+  return totalTxnCount.value > 0 && clearedCount.value === totalTxnCount.value
+})
+
+const calculatedClearedBalance = computed(() => {
+  if (!reconcileSummary.value) return 0
+  const prior = Number(reconcileSummary.value.prior_reconciled_balance) || 0
+  const clearedNet = reconcileSummary.value.transactions
+    .filter(t => t.is_cleared)
+    .reduce((sum, t) => sum + Number(t.amount), 0)
+  return Math.round((prior - clearedNet) * 100) / 100
+})
+
+const differenceAmount = computed(() => {
+  const stmt = Number(reconcileForm.value.endingBalance) || 0
+  return Math.round((stmt - calculatedClearedBalance.value) * 100) / 100
+})
+
+const isBalanced = computed(() => {
+  return Math.abs(differenceAmount.value) < 0.005
+})
+
+const recalculateDifference = () => {
+  // Computed reactively
+}
+
+const toggleTxCleared = async (tx: ReconciliationTransaction) => {
+  const newStatus = !tx.is_cleared
+  tx.is_cleared = newStatus
+  try {
+    await $fetch(`${API_BASE}/transactions/${tx.transaction_id}/cleared`, {
+      method: 'PATCH',
+      body: { is_cleared: newStatus },
+    })
+  } catch (err: any) {
+    tx.is_cleared = !newStatus
+    reconcileError.value = err.data?.detail || 'Failed to update transaction cleared status'
+  }
+}
+
+const toggleClearAll = async () => {
+  if (!reconcileSummary.value) return
+  const targetStatus = !allCleared.value
+  const txsToUpdate = reconcileSummary.value.transactions.filter(t => t.is_cleared !== targetStatus)
+  for (const tx of txsToUpdate) {
+    tx.is_cleared = targetStatus
+    try {
+      await $fetch(`${API_BASE}/transactions/${tx.transaction_id}/cleared`, {
+        method: 'PATCH',
+        body: { is_cleared: targetStatus },
+      })
+    } catch (err: any) {
+      console.warn('Failed to toggle cleared status', tx.transaction_id, err)
+    }
+  }
+}
+
+const finishReconciliation = async () => {
+  if (!reconcilingAccount.value || !isBalanced.value) return
+  completingReconcile.value = true
+  reconcileError.value = null
+  try {
+    await $fetch(
+      `${API_BASE}/accounts/${reconcilingAccount.value.account_id}/reconciliation/complete`,
+      {
+        method: 'POST',
+        body: {
+          statement_ending_date: reconcileForm.value.endingDate,
+          statement_ending_balance: reconcileForm.value.endingBalance,
+        },
+      }
+    )
+    closeReconcileModal()
+    await fetchAccounts()
+  } catch (err: any) {
+    reconcileError.value = err.data?.detail || err.message || 'Failed to complete reconciliation'
+  } finally {
+    completingReconcile.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -660,7 +1006,7 @@ const confirmDelete = async (account: Account) => {
 
 .table-header {
   display: grid;
-  grid-template-columns: minmax(180px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr) 80px;
+  grid-template-columns: minmax(180px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr) auto;
   align-items: center;
   padding: 10px var(--space-md);
   background-color: var(--color-background);
@@ -674,7 +1020,7 @@ const confirmDelete = async (account: Account) => {
 
 .table-row {
   display: grid;
-  grid-template-columns: minmax(180px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr) 80px;
+  grid-template-columns: minmax(180px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr) auto;
   align-items: center;
   padding: 14px var(--space-md);
   border-bottom: 1px solid var(--color-border-subtle);
@@ -774,6 +1120,263 @@ const confirmDelete = async (account: Account) => {
   margin-bottom: var(--space-md);
 }
 
+/* Reconciliation Styling */
+.account-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reconciled-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.reconciled-meta.text-muted {
+  color: var(--color-text-muted);
+  font-weight: normal;
+}
+
+.btn-reconcile {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-reconcile:hover {
+  background-color: var(--color-surface-hover);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.reconcile-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.reconcile-inputs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.reconcile-summary-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-sm);
+}
+
+.summary-card {
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.summary-card .card-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: var(--font-weight-bold);
+  margin-bottom: 2px;
+}
+
+.summary-card .card-value {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+}
+
+.summary-card .card-subtext {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.diff-card {
+  border-width: 2px;
+}
+
+.diff-balanced {
+  border-color: var(--color-success);
+  background-color: #f0fdf4;
+}
+
+.diff-balanced .card-value {
+  color: var(--color-success);
+}
+
+.diff-mismatch {
+  border-color: #f59e0b;
+  background-color: #fffbeb;
+}
+
+.diff-mismatch .card-value {
+  color: #b45309;
+}
+
+.card-status-text {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  margin-top: 2px;
+}
+
+.diff-balanced .card-status-text {
+  color: var(--color-success);
+}
+
+.diff-mismatch .card-status-text {
+  color: #b45309;
+}
+
+.reconcile-transactions-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.tx-header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.count-badge {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.btn-text {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  padding: 2px 6px;
+  text-decoration: underline;
+}
+
+.empty-reconcile-txns {
+  padding: var(--space-lg);
+  text-align: center;
+  background-color: var(--color-background);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.reconcile-table-wrapper {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.reconcile-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.reconcile-table th {
+  position: sticky;
+  top: 0;
+  background-color: var(--color-background);
+  border-bottom: 1px solid var(--color-border);
+  padding: 8px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-muted);
+  text-align: left;
+  z-index: 1;
+}
+
+.reconcile-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: var(--font-size-sm);
+}
+
+.th-cleared, .td-cleared {
+  width: 48px;
+  text-align: center !important;
+}
+
+.reconcile-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.row-cleared {
+  background-color: #f8fafc;
+}
+
+.desc-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+}
+
+.tx-desc {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge-transfer, .badge-pending, .badge-reviewed {
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.badge-transfer {
+  background-color: #e0e7ff;
+  color: #3730a3;
+}
+
+.badge-pending {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.badge-reviewed {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.inflow {
+  color: var(--color-success);
+}
+
+.reconcile-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
 /* Responsive Narrow Screen Adaptations */
 @media (max-width: 640px) {
   .accounts-page {
@@ -810,6 +1413,14 @@ const confirmDelete = async (account: Account) => {
   }
 
   .field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .reconcile-inputs-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reconcile-summary-strip {
     grid-template-columns: 1fr;
   }
 }

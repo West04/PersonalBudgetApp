@@ -15,6 +15,7 @@ from .dashboard_summary_manager import (
 from . import transfer_reconciliation_manager
 from . import csv_import_manager
 from . import account_summary_manager
+from . import account_reconciliation_manager
 
 __all__ = [
     "get_budget_summary",
@@ -25,5 +26,6 @@ __all__ = [
     "transfer_reconciliation_manager",
     "csv_import_manager",
     "account_summary_manager",
+    "account_reconciliation_manager",
 ]
 

@@ -3,7 +3,7 @@ Resource access functions for Account PostgreSQL resources.
 """
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
@@ -217,5 +217,24 @@ def delete_account(
     db.delete(account)
     db.commit()
     return True
+
+
+def update_account_reconciliation_metadata(
+    db: Session,
+    account_id: UUID,
+    last_reconciled_date: date,
+    last_reconciled_balance: Decimal,
+) -> Optional[models.Account]:
+    """
+    Updates the reconciliation metadata for an account upon successful reconciliation completion.
+    Flushes changes to the session without committing so the calling Manager owns the transaction boundary.
+    """
+    account = get_account_by_id(db, account_id)
+    if account is None:
+        return None
+    account.last_reconciled_date = last_reconciled_date
+    account.last_reconciled_balance = last_reconciled_balance
+    db.flush()
+    return account
 
 

@@ -1,6 +1,6 @@
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, condecimal, Field, field_validator, model_validator
-from datetime import date, datetime, datetime as DateTime
+from datetime import date, date as DateType, datetime, datetime as DateTime
 from typing import Optional, List, Literal
 from decimal import Decimal
 
@@ -109,6 +109,8 @@ class AccountRead(BaseModel):
     starting_balance: Decimal = Decimal("0.00")
     currency: str = "USD"
     balance_last_updated: Optional[datetime] = None
+    last_reconciled_date: Optional[date] = None
+    last_reconciled_balance: Optional[Decimal] = None
 
     is_active: bool = True
     status: str = "connected"
@@ -134,14 +136,23 @@ class TransactionCreate(BaseModel):
     datetime: Optional[DateTime] = None
     pending: bool = False
     is_reviewed: bool = False
+    is_cleared: bool = False
+    is_reconciled: bool = False
     plaid_transaction_id: Optional[str] = None
 
 
 class TransactionUpdate(BaseModel):
+    account_id: Optional[UUID] = None
     category_id: Optional[UUID] = None
     description: Optional[str] = None
+    amount: Optional[DecimalAmount] = None
+    date: Optional[DateType] = None
     is_transfer: Optional[bool] = None
     is_reviewed: Optional[bool] = None
+
+
+class TransactionClearedUpdate(BaseModel):
+    is_cleared: bool
 
 
 class TransactionRead(BaseModel):
@@ -156,9 +167,49 @@ class TransactionRead(BaseModel):
     pending: bool
     is_transfer: bool = False
     is_reviewed: bool = False
+    is_cleared: bool = False
+    is_reconciled: bool = False
     account: Optional[AccountRead] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReconciliationTransactionRead(BaseModel):
+    transaction_id: UUID
+    account_id: UUID
+    date: date
+    description: str
+    amount: DecimalAmount
+    pending: bool = False
+    is_transfer: bool = False
+    is_reviewed: bool = False
+    is_cleared: bool = False
+    is_reconciled: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AccountReconciliationSummary(BaseModel):
+    account_id: UUID
+    account_name: str
+    account_type: str
+    starting_balance: DecimalAmount
+    last_reconciled_date: Optional[date] = None
+    last_reconciled_balance: Optional[DecimalAmount] = None
+    prior_reconciled_balance: DecimalAmount
+    statement_ending_date: date
+    statement_ending_balance: DecimalAmount
+    cleared_balance: DecimalAmount
+    difference: DecimalAmount
+    cleared_count: int
+    uncleared_count: int
+    is_balanced: bool
+    transactions: List[ReconciliationTransactionRead]
+
+
+class CompleteReconciliationRequest(BaseModel):
+    statement_ending_date: date
+    statement_ending_balance: DecimalAmount
 
 
 class TransactionDetailRead(TransactionRead):

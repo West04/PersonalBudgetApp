@@ -179,18 +179,55 @@ def update_transaction(
 ):
     """
     Updates a specific transaction by its ID.
+    Rejects modification of financial fields (amount, date, account_id) if reconciled.
     """
     update_data = payload.model_dump(exclude_unset=True)
-    updated = transaction_access.update_manual_transaction(
-        db=db,
-        transaction_id=transaction_id,
-        update_data=update_data,
-    )
+    try:
+        updated = transaction_access.update_manual_transaction(
+            db=db,
+            transaction_id=transaction_id,
+            update_data=update_data,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
 
     if updated is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail='Transaction not found or invalid update'
+        )
+    return updated
+
+
+@router.patch("/{transaction_id}/cleared", response_model=schemas.TransactionRead)
+def set_transaction_cleared_status(
+    transaction_id: UUID,
+    payload: schemas.TransactionClearedUpdate,
+    db: Session = Depends(get_db),
+):
+    """
+    Updates the is_cleared status of a transaction.
+    Rejects modification if the transaction is already reconciled.
+    """
+    try:
+        updated = transaction_access.set_transaction_cleared(
+            db=db,
+            transaction_id=transaction_id,
+            is_cleared=payload.is_cleared,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found",
         )
     return updated
 
@@ -202,11 +239,18 @@ def delete_transaction(
 ):
     """
     Delete a specific transaction by its ID.
+    Blocks deletion if the transaction is reconciled.
     """
-    deleted = transaction_access.delete_manual_transaction(
-        db=db,
-        transaction_id=transaction_id
-    )
+    try:
+        deleted = transaction_access.delete_manual_transaction(
+            db=db,
+            transaction_id=transaction_id
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
 
     if deleted is None:
         raise HTTPException(

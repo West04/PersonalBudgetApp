@@ -1,4 +1,6 @@
-from typing import List
+from datetime import date
+from decimal import Decimal
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,7 +9,7 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..access import account_access
 from ..database import get_db
-from ..managers import account_summary_manager
+from ..managers import account_summary_manager, account_reconciliation_manager
 
 router = APIRouter(prefix="/accounts", tags=["Accounts"])
 
@@ -55,4 +57,43 @@ def delete_account(account_id: UUID, db: Session = Depends(get_db)):
     success = account_access.delete_account(db, account_id)
     if not success:
         raise HTTPException(status_code=404, detail="Account not found")
+
+
+@router.get("/{account_id}/reconciliation", response_model=schemas.AccountReconciliationSummary)
+def get_account_reconciliation(
+    account_id: UUID,
+    ending_date: Optional[date] = None,
+    ending_balance: Optional[Decimal] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Returns the reconciliation workspace summary for a depository account,
+    evaluating eligible unreconciled transactions through ending_date against ending_balance.
+    """
+    target_date = ending_date or date.today()
+    target_balance = ending_balance if ending_balance is not None else Decimal("0.00")
+    return account_reconciliation_manager.get_reconciliation_summary(
+        db=db,
+        account_id=account_id,
+        statement_ending_date=target_date,
+        statement_ending_balance=target_balance,
+    )
+
+
+@router.post("/{account_id}/reconciliation/complete", response_model=schemas.AccountReconciliationSummary)
+def complete_account_reconciliation(
+    account_id: UUID,
+    payload: schemas.CompleteReconciliationRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Finalizes reconciliation for an account when difference is zero.
+    Marks participating cleared transactions as reconciled, and updates account reconciliation metadata.
+    """
+    return account_reconciliation_manager.complete_reconciliation(
+        db=db,
+        account_id=account_id,
+        statement_ending_date=payload.statement_ending_date,
+        statement_ending_balance=payload.statement_ending_balance,
+    )
 

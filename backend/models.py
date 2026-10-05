@@ -78,6 +78,8 @@ class Transaction(Base):
     pending = Column(Boolean, default=False, nullable=False)
     is_transfer = Column(Boolean, default=False, nullable=False)
     is_reviewed = Column(Boolean, default=False, nullable=False, server_default="false")
+    is_cleared = Column(Boolean, default=False, nullable=False, server_default="false")
+    is_reconciled = Column(Boolean, default=False, nullable=False, server_default="false")
 
     category = relationship("Category", back_populates="transactions")
     account = relationship("Account", back_populates="transactions")
@@ -127,6 +129,8 @@ class Account(Base):
     starting_balance = Column(DECIMAL(12, 2), nullable=False, default=0)  # Seed balance for CSV-based accounts
     currency = Column(String, nullable=False, default="USD")
     balance_last_updated = Column(TIMESTAMP(timezone=True), nullable=True)
+    last_reconciled_date = Column(DATE, nullable=True)
+    last_reconciled_balance = Column(DECIMAL(12, 2), nullable=True)
 
     is_active = Column(Boolean, nullable=False, default=True)
 

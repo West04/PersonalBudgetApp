@@ -364,10 +364,22 @@ def update_manual_transaction(
     Preserves eager-loaded account via get_transaction_by_id.
     Commits, refreshes, and returns updated Transaction, or None if not found.
     Owns the standalone CRUD transaction boundary.
+    Guards reconciled transactions against changes to financial facts (amount, date, account_id).
     """
     transaction = get_transaction_by_id(db, transaction_id)
     if transaction is None:
         return None
+
+    if getattr(transaction, "is_reconciled", False) is True:
+        prohibited_keys = {"amount", "date", "account_id"}
+        for key in prohibited_keys:
+            if key in update_data and update_data[key] is not None:
+                current_val = getattr(transaction, key)
+                if key == "amount":
+                    if Decimal(str(update_data[key])) != Decimal(str(current_val)):
+                        raise ValueError("Cannot modify financial fields (amount, date, account_id) of a reconciled transaction")
+                elif update_data[key] != current_val:
+                    raise ValueError("Cannot modify financial fields (amount, date, account_id) of a reconciled transaction")
 
     for key, value in update_data.items():
         setattr(transaction, key, value)
@@ -394,6 +406,8 @@ def delete_manual_transaction(
     )
     if deleted is None:
         return None
+    if getattr(deleted, "is_reconciled", False) is True:
+        raise ValueError("Cannot delete a reconciled transaction")
     db.delete(deleted)
     db.commit()
     return deleted
@@ -439,6 +453,89 @@ def get_transaction_net_by_account(
         query = query.filter(models.Transaction.account_id.in_(account_ids))
 
     return {row[0]: Decimal(str(row[1])) for row in query.all()}
+
+
+def get_unreconciled_transactions_for_account(
+    db: Session,
+    account_id: UUID,
+    ending_date: date,
+) -> Sequence[models.Transaction]:
+    """
+    Retrieves all unreconciled, posted transactions for a specific account
+    dated on or before ending_date, ordered by date ASC, then transaction_id ASC.
+    Pending transactions are excluded.
+    """
+    return (
+        db.query(models.Transaction)
+        .filter(
+            models.Transaction.account_id == account_id,
+            models.Transaction.date <= ending_date,
+            models.Transaction.is_reconciled == False,
+            models.Transaction.pending == False,
+        )
+        .order_by(models.Transaction.date.asc(), models.Transaction.transaction_id.asc())
+        .all()
+    )
+
+
+def set_transaction_cleared(
+    db: Session,
+    transaction_id: UUID,
+    is_cleared: bool,
+) -> Optional[models.Transaction]:
+    """
+    Updates the is_cleared flag on a transaction.
+    Raises ValueError if the transaction is already reconciled.
+    Raises ValueError if attempting to mark a pending transaction as cleared.
+    Owns the standalone CRUD transaction boundary.
+    """
+    txn = get_transaction_by_id(db, transaction_id)
+    if txn is None:
+        return None
+    if txn.is_reconciled:
+        raise ValueError("Cannot modify cleared status of an already reconciled transaction")
+    if is_cleared and txn.pending:
+        raise ValueError("Cannot mark a pending transaction as cleared")
+    txn.is_cleared = is_cleared
+    db.add(txn)
+    db.commit()
+    db.refresh(txn)
+    return txn
+
+
+def mark_transactions_as_reconciled(
+    db: Session,
+    account_id: UUID,
+    ending_date: date,
+    transaction_ids: Sequence[UUID],
+) -> int:
+    """
+    Marks specified transactions for an account dated on or before ending_date
+    as reconciled (is_reconciled = True, is_cleared = True).
+    Excludes pending transactions.
+    Flushes changes to the session without committing so the calling Manager owns the transaction boundary.
+    Returns the count of updated rows.
+    """
+    if not transaction_ids:
+        return 0
+    updated_count = (
+        db.query(models.Transaction)
+        .filter(
+            models.Transaction.account_id == account_id,
+            models.Transaction.date <= ending_date,
+            models.Transaction.transaction_id.in_(transaction_ids),
+            models.Transaction.pending == False,
+        )
+        .update(
+            {
+                models.Transaction.is_reconciled: True,
+                models.Transaction.is_cleared: True,
+            },
+            synchronize_session=False,
+        )
+    )
+    db.flush()
+    return updated_count
 
 
 
