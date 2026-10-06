@@ -221,6 +221,94 @@ def migrate_categorization_rules(engine) -> bool:
     return applied
 
 
+def migrate_ml_state(engine) -> bool:
+    """
+    Applies one-time idempotent schema migration for Phase 10 ML categorization:
+    - Adds 'category_source' column to 'transactions' if not exists.
+    - Backfills existing categorized transactions with category_source = 'legacy'.
+    - Creates 'ml_model_metadata' table if not exists.
+    - Seeds default row (id=1) in 'ml_model_metadata' with current_training_revision
+      set to the count of eligible legacy labeled transactions.
+    Returns True if schema was modified, False otherwise.
+    """
+    applied = False
+    with engine.connect() as conn:
+        # 1. Add category_source column to transactions
+        col_exists = conn.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'transactions' AND column_name = 'category_source';"
+            )
+        ).scalar()
+        if not col_exists:
+            conn.execute(text("ALTER TABLE transactions ADD COLUMN category_source VARCHAR(20);"))
+            applied = True
+
+        # 2. Backfill existing categorized transactions
+        backfilled = conn.execute(
+            text(
+                "UPDATE transactions SET category_source = 'legacy' "
+                "WHERE category_id IS NOT NULL AND category_source IS NULL;"
+            )
+        ).rowcount
+        if backfilled and backfilled > 0:
+            applied = True
+
+        # 3. Create ml_model_metadata table
+        table_exists = conn.execute(
+            text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_name = 'ml_model_metadata';"
+            )
+        ).scalar()
+        if not table_exists:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE ml_model_metadata (
+                        id INTEGER PRIMARY KEY DEFAULT 1,
+                        current_training_revision INTEGER NOT NULL DEFAULT 0,
+                        trained_revision INTEGER NOT NULL DEFAULT 0,
+                        trained_at TIMESTAMP WITH TIME ZONE NULL,
+                        training_example_count INTEGER NOT NULL DEFAULT 0,
+                        model_available BOOLEAN NOT NULL DEFAULT FALSE,
+                        accuracy NUMERIC(5, 4) NULL,
+                        macro_f1 NUMERIC(5, 4) NULL,
+                        top2_accuracy NUMERIC(5, 4) NULL,
+                        coverage NUMERIC(5, 4) NULL,
+                        status_message VARCHAR NULL
+                    );
+                    """
+                )
+            )
+            applied = True
+
+        # 4. Seed metadata row id=1 if missing
+        meta_exists = conn.execute(
+            text("SELECT 1 FROM ml_model_metadata WHERE id = 1;")
+        ).scalar()
+        if not meta_exists:
+            legacy_count = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM transactions "
+                    "WHERE category_id IS NOT NULL AND is_transfer = FALSE;"
+                )
+            ).scalar() or 0
+            conn.execute(
+                text(
+                    "INSERT INTO ml_model_metadata "
+                    "(id, current_training_revision, trained_revision, training_example_count, model_available, status_message) "
+                    "VALUES (1, :rev, 0, 0, FALSE, 'Needs more data');"
+                ),
+                {"rev": int(legacy_count)},
+            )
+            applied = True
+
+        if applied:
+            conn.commit()
+    return applied
+
+
 def get_db():
     db = SessionLocal()
     try:

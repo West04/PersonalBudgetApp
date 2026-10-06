@@ -110,7 +110,7 @@
                       :aria-label="`Apply rule for ${rule.merchant} to existing uncategorized transactions`"
                       title="Apply to matching uncategorized transactions"
                     >
-                      ⚡ Apply
+                      Apply
                     </button>
                     <button
                       type="button"
@@ -137,6 +137,61 @@
           </table>
         </div>
       </template>
+    </div>
+
+    <!-- ML Categorization Card -->
+    <div class="ml-card surface-card">
+      <div class="card-header-row">
+        <div>
+          <h2 class="section-title">ML Categorization</h2>
+          <p class="section-desc">
+            Local supervised model that learns from historical manual categorizations to suggest categories for transactions that remain uncategorized after deterministic rules.
+          </p>
+        </div>
+        <div class="ml-header-actions">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="triggerRetrain"
+            :disabled="retraining"
+            aria-label="Retrain categorization model"
+          >
+            <span v-if="retraining">Retraining...</span>
+            <span v-else>Retrain Model</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="ml-status-grid">
+        <div class="ml-status-item">
+          <span class="status-label">Model Status</span>
+          <span class="status-value status-badge" :class="statusBadgeClass">{{ mlStatus?.status || 'Unknown' }}</span>
+        </div>
+        <div class="ml-status-item">
+          <span class="status-label">Training Examples</span>
+          <span class="status-value font-mono">{{ mlStatus?.training_example_count ?? 0 }}</span>
+        </div>
+        <div class="ml-status-item">
+          <span class="status-label">New Labels Since Training</span>
+          <span class="status-value font-mono">{{ mlStatus?.new_labels_since_training ?? 0 }}</span>
+        </div>
+        <div class="ml-status-item">
+          <span class="status-label">Last Trained</span>
+          <span class="status-value font-mono">{{ formatTrainedDate(mlStatus?.trained_at) }}</span>
+        </div>
+        <div v-if="mlStatus?.accuracy !== null && mlStatus?.accuracy !== undefined" class="ml-status-item">
+          <span class="status-label">Test Accuracy</span>
+          <span class="status-value font-mono">{{ Math.round((mlStatus?.accuracy || 0) * 100) }}%</span>
+        </div>
+        <div v-if="mlStatus?.macro_f1 !== null && mlStatus?.macro_f1 !== undefined" class="ml-status-item">
+          <span class="status-label">Macro F1</span>
+          <span class="status-value font-mono">{{ mlStatus?.macro_f1 }}</span>
+        </div>
+      </div>
+
+      <div v-if="mlStatus?.status_message" class="ml-status-message">
+        {{ mlStatus.status_message }}
+      </div>
     </div>
 
     <!-- Dialog: Add Rule -->
@@ -361,6 +416,52 @@ const {
   error: fetchError,
   refresh: refreshRules,
 } = await useFetch<any[]>(`${API_BASE}/rules/`)
+
+// ML Model Status Fetching
+const {
+  data: mlStatus,
+  refresh: refreshMLStatus,
+} = await useFetch<any>(`${API_BASE}/ml/status`)
+
+const retraining = ref(false)
+
+const triggerRetrain = async () => {
+  pageError.value = null
+  successMessage.value = null
+  retraining.value = true
+  try {
+    const res = await $fetch<any>(`${API_BASE}/ml/retrain?force=true`, {
+      method: 'POST',
+    })
+    if (res.success) {
+      successMessage.value = res.message
+    } else {
+      pageError.value = res.message || 'Model retraining did not activate a new candidate.'
+    }
+    await refreshMLStatus()
+  } catch (err: any) {
+    pageError.value = err?.data?.detail || err.message || 'Retraining failed.'
+  } finally {
+    retraining.value = false
+  }
+}
+
+const statusBadgeClass = computed(() => {
+  const s = mlStatus.value?.status
+  if (s === 'Ready') return 'status-ready'
+  if (s === 'Stale') return 'status-stale'
+  return 'status-needs-data'
+})
+
+const formatTrainedDate = (d: string | null | undefined) => {
+  if (!d) return 'Never'
+  try {
+    const date = new Date(d)
+    return date.toLocaleString()
+  } catch {
+    return d
+  }
+}
 
 // Page Alerts
 const pageError = ref<string | null>(null)
@@ -947,5 +1048,81 @@ const submitApplyRule = async () => {
   .btn-action {
     justify-content: center;
   }
+}
+
+/* ML Categorization Card */
+.ml-card {
+  margin-top: var(--space-xl);
+}
+
+.ml-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.ml-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.ml-status-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.ml-status-item .status-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: var(--font-weight-medium);
+}
+
+.ml-status-item .status-value {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs) !important;
+}
+
+.status-ready {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+.status-stale {
+  background: #fef9c3;
+  color: #854d0e;
+  border: 1px solid #fde047;
+}
+
+.status-needs-data {
+  background: var(--color-surface-hover);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.ml-status-message {
+  margin-top: var(--space-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 </style>

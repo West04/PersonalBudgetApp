@@ -176,20 +176,24 @@ def stage_csv_import_transaction(
     resolved_merchant = merchant if merchant is not None else normalize_merchant(description)
 
     assigned_category_id = category_id
+    category_source = "legacy" if assigned_category_id is not None else None
     if assigned_category_id is None and resolved_merchant:
         if rules_lookup is not None:
             clean_key = clean_merchant_key(resolved_merchant)
             if clean_key and clean_key in rules_lookup:
                 assigned_category_id = rules_lookup[clean_key]
+                category_source = "rule"
         else:
             from . import categorization_rule_access
             rule = categorization_rule_access.get_rule_by_merchant(db, resolved_merchant)
             if rule:
                 assigned_category_id = rule.category_id
+                category_source = "rule"
 
     txn = models.Transaction(
         account_id=account_id,
         category_id=assigned_category_id,
+        category_source=category_source,
         description=description,
         merchant=resolved_merchant,
         is_merchant_overridden=False,
@@ -252,21 +256,25 @@ def stage_or_update_plaid_transaction(
     txn = get_transaction_by_plaid_id(db, plaid_transaction_id)
     if txn is None:
         matched_category_id = None
+        category_source = None
         if resolved_merchant:
             if rules_lookup is not None:
                 clean_key = clean_merchant_key(resolved_merchant)
                 if clean_key and clean_key in rules_lookup:
                     matched_category_id = rules_lookup[clean_key]
+                    category_source = "rule"
             else:
                 from . import categorization_rule_access
                 rule = categorization_rule_access.get_rule_by_merchant(db, resolved_merchant)
                 if rule:
                     matched_category_id = rule.category_id
+                    category_source = "rule"
 
         txn = models.Transaction(
             plaid_transaction_id=plaid_transaction_id,
             account_id=account_id,
             category_id=matched_category_id,
+            category_source=category_source,
             description=description,
             merchant=resolved_merchant,
             is_merchant_overridden=False,
@@ -293,11 +301,13 @@ def stage_or_update_plaid_transaction(
             clean_key = clean_merchant_key(txn.merchant)
             if clean_key and clean_key in rules_lookup:
                 txn.category_id = rules_lookup[clean_key]
+                txn.category_source = "rule"
         else:
             from . import categorization_rule_access
             rule = categorization_rule_access.get_rule_by_merchant(db, txn.merchant)
             if rule:
                 txn.category_id = rule.category_id
+                txn.category_source = "rule"
 
     db.add(txn)
     return txn
@@ -420,15 +430,22 @@ def create_manual_transaction(
         is_overridden = False
 
     assigned_category_id = category_id
-    if assigned_category_id is None and resolved_merchant:
+    category_source = None
+    if assigned_category_id is not None:
+        category_source = "manual"
+        from . import ml_model_access
+        ml_model_access.increment_training_revision(db)
+    elif resolved_merchant:
         from . import categorization_rule_access
         rule = categorization_rule_access.get_rule_by_merchant(db, resolved_merchant)
         if rule:
             assigned_category_id = rule.category_id
+            category_source = "rule"
 
     new_txn = models.Transaction(
         account_id=account_id,
         category_id=assigned_category_id,
+        category_source=category_source,
         description=description,
         merchant=resolved_merchant,
         is_merchant_overridden=is_overridden,
@@ -495,8 +512,21 @@ def update_manual_transaction(
         if not getattr(transaction, "is_merchant_overridden", False):
             transaction.merchant = normalize_merchant(update_data["description"])
 
+    if "category_id" in update_data:
+        new_cat = update_data["category_id"]
+        old_cat = transaction.category_id
+        if new_cat != old_cat:
+            if new_cat is not None:
+                transaction.category_id = new_cat
+                transaction.category_source = "manual"
+                from . import ml_model_access
+                ml_model_access.increment_training_revision(db)
+            else:
+                transaction.category_id = None
+                transaction.category_source = None
+
     for key, value in update_data.items():
-        if key != "merchant":
+        if key not in ("merchant", "category_id"):
             setattr(transaction, key, value)
 
     # If uncategorized and category_id was not explicitly in update_data, check matching rule
@@ -505,6 +535,7 @@ def update_manual_transaction(
         rule = categorization_rule_access.get_rule_by_merchant(db, transaction.merchant)
         if rule:
             transaction.category_id = rule.category_id
+            transaction.category_source = "rule"
 
     db.add(transaction)
     db.commit()
@@ -700,6 +731,7 @@ def apply_category_to_uncategorized_by_merchant_key(
     )
     for tx in matching_txs:
         tx.category_id = category_id
+        tx.category_source = "rule"
         db.add(tx)
     db.flush()
     return len(matching_txs)

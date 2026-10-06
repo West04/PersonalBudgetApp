@@ -7,3 +7,4 @@ plaid-python
 pydantic
 requests
 python-multipart
+scikit-learn

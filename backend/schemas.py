@@ -140,6 +140,7 @@ class TransactionCreate(BaseModel):
     is_cleared: bool = False
     is_reconciled: bool = False
     plaid_transaction_id: Optional[str] = None
+    category_source: Optional[str] = None
 
 
 class TransactionUpdate(BaseModel):
@@ -162,6 +163,7 @@ class TransactionRead(BaseModel):
     plaid_transaction_id: Optional[str] = None
     account_id: UUID
     category_id: Optional[UUID] = None
+    category_source: Optional[str] = None
     description: str
     merchant: Optional[str] = None
     is_merchant_overridden: bool = False
@@ -552,5 +554,52 @@ class CategorizationRulePreviewResponse(BaseModel):
 class CategorizationRuleBatchApplyResponse(BaseModel):
     rule_id: UUID
     applied_count: int
+
+
+# --- ML Categorization Schemas ---
+
+class MLModelStatusRead(BaseModel):
+    model_available: bool
+    status: str  # Ready | Needs more data | Stale
+    trained_at: Optional[datetime] = None
+    trained_revision: int
+    current_training_revision: int
+    new_labels_since_training: int
+    training_example_count: int
+    retrain_threshold: int
+    accuracy: Optional[float] = None
+    macro_f1: Optional[float] = None
+    top2_accuracy: Optional[float] = None
+    coverage: Optional[float] = None
+    status_message: Optional[str] = None
+
+
+class MLRetrainResponse(BaseModel):
+    success: bool
+    message: str
+    model_activated: bool
+    status: MLModelStatusRead
+
+
+class TransactionCategorySuggestionRead(BaseModel):
+    transaction_id: UUID
+    suggested_category_id: Optional[UUID] = None
+    suggested_category_name: Optional[str] = None
+    confidence: Optional[float] = None
+    score_label: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class BatchCategorySuggestionsRequest(BaseModel):
+    transaction_ids: List[UUID]
+
+
+class BatchCategorySuggestionsResponse(BaseModel):
+    suggestions: dict[UUID, TransactionCategorySuggestionRead]
+
+
+class AcceptSuggestionRequest(BaseModel):
+    category_id: UUID
+
 
 

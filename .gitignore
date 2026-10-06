@@ -88,3 +88,9 @@ AGENTS.md
 docs/checkpoints
 session_handoffs
 docs/responses/
+
+# ---------------------------------
+# ML Model Artifacts
+# ---------------------------------
+data/models/
+*.joblib

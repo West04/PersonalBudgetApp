@@ -83,6 +83,7 @@ class Transaction(Base):
     is_reviewed = Column(Boolean, default=False, nullable=False, server_default="false")
     is_cleared = Column(Boolean, default=False, nullable=False, server_default="false")
     is_reconciled = Column(Boolean, default=False, nullable=False, server_default="false")
+    category_source = Column(String(20), nullable=True)  # manual | rule | ml | legacy
 
     category = relationship("Category", back_populates="transactions")
     account = relationship("Account", back_populates="transactions")
@@ -190,5 +191,21 @@ class CategorizationRule(Base):
             unique=True,
         ),
     )
+
+
+class MLModelMetadata(Base):
+    __tablename__ = "ml_model_metadata"
+
+    id = Column(Integer, primary_key=True, default=1)
+    current_training_revision = Column(Integer, nullable=False, default=0)
+    trained_revision = Column(Integer, nullable=False, default=0)
+    trained_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    training_example_count = Column(Integer, nullable=False, default=0)
+    model_available = Column(Boolean, nullable=False, default=False)
+    accuracy = Column(DECIMAL(5, 4), nullable=True)
+    macro_f1 = Column(DECIMAL(5, 4), nullable=True)
+    top2_accuracy = Column(DECIMAL(5, 4), nullable=True)
+    coverage = Column(DECIMAL(5, 4), nullable=True)
+    status_message = Column(String, nullable=True)
 
 

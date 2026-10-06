@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..access import transaction_access
 from ..database import get_db
-from ..managers import transfer_reconciliation_manager
+from ..managers import transfer_reconciliation_manager, ml_categorization_manager
 
 router = APIRouter(
     prefix="/transactions",
@@ -259,3 +259,74 @@ def delete_transaction(
             detail='Transaction not found'
         )
     return None
+
+
+@router.post("/category-suggestions", response_model=schemas.BatchCategorySuggestionsResponse)
+def batch_get_category_suggestions(
+    payload: schemas.BatchCategorySuggestionsRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Computes ML category suggestions for a batch of transaction IDs.
+    Excludes already-categorized transactions, confirmed transfers, and rule-matched rows.
+    Checks model freshness once per batch.
+    """
+    suggestions = ml_categorization_manager.batch_predict_suggestions(
+        db=db,
+        transaction_ids=payload.transaction_ids,
+    )
+    return schemas.BatchCategorySuggestionsResponse(suggestions=suggestions)
+
+
+@router.get("/{transaction_id}/category-suggestion", response_model=schemas.TransactionCategorySuggestionRead)
+def get_transaction_category_suggestion(
+    transaction_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """
+    Returns an ML category suggestion for a specific transaction if eligible.
+    Enforces precedence: existing category > deterministic rule > ML suggestion.
+    """
+    suggestion = ml_categorization_manager.predict_category_for_transaction(
+        db=db,
+        transaction_id=transaction_id,
+    )
+    if suggestion.reason == "Transaction not found":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found",
+        )
+    return suggestion
+
+
+@router.post("/{transaction_id}/accept-suggestion", response_model=schemas.TransactionRead)
+def accept_category_suggestion(
+    transaction_id: UUID,
+    payload: schemas.AcceptSuggestionRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Accepts an ML category suggestion:
+    - Sets Transaction.category_id = payload.category_id
+    - Sets Transaction.category_source = 'ml'
+    - Increments current_training_revision
+    - Preserves review status, merchant, and financial values.
+    """
+    try:
+        updated_tx = ml_categorization_manager.accept_suggestion(
+            db=db,
+            transaction_id=transaction_id,
+            category_id=payload.category_id,
+        )
+        return updated_tx
+    except ValueError as exc:
+        msg = str(exc)
+        if "not found" in msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=msg,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=msg,
+        )

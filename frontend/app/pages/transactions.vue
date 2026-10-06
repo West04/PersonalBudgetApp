@@ -243,6 +243,7 @@
               <tr
                 v-for="tx in transactionsData?.items"
                 :key="tx.transaction_id"
+                :data-tx-id="tx.transaction_id"
               >
                 <td class="date-cell font-mono">{{ formatDate(tx.date) }}</td>
                 <td class="desc-cell" :class="{ 'is-editing': editingMerchantId === tx.transaction_id }">
@@ -309,15 +310,36 @@
                   <span class="account-tag">{{ tx.account?.name || 'Unknown' }}</span>
                 </td>
                 <td class="category-cell">
+                  <div
+                    v-if="!tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id"
+                    class="ml-suggestion-box"
+                    role="status"
+                    :aria-label="`Suggested category: ${suggestions[tx.transaction_id].suggested_category_name} (${suggestions[tx.transaction_id].score_label})`"
+                  >
+                    <span class="ml-suggestion-text" :title="`Suggested: ${suggestions[tx.transaction_id].suggested_category_name} · ${suggestions[tx.transaction_id].score_label}`">
+                      Suggested: <strong>{{ suggestions[tx.transaction_id].suggested_category_name }}</strong>
+                      <span class="ml-suggestion-score">· {{ suggestions[tx.transaction_id].score_label }}</span>
+                    </span>
+                    <button
+                      type="button"
+                      class="btn-accept-suggestion"
+                      @click="acceptSuggestion(tx, suggestions[tx.transaction_id])"
+                      :disabled="updatingId === tx.transaction_id"
+                      :aria-label="`Accept suggested category ${suggestions[tx.transaction_id].suggested_category_name} for ${tx.merchant || tx.description}`"
+                    >
+                      Accept
+                    </button>
+                  </div>
+
                   <select
                     :value="tx.category_id || ''"
                     @change="updateTransactionCategory(tx.transaction_id, ($event.target as HTMLSelectElement).value)"
                     class="category-select"
-                    :class="{ 'uncategorized': !tx.category_id }"
+                    :class="{ 'uncategorized': !tx.category_id, 'has-suggestion': !tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id }"
                     :disabled="updatingId === tx.transaction_id"
-                    aria-label="Assign category"
+                    :aria-label="!tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id ? 'Or choose another category' : 'Assign category'"
                   >
-                    <option value="">Uncategorized</option>
+                    <option value="">{{ !tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id ? 'Choose category...' : 'Uncategorized' }}</option>
                     <optgroup
                       v-for="group in categoryGroups"
                       :key="group.category_group_id"
@@ -644,6 +666,62 @@ const saveMerchant = async (tx: any) => {
 const updateError = ref<string | null>(null)
 const updatingId = ref<string | null>(null)
 
+// ML Category Suggestions
+const suggestions = ref<Record<string, any>>({})
+const suggestionsLoading = ref(false)
+
+const loadSuggestions = async () => {
+  const items = transactionsData.value?.items || []
+  const uncatIds = items
+    .filter((tx: any) => !tx.category_id && !tx.is_transfer)
+    .map((tx: any) => tx.transaction_id)
+
+  if (uncatIds.length === 0) {
+    suggestions.value = {}
+    return
+  }
+
+  suggestionsLoading.value = true
+  try {
+    const res = await $fetch<any>(`${API_BASE}/transactions/category-suggestions`, {
+      method: 'POST',
+      body: { transaction_ids: uncatIds },
+    })
+    suggestions.value = res.suggestions || {}
+  } catch (err) {
+    console.error('Failed to load category suggestions:', err)
+  } finally {
+    suggestionsLoading.value = false
+  }
+}
+
+watch(transactionsData, () => {
+  loadSuggestions()
+}, { immediate: true })
+
+const acceptSuggestion = async (tx: any, suggestion: any) => {
+  updateError.value = null
+  updatingId.value = tx.transaction_id
+  try {
+    const response = await fetch(`${API_BASE}/transactions/${tx.transaction_id}/accept-suggestion`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category_id: suggestion.suggested_category_id }),
+    })
+    if (!response.ok) throw new Error('Failed to accept suggestion')
+    const updated = await response.json()
+    tx.category_id = updated.category_id
+    tx.category_source = updated.category_source
+    delete suggestions.value[tx.transaction_id]
+    await refresh()
+  } catch (err: any) {
+    updateError.value = err.message || 'Failed to accept suggestion. Please try again.'
+    console.error(err)
+  } finally {
+    updatingId.value = null
+  }
+}
+
 const updateTransactionCategory = async (transactionId: string, categoryId: string) => {
   updateError.value = null
   updatingId.value = transactionId
@@ -655,6 +733,8 @@ const updateTransactionCategory = async (transactionId: string, categoryId: stri
     })
 
     if (!response.ok) throw new Error('Failed to update category')
+
+    delete suggestions.value[transactionId]
 
     if (transactionsData.value?.items) {
       const item = transactionsData.value.items.find((t: any) => t.transaction_id === transactionId)
@@ -1083,7 +1163,55 @@ const clearErrors = () => {
 }
 
 .category-col {
-  width: 220px;
+  width: 250px;
+}
+
+.ml-suggestion-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.ml-suggestion-text {
+  color: #166534;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-suggestion-score {
+  color: #15803d;
+  font-size: 10px;
+}
+
+.btn-accept-suggestion {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  background: #16a34a;
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.btn-accept-suggestion:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.btn-accept-suggestion:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .category-select {
