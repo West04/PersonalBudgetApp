@@ -1,7 +1,13 @@
-# Budget App — Updated TODO
+# Budget App — Historical Slice 16 TODO [Archived]
 
-**Updated:** September 26, 2026  
-**Current goal:** Get the app ready for real personal use with **CSV imports first**. Plaid is optional and is no longer on the critical path.
+> [!NOTE]
+> **Historical Archive Notice:**
+> This file is a preserved historical milestone document from September 2026 (Slice 16).
+> For the active canonical task list, completed Phases 1–12, and current roadmap, consult:
+> [`docs/TODO.md`](TODO.md) and [`docs/PRODUCT_REDESIGN_PLAN.md`](PRODUCT_REDESIGN_PLAN.md).
+
+**Original Date:** September 26, 2026  
+**Original goal:** Get the app ready for real personal use with **CSV imports first**. Plaid is optional and is no longer on the critical path.
 
 ## Current checkpoint
 

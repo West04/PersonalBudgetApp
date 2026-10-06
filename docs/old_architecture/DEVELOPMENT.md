@@ -122,7 +122,7 @@ Executes the automated suite of unit, integration, and characterization tests co
 python3 -m pytest
 
 # Run specific test file
-python3 -m pytest tests/test_bank_statement_loader.py
+python3 -m pytest tests/test_unit_csv_parsing.py
 ```
 
 ### 5.2 Run the Smoke Test Suite
@@ -141,8 +141,9 @@ Server up. Starting tests...
 ✅ GET /category-groups: 5 items
 ✅ GET /budget?budget_month=2024-01-01
 ✅ GET /summary/budget?month=2024-01
-✅ GET /summary/dashboard
-✅ GET /transactions (Paginated)
+✅ GET /summary/dashboard (Account fields verified)
+✅ GET /transactions (Paginated: 0 total)
+✅ GET /transactions?uncategorized=true
 ✅ GET /accounts
 ✅ POST /plaid/create_link_token
 ```

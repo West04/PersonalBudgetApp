@@ -1,27 +1,34 @@
 # Budget App Product Redesign & Development Plan
 
-**Status:** Planning baseline  
-**Phase:** CSV-first acceptance complete → real-use-informed redesign  
-**Purpose:** Define the product direction, frontend responsibilities, future financial capabilities, sequencing, and acceptance requirements before implementation begins.
+**Status:** Living Product & Engineering Plan  
+**Phase:** Phases 0–12 Complete → Phase 13 (Financial Depth) candidate roadmap  
+**Purpose:** Defines the product direction, frontend responsibilities, completed financial capabilities, architectural boundaries, and remaining roadmap.
 
 ---
 
 # 1. Executive Summary
 
-The budget application has reached an important milestone:
+The budget application has progressed through twelve feature and modernization phases:
 
 ```text
-Backend modernization       Complete enough for current product work
-CSV-first workflow          Complete
-CSV acceptance testing      Complete
-Major acceptance defects    Fixed
-Real-use evaluation         Complete
-Frontend/product redesign   Next major phase
+Backend modernization / VBD Slices 1–16   Complete
+CSV-first workflow & acceptance           Complete
+Phase 1  Frontend design foundation       Complete
+Phase 2  Budget / Categories redesign     Complete
+Phase 3  Dashboard redesign               Complete
+Phase 4  Transactions UX foundation       Complete
+Phase 5  Accounts consolidation           Complete
+Phase 6  Transaction review + transfers   Complete
+Phase 7  Account reconciliation           Complete
+Phase 8  Merchant normalization           Complete
+Phase 9  Categorization rules             Complete
+Phase 10 ML categorization                Complete
+Phase 11 Recurring transactions           Complete
+Phase 12 Split transactions               Complete
+Phase 13 Financial depth                  Next candidate roadmap
 ```
 
-The application currently works, but real use has exposed a more important question than correctness:
-
-> How should the application organize financial information and workflows so that it is efficient, understandable, and pleasant to use repeatedly?
+The application provides a stable, unified personal budgeting workflow organized around user jobs:
 
 The next phase should therefore **not** be a broad backend refactor or a collection of isolated UI tweaks.
 
@@ -1336,230 +1343,186 @@ CSV-first baseline documented and reproducible.
 
 ---
 
-# Phase 1 — Frontend design foundation
+# Phase 1 — Frontend design foundation [COMPLETE]
 
-Goal:
+**Status:** Complete (Commit `a2e12b7`)
 
-Fix systemic inconsistencies before rebuilding individual pages.
-
-Deliver:
-
-- typography system;
-- spacing conventions;
-- button styles;
-- form controls;
-- dialog system;
-- page headers;
-- Month Navigator;
-- loading/error/empty states.
-
-Avoid changing page responsibilities during this phase.
-
-Exit condition:
-
-Shared primitives are proven in at least one real screen and do not exist merely as speculative abstractions.
+Delivered:
+- CSS custom properties design tokens (`frontend/app/assets/css/tokens.css`, `base.css`).
+- Shared atomic UI components: `AppDialog.vue`, `EmptyState.vue`, `ErrorBanner.vue`, `FormField.vue`, `LoadingState.vue`, `MonthNavigator.vue`, `PageHeader.vue`.
+- Composable for month navigation state (`useBudgetMonth.ts`).
+- Standardized plain-text / non-emoji buttons and action triggers.
 
 ---
 
-# Phase 2 — Budget / Categories redesign
+# Phase 2 — Budget / Categories redesign [COMPLETE]
 
-Why first:
+**Status:** Complete (Commit `54e3418`)
 
-The concept works, and its friction is well understood.
-
-Deliver:
-
-- shared month header;
-- whole-row expand/collapse;
-- improved group creation;
-- improved category creation;
-- standardized editing dialogs/forms;
-- visual cleanup.
-
-Preserve business behavior.
-
-Exit condition:
-
-Routine budget/category management no longer feels cumbersome.
+Delivered:
+- Merged category administration and monthly budget planner (`frontend/app/pages/categories.vue`).
+- MonthNavigator integration with synchronized month state.
+- Whole-row group expansion/collapse with drag-and-drop ordering (`vuedraggable`).
+- Distinct creation and editing dialogs for groups and categories using `AppDialog`.
+- Inline planned budget allocation editing with zero-based `to_be_assigned` indicator.
 
 ---
 
-# Phase 3 — Dashboard redesign
+# Phase 3 — Dashboard redesign [COMPLETE]
 
-Deliver:
+**Status:** Complete (Commit `9c99fec`)
 
-- cash/account overview;
-- credit debt summary if semantics support it;
-- spending-by-group/category;
-- categories needing attention;
-- optional recent activity;
-- remove/de-emphasize redundant planned-vs-actual summaries.
-
-Exit condition:
-
-Dashboard communicates information the user actually finds useful within seconds.
+Delivered:
+- Financial KPI cards: income, expenses, net balance, and zero-based `to_be_assigned` indicator (`frontend/app/pages/dashboard.vue`).
+- Depository and credit account summaries with balance status.
+- Spending-by-group distribution cards.
+- Recent transactions list (10 most recent transactions with account metadata).
 
 ---
 
-# Phase 4 — Transactions UX foundation
+# Phase 4 — Transactions UX foundation [COMPLETE]
 
-Deliver:
+**Status:** Complete (Commit `b86c0a2`)
 
-- visual alignment with redesign;
-- filter persistence;
-- improved filter controls;
-- transaction detail/edit interaction;
-- architecture ready for review state;
-- architecture ready for transfers and bulk actions.
-
-Do not implement ML yet.
-
-Exit condition:
-
-Transactions remains at least as effective as the current workflow and provides a clean platform for automation.
+Delivered:
+- Working-session filter persistence via `useState` in `useTransactionFilters.ts` (search, category, uncategorized toggle, review state, pagination offset).
+- Route query synchronization for primary dimensions (`month`, `account_id`).
+- Quick-filter tabs and clean search input controls.
+- Timezone-safe UTC date range queries (`frontend/app/utils/monthMath.ts`).
 
 ---
 
-# Phase 5 — Accounts consolidation
+# Phase 5 — Accounts consolidation [COMPLETE]
 
-Deliver:
+**Status:** Complete (Commits `5518392`, `db1166f`)
 
-- redesigned Accounts screen;
-- no emoji-driven account identification;
-- useful account grouping;
-- name/type/current balance emphasis;
-- starting balance moved to setup/editing;
-- credit-card accounts integrated;
-- credit-card negative balance displayed appropriately;
-- account detail experience.
-
-Inventory/migrate useful Credit Cards functionality before removing that page.
-
-Exit condition:
-
-A user does not need a separate page simply to understand a credit-card account.
+Delivered:
+- Consolidated account listing (`frontend/app/pages/accounts.vue`) supporting depository, credit, investment, loan, and other types.
+- Pure domain utility (`backend/domain/accounts.py:calculate_depository_balance`) and `account_summary_manager.py` deriving depository current balances authoritatively from ledger history:
+  $$\text{current\_balance} = \text{starting\_balance} - \sum \text{Transaction.amount}$$
+- Starting balance moved to setup metadata.
+- Credit cards presented with explicit debt owed vs overpayment/credit balance styling.
 
 ---
 
-# Phase 6 — Transaction review + transfer workflow
+# Phase 6 — Transaction review + transfer workflow [COMPLETE]
 
-Deliver:
+**Status:** Complete (Commit `bff2b40`)
 
-- Needs Review / Reviewed;
-- transfer candidate presentation;
-- transfer confirmation/rejection;
-- move transfer discovery away from Credit Cards;
-- begin multi-select/bulk review if justified.
-
-Exit condition:
-
-The user has a clear transaction inbox/work queue.
+Delivered:
+- Schema and database migration helper `migrate_review_state` adding `is_reviewed` (default `False`, backfilled `True`).
+- Transaction review status workflow (`needs_review`, `reviewed`, `all`).
+- Inter-account transfer candidate discovery panel elevated into `frontend/app/pages/transactions.vue`.
+- Two-way confirmation and dismissal of detected transfer pairs without persistent counterpart FKs.
 
 ---
 
-# Phase 7 — Account reconciliation
+# Phase 7 — Account reconciliation [COMPLETE]
 
-Deliver:
+**Status:** Complete (Commit `0e4f429`)
 
-- cleared/uncleared transaction concept;
-- cleared/uncleared balances;
-- reconciliation workflow;
-- last-reconciled state.
-
-Exit condition:
-
-The user can verify the application's account ledger against the institution.
-
----
-
-# Phase 8 — Merchant normalization
-
-Deliver:
-
-- raw description preservation;
-- normalized merchant/payee;
-- manual merchant correction;
-- reuse normalized merchant identity.
-
-Exit condition:
-
-Repeated merchant variants no longer require repeated manual interpretation.
+Delivered:
+- Pure domain engine / reconciliation policy (`backend/domain/account_reconciliation.py`) and workflow manager (`account_reconciliation_manager.py`).
+- Cleared and Reconciled state separation (`is_cleared` and `is_reconciled` on `transactions`, `last_reconciled_date` and `last_reconciled_balance` on `accounts`).
+- Statement ending date and statement ending balance reconciliation workspace modal in `frontend/app/pages/accounts.vue`.
+- Cleared balance calculation: $\text{prior\_reconciled\_balance} - \text{net\_cleared\_transactions}$.
+- Atomic completion endpoint (`POST /accounts/{id}/reconciliation/complete`) enforcing exact $\text{difference} == 0.00$.
+- Reconciled transaction guards blocking mutation of financial fields (`amount`, `date`, `account_id`) and deletion.
 
 ---
 
-# Phase 9 — Rules
+# Phase 8 — Merchant normalization [COMPLETE]
 
-Deliver:
+**Status:** Complete (Commit `0036c1f`)
 
-- initial rule conditions;
-- deterministic actions;
-- preview;
-- future-only vs retroactive application;
-- rule ordering/conflict semantics.
-
-Exit condition:
-
-Common repetitive categorization/cleanup can be automated without ML.
+Delivered:
+- Separation of raw transaction text (`description`) and clean merchant payee (`merchant`).
+- Idempotent migration helper `migrate_merchant_state` adding `merchant` and `is_merchant_overridden` with deterministic backfill.
+- Pure domain engine / payee policy (`backend/domain/merchant_normalization.py:normalize_merchant`).
+- Explicit user payee correction flag (`is_merchant_overridden = True`) preserving user overrides against raw description edits.
 
 ---
 
-# Phase 10 — ML categorization
+# Phase 9 — Categorization rules [COMPLETE]
 
-Deliver:
+**Status:** Complete (Commit `62b870d`)
 
-- dataset extraction;
-- baseline;
-- training/evaluation pipeline;
-- confidence calibration;
-- transaction category suggestions;
-- abstention;
-- correction feedback.
-
-Exit condition:
-
-ML demonstrably improves on deterministic baselines without creating unacceptable silent errors.
+Delivered:
+- Deterministic merchant-to-category rules model (`CategorizationRule`) with canonical identity index on `LOWER(TRIM(merchant))`.
+- Pure domain utility (`backend/domain/categorization_rules.py`) and manager (`categorization_rule_manager.py`).
+- Management and batch execution router (`backend/routers/rules.py`): create, list, update, delete, preview matches, apply retroactively.
+- Rules management view in `frontend/app/pages/settings.vue`.
+- Automatic evaluation on manual transaction creation, CSV import, and Plaid sync for uncategorized rows (`category_id IS NULL`). Existing categories and split transactions are never overwritten.
 
 ---
 
-# Phase 11 — Recurring items
+# Phase 10 — ML categorization [COMPLETE]
 
-Deliver:
+**Status:** Complete (Commit `4d4fe24`)
 
-- recurring definition;
-- expected schedule;
-- imported transaction matching;
-- upcoming/missing status.
-
-Exit condition:
-
-Recurring obligations can be tracked without manual monthly reconstruction.
-
----
-
-# Phase 12 — Split transactions
-
-Deliver:
-
-- split editing;
-- multiple category allocation;
-- budget integration;
-- correct reporting.
+Delivered:
+- Local supervised text classifier pipeline: Scikit-learn character n-gram TF-IDF (`char_wb`, range 3–5) + Logistic Regression (`class_weight='balanced'`).
+- Pure domain engine (`backend/domain/ml_categorization.py`) and workflow manager (`ml_categorization_manager.py`).
+- Baseline frequency comparison (`MerchantFrequencyBaseline`) evaluated on holdout splits.
+- Deployment quality gates: minimum 10 examples, 2 categories, $> 0$ accuracy and coverage, $\ge 50\%$ surfaced precision, maximum 15 percentage point drop from active benchmark.
+- Suggestion threshold (`0.30` confidence): abstains when confidence is below threshold; does not silently categorize.
+- Strict precedence: User explicit category > Deterministic rule > ML suggestion > Uncategorized.
+- Supervised provenance tracking (`category_source IN ('manual', 'ml', 'legacy')`), excluding rule-applied and unconfirmed predictions.
+- On-demand synchronous retraining with revision tracking (`RETRAIN_THRESHOLD = 10`), candidate evaluation, and POSIX atomic artifact replacement (`os.replace`).
+- Suggestion and acceptance endpoints in `backend/routers/transactions.py` and status/retrain endpoints in `backend/routers/ml.py`.
 
 ---
 
-# Phase 13 — Financial depth
+# Phase 11 — Recurring items [COMPLETE]
 
-Prioritize based on actual usage:
+**Status:** Complete (Commit `cd21be1`)
+
+Delivered:
+- Pure recurrence domain engine (`backend/domain/recurring_transactions.py`) detecting repeating patterns across `(account_id, clean_merchant_key, direction)`.
+- Supported cadences: `weekly` (5–9 days, avg 6.0–8.0), `biweekly` (11–17 days, avg 12.5–15.5), `monthly` (month_diff == 1, 26–35 days, <=4 days or month-end), `annual` (month_diff == 12, 355–375 days, <=5 days or month-end).
+- Minimum evidence threshold: at least 3 occurrences (2 valid intervals).
+- Amount stability evaluation on absolute magnitudes: `fixed` (within $0.05) or conservative `variable` (max/min $\le 2.5$, $CV \le 0.35$).
+- Eligibility filtering: posted transactions (`pending == False`), non-transfer (`is_transfer == False`), dated on or before today, non-zero amount, non-blank merchant.
+- Persistence model (`recurring_items` table) and manager (`recurring_transaction_manager.py`) with statuses: `detected`, `confirmed`, `dismissed`. Re-detection clears stale auto-detected series while preserving user confirmations and dismissals.
+- Informational projection (`next_expected_date`) without creating prospective transactions or altering balances.
+- UI panel in `frontend/app/pages/transactions.vue` for viewing, confirming, and dismissing recurring patterns.
+
+---
+
+# Phase 12 — Split transactions [COMPLETE]
+
+**Status:** Complete (Commit `b41c3d5`)
+
+Delivered:
+- Multi-category allocation model (`TransactionSplit`) governed by pure domain engine / invariant policy (`backend/domain/transaction_splits.py`) where parent Transaction remains the sole financial event:
+  $$\sum \text{split.amount} == \text{parent.amount}$$
+- Exact Decimal accounting, minimum 2 allocations, non-zero amounts, strict sign consistency with parent.
+- While split: `parent.category_id = NULL` and `parent.category_source = NULL`. Uncategorized semantics: transaction is uncategorized only if `category_id IS NULL AND ~has_splits`.
+- Category filtering includes parent matches and matching child splits without transaction duplication.
+- Budget actuals substitution: executed at the ResourceAccess boundary in `transaction_access.get_actuals_by_category` (unsplit transactions allocate parent amount to parent category; split transactions allocate each child split amount to its category); the Budget Engine receives already-aggregated category actual totals.
+- Balance independence: split rows never affect account balance, credit card debt, or reconciliation totals.
+- Rules & ML exclusion: split parents are excluded from deterministic rules and ML suggestions.
+- Reconciled transaction allocation: category allocations on reconciled transactions are permitted without mutating financial fields.
+- Plaid correction policies:
+  - Non-reconciled: provider amount updates deallocate/delete split allocations, reset parent category, and flag transaction for review.
+  - Reconciled: provider amount updates are blocked from mutating reconciled financial history, conflict is recorded (`plaid_reconciliation_conflict_amount`, `plaid_reconciliation_conflict_at`), and warning is returned in sync response.
+- Split editor modal and unsplit workflow in `frontend/app/pages/transactions.vue`.
+
+---
+
+# Phase 13 — Financial depth [Candidate Roadmap]
+
+Prioritize based on actual personal usage:
 
 ```text
-Goals
-Tags
-Net worth
-Reports / Insights
-Forecasting
+Goals               Sinking funds and target balance tracking
+Tags                Cross-category orthogonal transaction tagging
+Net worth           Aggregated asset minus debt tracking over time
+Reports / Insights  Historical spending trends, cash flow graphs, category comparisons
+Forecasting         Projections based on confirmed recurring items and budget plans
 ```
 
-Do not commit to implementing all of them.
+Do not commit to implementing all of them simultaneously; evaluate value from personal use.
 
 ---
 
@@ -1791,90 +1754,73 @@ If a screen cannot clearly answer its assigned questions, its design should be r
 
 # 27. Prioritization Summary
 
-## Must do next
+## Completed foundation and core capabilities (Phases 1–12)
 
 ```text
-1. Finalize planning documentation
-2. Frontend design foundation
-3. Budget/Categories redesign
-4. Dashboard redesign
-5. Transactions UX foundation
-6. Accounts/Credit Cards consolidation
+Phase 1   Frontend design foundation             COMPLETE
+Phase 2   Budget / Categories redesign           COMPLETE
+Phase 3   Dashboard redesign                     COMPLETE
+Phase 4   Transactions UX foundation             COMPLETE
+Phase 5   Accounts consolidation                 COMPLETE
+Phase 6   Transaction Review + Transfers         COMPLETE
+Phase 7   Account Reconciliation                 COMPLETE
+Phase 8   Merchant Normalization                 COMPLETE
+Phase 9   Categorization Rules                   COMPLETE
+Phase 10  ML Categorization                      COMPLETE
+Phase 11  Recurring Transactions                 COMPLETE
+Phase 12  Split Transactions                     COMPLETE
 ```
 
-## High-value next capabilities
+## Candidate Phase 13 — Financial depth
 
 ```text
-7. Transaction review state
-8. Transfer review
-9. Account reconciliation
-10. Merchant normalization
-11. Rules
+1. Goals               Sinking funds and target balance tracking
+2. Tags                Orthogonal cross-category transaction tagging
+3. Net worth           Aggregated asset minus debt tracking over time
+4. Reports / analytics Historical spending trends, category graphs, cash flow
+5. Forecasting         Projections based on confirmed recurring items and budget plans
 ```
 
-## Intelligence
-
-```text
-12. ML categorization
-```
-
-## Mature budgeting features
-
-```text
-13. Recurring transactions
-14. Split transactions
-15. Goals
-16. Tags
-17. Net worth
-18. Reports / analytics
-19. Forecasting
-```
-
-The order beyond the foundation should remain responsive to actual use.
+The order beyond Phase 12 should remain responsive to actual personal use.
 
 ---
 
 # 28. Decision Register
 
-### Accepted direction
+### Accepted and implemented direction (Phases 1–12)
 
-- CSV-first workflow remains supported.
-- Redesign is driven by real-use friction.
-- Transactions is the primary transaction-management workspace.
-- Accounts should represent credit cards as accounts.
-- Transfer review belongs with Transactions rather than being owned by Credit Cards.
-- Starting balance should become setup/accounting metadata rather than primary account information.
-- Dashboard should emphasize balances, category spending, and actionable information.
-- Month navigation needs one consistent component.
-- Dialogs/forms need a shared interaction pattern.
-- Deterministic automation should precede ML.
-- ML should support confidence and abstention.
-- Reconciliation should become an Account workflow.
+- CSV-first workflow remains supported with format detection, column mapping, and deduplication.
+- Redesign is driven by real-use friction rather than speculative features.
+- Transactions is the primary transaction-management workspace (filters, search, review, split editor).
+- Accounts represents credit cards as accounts with credit debt and overpayment indicators.
+- Transfer review belongs with Transactions rather than Credit Cards (`is_transfer` toggle, transfer pairs).
+- Starting balance is setup/accounting metadata; depository current balance derives from ledger.
+- Dashboard emphasizes liquid cash, credit debt, category spending, recent transactions, and actionable alerts.
+- Month navigation uses a unified component (`MonthNavigator.vue`).
+- Dialogs/forms follow a shared interaction pattern (`AppDialog.vue`).
+- Account reconciliation is a first-class Account workflow (`cleared`, `reconciled`, history tracking).
+- Raw transaction descriptions are preserved; normalized merchants are derived and user-overridable.
+- Deterministic rules precede ML suggestions and operate with precedence: Explicit > Rule > ML > Uncategorized.
+- ML category suggestions are suggestion-only, synchronous, with confidence threshold (0.30) and quality gates.
+- Recurring transactions are pattern-detected (`detected`, `confirmed`, `dismissed`) without mutating ledger balances.
+- Split transactions maintain parent as sole financial event, allocate categories via child splits, and sum exactly.
+- Plaid corrections defer reconciled mutations to conflict fields (`plaid_reconciliation_conflict_amount/at`).
 
-### Proposed direction requiring prototype validation
+### Candidate future direction (Phase 13+)
 
-- Remove Credit Cards from primary navigation after its useful responsibilities are migrated.
-- De-emphasize/remove planned-vs-actual total cards from Dashboard.
-- Persist secondary transaction filters for the working session.
-- Add Dashboard "Needs Attention" as supporting features become available.
+- Goals and sinking fund target tracking.
+- Orthogonal transaction tags.
+- Historical net worth tracking over time.
+- Historical reporting and cash flow analytics.
+- Forecasting using recurring items and budget allocations.
 
-### Domain investigation required
+### Domain investigation & unresolved items
 
-- explicit Transaction type;
-- transfer matching semantics;
-- credit-card balance/future-date semantics;
-- review-state semantics;
-- reconciliation state semantics.
-
-### Intentionally later
-
-- recurring items;
-- transaction splits;
-- tags;
-- savings goals;
-- net worth;
-- reports;
-- forecasting.
+- Explicit transaction type (Income vs Expense vs Transfer semantic enum).
+- Persistent transfer foreign key linkage (current logic is greedy date/amount pair matching).
+- Credit card balance edge cases (future-dated transactions included in balance owed).
+- Stored Plaid token encryption migration (current implementation uses base64 placeholder).
+- Deferred reconciled Plaid transaction conflict resolution workflow.
 
 ---
 

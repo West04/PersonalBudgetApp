@@ -182,4 +182,4 @@ For bank formats bundled natively with the app:
 1. Subclass `BankStatementLoader` in [`backend/bank_statement_loader.py`](file:///Users/west/programming_stuff/budget_app/backend/bank_statement_loader.py).
 2. Define `column_map` and implement `transform_row()`.
 3. Register the class in `LOADER_REGISTRY` and define corresponding `CSVFormatMatchDefinition`.
-4. Run regression tests with `python3 -m pytest tests/test_bank_statement_loader.py`.
+4. Run regression tests with `python3 -m pytest tests/test_unit_csv_parsing.py`.

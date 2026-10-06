@@ -11,8 +11,12 @@ erDiagram
     CATEGORY_GROUPS ||--o{ CATEGORIES : "contains (1:N)"
     CATEGORIES ||--o{ BUDGETS : "planned for (1:N)"
     CATEGORIES ||--o{ TRANSACTIONS : "assigned to (1:N)"
+    CATEGORIES ||--o{ TRANSACTION_SPLITS : "allocated to (1:N)"
+    CATEGORIES ||--o{ CATEGORIZATION_RULES : "targets (1:N)"
     PLAID_ITEMS ||--o{ ACCOUNTS : "links (1:N)"
     ACCOUNTS ||--o{ TRANSACTIONS : "holds (1:N)"
+    ACCOUNTS ||--o{ RECURRING_ITEMS : "observes (1:N)"
+    TRANSACTIONS ||--o{ TRANSACTION_SPLITS : "splits into (1:N)"
 
     CATEGORY_GROUPS {
         UUID category_group_id PK
@@ -57,6 +61,8 @@ erDiagram
         DECIMAL starting_balance "DECIMAL(12,2) seed for CSV"
         VARCHAR currency "Default USD"
         TIMESTAMP balance_last_updated "TZ aware"
+        DATE last_reconciled_date "Nullable date"
+        DECIMAL last_reconciled_balance "DECIMAL(12,2) nullable"
         BOOLEAN is_active "Default true"
     }
 
@@ -65,12 +71,66 @@ erDiagram
         VARCHAR plaid_transaction_id UK "Nullable unique index"
         UUID account_id FK "Must exist in ACCOUNTS"
         UUID category_id FK "Nullable, SET NULL on delete"
-        TEXT description "Merchant / note"
+        TEXT description "Raw institution narrative"
+        VARCHAR merchant "Normalized merchant"
+        BOOLEAN is_merchant_overridden "Default false"
         DECIMAL amount "DECIMAL(10,2) Positive=outflow, Negative=inflow"
         DATE date "Transaction date"
         TIMESTAMP datetime "Optional timestamp"
         BOOLEAN pending "Default false"
         BOOLEAN is_transfer "Default false"
+        BOOLEAN is_reviewed "Default false"
+        BOOLEAN is_cleared "Default false"
+        BOOLEAN is_reconciled "Default false"
+        VARCHAR category_source "manual | rule | ml | legacy"
+        DECIMAL plaid_reconciliation_conflict_amount "Nullable"
+        TIMESTAMP plaid_reconciliation_conflict_at "Nullable"
+    }
+
+    TRANSACTION_SPLITS {
+        UUID id PK
+        UUID transaction_id FK "CASCADE delete"
+        UUID category_id FK "RESTRICT delete"
+        DECIMAL amount "DECIMAL(10,2)"
+        TIMESTAMP created_at "Server now"
+    }
+
+    CATEGORIZATION_RULES {
+        UUID id PK
+        VARCHAR merchant "Clean merchant key"
+        UUID category_id FK "CASCADE delete"
+        TIMESTAMP created_at "Server now"
+        TIMESTAMP updated_at "Server now"
+    }
+
+    ML_MODEL_METADATA {
+        INTEGER id PK "Default 1"
+        INTEGER current_training_revision "Default 0"
+        INTEGER trained_revision "Default 0"
+        TIMESTAMP trained_at "TZ aware"
+        INTEGER training_example_count "Default 0"
+        BOOLEAN model_available "Default false"
+        DECIMAL accuracy "DECIMAL(5,4)"
+        DECIMAL macro_f1 "DECIMAL(5,4)"
+        DECIMAL top2_accuracy "DECIMAL(5,4)"
+        DECIMAL coverage "DECIMAL(5,4)"
+        VARCHAR status_message "Status notes"
+    }
+
+    RECURRING_ITEMS {
+        UUID id PK
+        UUID account_id FK "CASCADE delete"
+        VARCHAR merchant "Normalized display merchant"
+        VARCHAR direction "outflow | inflow"
+        VARCHAR cadence "weekly | biweekly | monthly | annual"
+        VARCHAR amount_type "fixed | variable"
+        DECIMAL expected_amount "DECIMAL(10,2)"
+        VARCHAR status "detected | confirmed | dismissed"
+        DATE last_date "Most recent date"
+        DATE next_expected_date "Informational projection"
+        INTEGER occurrence_count "Total count"
+        TIMESTAMP created_at "Server now"
+        TIMESTAMP updated_at "Server now"
     }
 
     CSV_FORMATS {
@@ -126,6 +186,8 @@ Individual sub-categories (e.g. "Groceries", "Rent/Mortgage", "Paycheck").
 - `group`: Back-populates `CategoryGroup.categories`.
 - `budgets`: One-to-many with `Budget` (`cascade="all, delete-orphan"`).
 - `transactions`: One-to-many with `Transaction`. Deleting a category sets `Transaction.category_id` to `NULL`.
+- `splits`: One-to-many with `TransactionSplit`. Deleting a category is restricted (`ON DELETE RESTRICT`).
+- `categorization_rules`: One-to-many with `CategorizationRule` (`cascade="all, delete-orphan"`).
 
 ---
 
@@ -157,11 +219,13 @@ Financial accounts (checking, savings, credit cards, manual accounts, Plaid-link
 | `mask` | VARCHAR | Yes | - | Last 4 digits (e.g. "4921") |
 | `type` | VARCHAR | No | - | Standardized type: `depository`, `credit`, `investment`, `loan`, `other` |
 | `subtype` | VARCHAR | Yes | - | Detailed subtype: `checking`, `savings`, `credit card`, `mortgage`, etc. |
-| `current_balance` | DECIMAL(12,2) | No | `0.00` | Current balance |
+| `current_balance` | DECIMAL(12,2) | No | `0.00` | Ledger-derived depository current balance or Plaid remote balance |
 | `available_balance` | DECIMAL(12,2) | Yes | - | Available balance (if reported by Plaid) |
 | `starting_balance` | DECIMAL(12,2) | No | `0.00` | Baseline opening balance (used for manual accounts & credit cards) |
 | `currency` | VARCHAR | No | `'USD'` | ISO currency code |
 | `balance_last_updated` | TIMESTAMP(TZ) | Yes | - | Timestamp of last balance refresh |
+| `last_reconciled_date` | DATE | Yes | - | Date of most recently completed account reconciliation |
+| `last_reconciled_balance` | DECIMAL(12,2) | Yes | - | Target statement balance from last reconciliation |
 | `is_active` | BOOLEAN | No | `True` | Active status flag |
 
 ---
@@ -175,28 +239,111 @@ Financial ledger records imported via Plaid or CSV.
 | `plaid_transaction_id`| VARCHAR | Yes | - | Unique Plaid transaction identifier |
 | `account_id` | UUID | No | - | Foreign key &rarr; `accounts.id` |
 | `category_id` | UUID | Yes | - | Foreign key &rarr; `categories.category_id` (`ON DELETE SET NULL`) |
-| `description` | TEXT | Yes | - | Merchant or transaction description |
+| `description` | TEXT | Yes | - | Raw bank narrative |
+| `merchant` | VARCHAR | Yes | - | Clean, normalized merchant name |
+| `is_merchant_overridden` | BOOLEAN | No | `False` | True if merchant name was manually edited |
 | `amount` | DECIMAL(10,2) | No | - | **Positive = outflow / debit; Negative = inflow / credit** |
 | `date` | DATE | No | - | Posted transaction date |
 | `datetime` | TIMESTAMP(TZ) | Yes | - | Exact timestamp if provided |
 | `pending` | BOOLEAN | No | `False` | True if transaction is still pending |
 | `is_transfer` | BOOLEAN | No | `False` | True if marked as an inter-account transfer |
+| `is_reviewed` | BOOLEAN | No | `False` | True if user reviewed and approved transaction |
+| `is_cleared` | BOOLEAN | No | `False` | True if transaction cleared bank statement |
+| `is_reconciled` | BOOLEAN | No | `False` | True if transaction is locked by account reconciliation |
+| `category_source` | VARCHAR(20) | Yes | - | `'manual'`, `'rule'`, `'ml'`, or `'legacy'` |
+| `plaid_reconciliation_conflict_amount` | DECIMAL(10,2) | Yes | - | Discrepancy amount reported by Plaid on reconciled transaction |
+| `plaid_reconciliation_conflict_at` | TIMESTAMP | Yes | - | Timestamp when Plaid conflict was recorded |
 
 ---
 
-### 2.6 `plaid_items`
+### 2.6 `transaction_splits`
+Category allocation lines for split transactions. One parent `Transaction` remains the sole financial event.
+
+| Column | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | UUID | No | `uuid.uuid4()` | Primary key |
+| `transaction_id` | UUID | No | - | Foreign key &rarr; `transactions.transaction_id` (`ON DELETE CASCADE`) |
+| `category_id` | UUID | No | - | Foreign key &rarr; `categories.category_id` (`ON DELETE RESTRICT`) |
+| `amount` | DECIMAL(10,2) | No | - | Category portion (must sum exactly to parent transaction amount) |
+| `created_at` | TIMESTAMP | No | `func.now()` | Creation timestamp |
+
+**Constraints:**
+- `uq_transaction_splits_tx_cat`: `UNIQUE(transaction_id, category_id)`
+
+---
+
+### 2.7 `categorization_rules`
+Deterministic merchant-to-category matching rules.
+
+| Column | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | UUID | No | `uuid.uuid4()` | Primary key |
+| `merchant` | VARCHAR | No | - | Target merchant matching string |
+| `category_id` | UUID | No | - | Foreign key &rarr; `categories.category_id` (`ON DELETE CASCADE`) |
+| `created_at` | TIMESTAMP | No | `func.now()` | Creation timestamp |
+| `updated_at` | TIMESTAMP | No | `func.now()` | Last update timestamp |
+
+**Constraints & Indexes:**
+- `uq_categorization_rules_merchant_canonical`: `UNIQUE INDEX (lower(trim(merchant)))`
+
+---
+
+### 2.8 `ml_model_metadata`
+Local machine learning model training state, revisions, and quality metrics.
+
+| Column | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | INTEGER | No | `1` | Singleton primary key |
+| `current_training_revision` | INTEGER | No | `0` | Incremented when user confirms/updates categories |
+| `trained_revision` | INTEGER | No | `0` | Revision watermark of active deployed model |
+| `trained_at` | TIMESTAMP(TZ) | Yes | - | Timestamp when model was trained |
+| `training_example_count` | INTEGER | No | `0` | Count of supervised examples in training set |
+| `model_available` | BOOLEAN | No | `False` | True if model artifact is serialized on disk |
+| `accuracy` | DECIMAL(5,4) | Yes | - | Test accuracy score |
+| `macro_f1` | DECIMAL(5,4) | Yes | - | Macro F1 score |
+| `top2_accuracy` | DECIMAL(5,4) | Yes | - | Top-2 accuracy score |
+| `coverage` | DECIMAL(5,4) | Yes | - | Proportion of suggestions meeting threshold |
+| `status_message` | VARCHAR | Yes | - | Human-readable training status or error message |
+
+---
+
+### 2.9 `recurring_items`
+Pattern-detected repeating transactions across accounts.
+
+| Column | Type | Nullable | Default | Description |
+|---|---|---|---|---|
+| `id` | UUID | No | `uuid.uuid4()` | Primary key |
+| `account_id` | UUID | No | - | Foreign key &rarr; `accounts.id` (`ON DELETE CASCADE`) |
+| `merchant` | VARCHAR | No | - | Normalized display merchant name |
+| `direction` | VARCHAR(10) | No | - | `'outflow'` or `'inflow'` |
+| `cadence` | VARCHAR(20) | No | - | `'weekly'`, `'biweekly'`, `'monthly'`, `'annual'` |
+| `amount_type` | VARCHAR(20) | No | `'fixed'` | `'fixed'` or `'variable'` |
+| `expected_amount` | DECIMAL(10,2) | No | - | Mean or representative expected transaction amount |
+| `status` | VARCHAR(20) | No | `'detected'` | `'detected'`, `'confirmed'`, `'dismissed'` |
+| `last_date` | DATE | No | - | Date of most recent occurrence |
+| `next_expected_date` | DATE | Yes | - | Projected next occurrence date |
+| `occurrence_count` | INTEGER | No | `0` | Number of observed historical occurrences |
+| `created_at` | TIMESTAMP | No | `func.now()` | Creation timestamp |
+| `updated_at` | TIMESTAMP | No | `func.now()` | Last update timestamp |
+
+**Constraints & Indexes:**
+- `uq_recurring_items_identity`: `UNIQUE INDEX (account_id, lower(trim(merchant)), direction, cadence)`
+
+---
+
+### 2.10 `plaid_items`
 Represents an authorized bank connection via Plaid.
 
 | Column | Type | Nullable | Default | Description |
 |---|---|---|---|---|
 | `id` | UUID | No | `uuid.uuid4()` | Internal UUID primary key |
 | `plaid_item_id` | VARCHAR | No | - | Unique Plaid Item identifier |
-| `plaid_access_token_encrypted` | VARCHAR | No | - | Encrypted access token |
+| `plaid_access_token_encrypted` | VARCHAR | No | - | Encrypted access token (base64 placeholder) |
 | `transactions_cursor` | VARCHAR | Yes | - | Plaid sync cursor for incremental updates |
 
 ---
 
-### 2.7 `csv_formats`
+### 2.11 `csv_formats`
 Represents persisted custom bank statement configurations for dynamic CSV import mapping.
 
 | Column | Type | Nullable | Default | Description |
@@ -209,55 +356,32 @@ Represents persisted custom bank statement configurations for dynamic CSV import
 | `status_column` | VARCHAR(100) | Yes | `None` | Optional CSV column containing transaction status |
 | `date_format` | VARCHAR(50) | No | - | `strptime` format string (e.g. `%m/%d/%Y`, `%Y-%m-%d`) |
 | `amount_sign_convention` | VARCHAR(30) | No | - | `'positive_is_outflow'` or `'positive_is_inflow'` |
-| `status_posted_value` | VARCHAR(50) | Yes | `None` | Status token indicating posted status. Canonicalized rules: `None` if `status_column` is absent (`None`); defaults to `"posted"` if `status_column` is present and token is omitted/blank; trimmed and lowercased if custom token is supplied (e.g. `"  CLEARED  "` &rarr; `"cleared"`). |
+| `status_posted_value` | VARCHAR(50) | Yes | `None` | Status token indicating posted status |
 | `created_at` | TIMESTAMP | No | `func.now()` | Creation timestamp |
 
 **Constraints & Indexes:**
-- `uq_csv_formats_name_lower`: `UNIQUE INDEX (lower(name))` (Format names are case-insensitively unique).
-- `chk_csv_formats_amount_sign_convention`: `CHECK (amount_sign_convention IN ('positive_is_outflow', 'positive_is_inflow'))`.
+- `uq_csv_formats_name_lower`: `UNIQUE INDEX (lower(name))`
+- `chk_csv_formats_amount_sign_convention`: `CHECK (amount_sign_convention IN ('positive_is_outflow', 'positive_is_inflow'))`
 
 ---
 
 ## 3. Precision & Decimal Handling
 
-All monetary amounts in the backend and database use fixed-point decimals rather than floating-point numbers:
-- `Budget.planned_amount`: `DECIMAL(10, 2)` (supports up to \$99,999,999.99)
+All monetary amounts use fixed-point decimals:
+- `Budget.planned_amount`: `DECIMAL(10, 2)`
 - `Transaction.amount`: `DECIMAL(10, 2)`
-- `Account.*_balance`: `DECIMAL(12, 2)` (supports up to \$9,999,999,999.99)
+- `TransactionSplit.amount`: `DECIMAL(10, 2)`
+- `RecurringItem.expected_amount`: `DECIMAL(10, 2)`
+- `Account.*_balance`: `DECIMAL(12, 2)`
 - Pydantic validation enforces `condecimal(max_digits=10, decimal_places=2)` to prevent floating-point rounding errors.
 
 ---
 
 ## 4. Default Seed Data
 
-On startup, [`backend/main.py`](file:///Users/west/programming_stuff/budget_app/backend/main.py) calls `init_db(db)` in [`backend/initial_data.py`](file:///Users/west/programming_stuff/budget_app/backend/initial_data.py). If they do not already exist, the following baseline categories are created:
-
-1. **Income** (`sort_order: 0`)
-   - `Paycheck` (`income`, `0`)
-   - `Bonus` (`income`, `1`)
-   - `Interest` (`income`, `2`)
-2. **Saving** (`sort_order: 0`)
-   - `House Fund` (`expense`, `0`)
-3. **Housing** (`sort_order: 1`)
-   - `Rent/Mortgage` (`expense`, `0`)
-   - `Utilities` (`expense`, `1`)
-   - `Maintenance` (`expense`, `2`)
-4. **Food** (`sort_order: 2`)
-   - `Groceries` (`expense`, `0`)
-   - `Restaurants` (`expense`, `1`)
-5. **Transportation** (`sort_order: 3`)
-   - `Fuel` (`expense`, `0`)
-   - `Public Transit` (`expense`, `1`)
-   - `Service/Parts` (`expense`, `2`)
-
----
-
-## 5. Schema Migrations Strategy
-
-Tables are currently provisioned automatically on startup via:
-```python
-models.Base.metadata.create_all(bind=engine)
-```
-When modifying models in [`backend/models.py`](file:///Users/west/programming_stuff/budget_app/backend/models.py):
-- New tables are automatically created on the next startup.
-- Column modifications on existing tables require either manual `ALTER TABLE` execution via `psql` or an Alembic migration setup.
+On startup, [`backend/main.py`](file:///Users/west/programming_stuff/budget_app/backend/main.py) calls `init_db(db)` in [`backend/initial_data.py`](file:///Users/west/programming_stuff/budget_app/backend/initial_data.py):
+1. **Income** (`sort_order: 0`): `Paycheck`, `Bonus`, `Interest`
+2. **Saving** (`sort_order: 0`): `House Fund`
+3. **Housing** (`sort_order: 1`): `Rent/Mortgage`, `Utilities`, `Maintenance`
+4. **Food** (`sort_order: 2`): `Groceries`, `Restaurants`
+5. **Transportation** (`sort_order: 3`): `Fuel`, `Public Transit`
