@@ -412,6 +412,11 @@ def test_transfer_candidates_response_contract_and_enrichment(client, db_session
         "is_merchant_overridden",
         "category_source",
         "account",
+        "is_split",
+        "split_count",
+        "splits",
+        "plaid_reconciliation_conflict_amount",
+        "plaid_reconciliation_conflict_at",
     }
     assert set(outflow.keys()) == expected_outflow_keys
     assert outflow["transaction_id"] == str(tx_out.transaction_id)

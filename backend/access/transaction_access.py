@@ -3,17 +3,22 @@ Resource access functions for Transaction PostgreSQL resources.
 """
 
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from .. import models
 
 ZERO = Decimal("0.00")
 DASHBOARD_RECENT_TRANSACTIONS_LIMIT = 10
+
+
+class PlaidReconciliationConflictError(ValueError):
+    """Raised when an incoming Plaid amount update conflicts with an already-reconciled transaction."""
+    pass
 
 
 def get_actuals_by_category(
@@ -23,9 +28,16 @@ def get_actuals_by_category(
 ) -> dict[UUID, Decimal]:
     """
     Aggregates transaction amount sums grouped by category_id for transactions
-    within [start_date, end_date), ignoring uncategorized transactions.
+    within [start_date, end_date).
+    - Unsplit transactions: parent amount contributes to parent.category_id.
+    - Split transactions: each TransactionSplit amount contributes to its category_id.
+    Uncategorized transactions contribute zero.
     """
-    trx_stats = (
+    has_splits_subq = db.query(models.TransactionSplit.id).filter(
+        models.TransactionSplit.transaction_id == models.Transaction.transaction_id
+    ).exists()
+
+    unsplit_stats = (
         db.query(
             models.Transaction.category_id,
             func.sum(models.Transaction.amount).label("total"),
@@ -34,11 +46,39 @@ def get_actuals_by_category(
             models.Transaction.date >= start_date,
             models.Transaction.date < end_date,
             models.Transaction.category_id.isnot(None),
+            ~has_splits_subq,
         )
         .group_by(models.Transaction.category_id)
         .all()
     )
-    return {t.category_id: (t.total or ZERO) for t in trx_stats}
+
+    split_stats = (
+        db.query(
+            models.TransactionSplit.category_id,
+            func.sum(models.TransactionSplit.amount).label("total"),
+        )
+        .join(
+            models.Transaction,
+            models.Transaction.transaction_id == models.TransactionSplit.transaction_id,
+        )
+        .filter(
+            models.Transaction.date >= start_date,
+            models.Transaction.date < end_date,
+        )
+        .group_by(models.TransactionSplit.category_id)
+        .all()
+    )
+
+    actuals: dict[UUID, Decimal] = {}
+    for row in unsplit_stats:
+        cat_id = row.category_id
+        actuals[cat_id] = actuals.get(cat_id, ZERO) + Decimal(str(row.total or ZERO))
+
+    for row in split_stats:
+        cat_id = row.category_id
+        actuals[cat_id] = actuals.get(cat_id, ZERO) + Decimal(str(row.total or ZERO))
+
+    return actuals
 
 
 def get_recent_transactions_for_month(
@@ -52,7 +92,10 @@ def get_recent_transactions_for_month(
     """
     return (
         db.query(models.Transaction)
-        .options(joinedload(models.Transaction.account))
+        .options(
+            joinedload(models.Transaction.account),
+            selectinload(models.Transaction.splits).joinedload(models.TransactionSplit.category),
+        )
         .filter(
             models.Transaction.date >= start_date,
             models.Transaction.date < end_date,
@@ -83,14 +126,19 @@ def get_unmatched_inflow_transactions(
 ) -> Sequence[models.Transaction]:
     """
     Retrieves all unmatched negative transactions (amount < 0, is_transfer == False)
-    across all accounts, preserving current query shape and introducing no explicit ordering.
+    across all accounts, excluding split transactions, preserving current query shape
+    and introducing no explicit ordering.
     """
+    has_splits_subq = db.query(models.TransactionSplit.id).filter(
+        models.TransactionSplit.transaction_id == models.Transaction.transaction_id
+    ).exists()
     return (
         db.query(models.Transaction)
         .join(models.Account, models.Account.id == models.Transaction.account_id)
         .filter(
             models.Transaction.amount < 0,
             models.Transaction.is_transfer == False,
+            ~has_splits_subq,
         )
         .all()
     )
@@ -101,14 +149,19 @@ def get_unmatched_outflow_transactions(
 ) -> Sequence[models.Transaction]:
     """
     Retrieves all unmatched positive transactions (amount > 0, is_transfer == False)
-    across all accounts, preserving current query shape and introducing no explicit ordering.
+    across all accounts, excluding split transactions, preserving current query shape
+    and introducing no explicit ordering.
     """
+    has_splits_subq = db.query(models.TransactionSplit.id).filter(
+        models.TransactionSplit.transaction_id == models.Transaction.transaction_id
+    ).exists()
     return (
         db.query(models.Transaction)
         .join(models.Account, models.Account.id == models.Transaction.account_id)
         .filter(
             models.Transaction.amount > 0,
             models.Transaction.is_transfer == False,
+            ~has_splits_subq,
         )
         .all()
     )
@@ -287,6 +340,34 @@ def stage_or_update_plaid_transaction(
         db.add(txn)
         return txn
 
+    # Check if existing transaction is reconciled and provider amount differs
+    if getattr(txn, "is_reconciled", False) is True:
+        if isinstance(txn.amount, (Decimal, int, float, str)) and Decimal(str(amount)) != Decimal(str(txn.amount)):
+            txn.plaid_reconciliation_conflict_amount = amount
+            txn.plaid_reconciliation_conflict_at = datetime.now(timezone.utc)
+            db.add(txn)
+            raise PlaidReconciliationConflictError(
+                f"Cannot modify amount of reconciled transaction {txn.transaction_id} from {txn.amount} to {amount} via provider sync: "
+                "authoritative Plaid amount change on a reconciled transaction requires a reconciliation-history policy."
+            )
+        elif Decimal(str(amount)) == Decimal(str(txn.amount)):
+            txn.plaid_reconciliation_conflict_amount = None
+            txn.plaid_reconciliation_conflict_at = None
+
+    is_split_tx = False
+    if txn.transaction_id is not None and isinstance(txn.transaction_id, UUID):
+        from . import split_access
+        is_split_tx = split_access.transaction_has_splits(db, txn.transaction_id)
+        if is_split_tx and isinstance(txn.amount, (Decimal, int, float, str)):
+            if Decimal(str(amount)) != Decimal(str(txn.amount)):
+                # Ledger-first policy for non-reconciled split transactions:
+                # Atomically invalidate splits, clear category fields, and flag for review.
+                split_access.stage_delete_splits(db, txn.transaction_id)
+                db.expire(txn, ["splits"])
+                txn.category_id = None
+                txn.category_source = None
+                txn.is_reviewed = False
+
     txn.description = description
     if not getattr(txn, "is_merchant_overridden", False):
         txn.merchant = resolved_merchant
@@ -296,7 +377,7 @@ def stage_or_update_plaid_transaction(
     txn.pending = pending
 
     # If the transaction is currently uncategorized and merchant matches a rule, assign it
-    if txn.category_id is None and txn.merchant:
+    if not is_split_tx and txn.category_id is None and txn.merchant:
         if rules_lookup is not None:
             clean_key = clean_merchant_key(txn.merchant)
             if clean_key and clean_key in rules_lookup:
@@ -334,12 +415,16 @@ def get_transaction_by_id(
     transaction_id: UUID,
 ) -> Optional[models.Transaction]:
     """
-    Retrieves a single transaction by primary key UUID with associated account eagerly loaded.
+    Retrieves a single transaction by primary key UUID with associated account
+    and split allocations eagerly loaded.
     Does not commit or refresh.
     """
     return (
         db.query(models.Transaction)
-        .options(joinedload(models.Transaction.account))
+        .options(
+            joinedload(models.Transaction.account),
+            selectinload(models.Transaction.splits).joinedload(models.TransactionSplit.category),
+        )
         .filter(models.Transaction.transaction_id == transaction_id)
         .first()
     )
@@ -360,22 +445,40 @@ def list_transactions(
     """
     Lists transactions with optional filters for account, category,
     date range, uncategorized status, review status, and description search text.
-    Preserves eager-loaded account, total count before pagination,
+    Preserves eager-loaded account and splits, total count before pagination,
     ordering by date DESC then transaction_id DESC, and pagination offset/limit.
     Does not commit or refresh.
     """
-    query = db.query(models.Transaction).options(joinedload(models.Transaction.account))
+    query = db.query(models.Transaction).options(
+        joinedload(models.Transaction.account),
+        selectinload(models.Transaction.splits).joinedload(models.TransactionSplit.category),
+    )
 
     if account_id is not None:
         query = query.filter(models.Transaction.account_id == account_id)
     if category_id is not None:
-        query = query.filter(models.Transaction.category_id == category_id)
+        split_exists = db.query(models.TransactionSplit.id).filter(
+            models.TransactionSplit.transaction_id == models.Transaction.transaction_id,
+            models.TransactionSplit.category_id == category_id,
+        ).exists()
+        query = query.filter(
+            or_(
+                models.Transaction.category_id == category_id,
+                split_exists,
+            )
+        )
     if start_date is not None:
         query = query.filter(models.Transaction.date >= start_date)
     if end_date is not None:
         query = query.filter(models.Transaction.date <= end_date)
     if uncategorized is True:
-        query = query.filter(models.Transaction.category_id == None)
+        has_splits = db.query(models.TransactionSplit.id).filter(
+            models.TransactionSplit.transaction_id == models.Transaction.transaction_id,
+        ).exists()
+        query = query.filter(
+            models.Transaction.category_id == None,
+            ~has_splits,
+        )
     if is_reviewed is True:
         query = query.filter(models.Transaction.is_reviewed == True)
     elif is_reviewed is False:
@@ -487,6 +590,18 @@ def update_manual_transaction(
     if transaction is None:
         return None
 
+    from . import split_access
+    is_split_tx = split_access.transaction_has_splits(db, transaction_id)
+
+    if is_split_tx:
+        if "amount" in update_data and update_data["amount"] is not None:
+            if Decimal(str(update_data["amount"])) != Decimal(str(transaction.amount)):
+                raise ValueError("Cannot modify amount of a split transaction. Remove or edit split allocations first.")
+        if "category_id" in update_data:
+            raise ValueError("Cannot directly assign a category to a split transaction. Use the unsplit workflow instead.")
+        if update_data.get("is_transfer") is True:
+            raise ValueError("Cannot mark a split transaction as a transfer.")
+
     if getattr(transaction, "is_reconciled", False) is True:
         prohibited_keys = {"amount", "date", "account_id"}
         for key in prohibited_keys:
@@ -530,7 +645,7 @@ def update_manual_transaction(
             setattr(transaction, key, value)
 
     # If uncategorized and category_id was not explicitly in update_data, check matching rule
-    if transaction.category_id is None and "category_id" not in update_data and transaction.merchant:
+    if not is_split_tx and transaction.category_id is None and "category_id" not in update_data and transaction.merchant:
         from . import categorization_rule_access
         rule = categorization_rule_access.get_rule_by_merchant(db, transaction.merchant)
         if rule:
@@ -573,9 +688,21 @@ def mark_transactions_as_transfers(
     """
     Marks transactions with IDs in transaction_ids as transfers (is_transfer = True).
     Executes a bulk update against models.Transaction with synchronize_session=False.
+    Guards against split transactions: raises ValueError if any transaction has split allocations.
     Owns the standalone CRUD transaction boundary by calling db.commit() unconditionally.
     Returns the count of updated rows.
     """
+    if not transaction_ids:
+        db.commit()
+        return 0
+
+    from . import split_access
+    split_exists = db.query(models.TransactionSplit.transaction_id).filter(
+        models.TransactionSplit.transaction_id.in_(transaction_ids)
+    ).first()
+    if split_exists:
+        raise ValueError("Cannot mark split transactions as transfers. Remove splits first.")
+
     updated_count = (
         db.query(models.Transaction)
         .filter(models.Transaction.transaction_id.in_(transaction_ids))
@@ -696,13 +823,18 @@ def count_uncategorized_transactions_by_merchant_key(
     clean_merchant_key: str,
 ) -> int:
     """
-    Counts uncategorized transactions (category_id IS NULL) whose merchant matches clean_merchant_key.
+    Counts uncategorized transactions (category_id IS NULL and no split allocations)
+    whose merchant matches clean_merchant_key.
     Read-only inspection query.
     """
+    has_splits_subq = db.query(models.TransactionSplit.id).filter(
+        models.TransactionSplit.transaction_id == models.Transaction.transaction_id
+    ).exists()
     return (
         db.query(models.Transaction)
         .filter(
             models.Transaction.category_id.is_(None),
+            ~has_splits_subq,
             models.Transaction.merchant.isnot(None),
             func.lower(func.trim(models.Transaction.merchant)) == clean_merchant_key,
         )
@@ -716,14 +848,19 @@ def apply_category_to_uncategorized_by_merchant_key(
     category_id: UUID,
 ) -> int:
     """
-    Finds and updates uncategorized transactions matching clean_merchant_key to target category_id.
+    Finds and updates uncategorized transactions (category_id IS NULL and no split allocations)
+    matching clean_merchant_key to target category_id.
     Flushes changes to the session without committing so the calling Manager owns the transaction boundary.
     Returns count of updated rows.
     """
+    has_splits_subq = db.query(models.TransactionSplit.id).filter(
+        models.TransactionSplit.transaction_id == models.Transaction.transaction_id
+    ).exists()
     matching_txs = (
         db.query(models.Transaction)
         .filter(
             models.Transaction.category_id.is_(None),
+            ~has_splits_subq,
             models.Transaction.merchant.isnot(None),
             func.lower(func.trim(models.Transaction.merchant)) == clean_merchant_key,
         )

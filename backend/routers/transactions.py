@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..access import transaction_access
 from ..database import get_db
-from ..managers import transfer_reconciliation_manager, ml_categorization_manager
+from ..managers import transfer_reconciliation_manager, ml_categorization_manager, transaction_split_manager
 
 router = APIRouter(
     prefix="/transactions",
@@ -128,7 +128,13 @@ def mark_transfers(
     """
     Marks a list of transactions as transfers (is_transfer = True).
     """
-    transaction_access.mark_transactions_as_transfers(db, payload.transaction_ids)
+    try:
+        transaction_access.mark_transactions_as_transfers(db, payload.transaction_ids)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
 
 @router.get("/{transaction_id}", response_model=schemas.TransactionRead)
@@ -330,3 +336,70 @@ def accept_category_suggestion(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=msg,
         )
+
+
+@router.get("/{transaction_id}/splits", response_model=List[schemas.TransactionSplitRead])
+def get_transaction_splits(
+    transaction_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """
+    Retrieves all split allocations for a specific transaction.
+    """
+    try:
+        return transaction_split_manager.get_transaction_splits(db, transaction_id)
+    except transaction_split_manager.TransactionNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+
+
+@router.put("/{transaction_id}/splits", response_model=schemas.TransactionRead)
+def set_transaction_splits(
+    transaction_id: UUID,
+    payload: schemas.SetTransactionSplitsRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Replaces all split allocations for a transaction atomically:
+    - Clears parent category_id and category_source
+    - Replaces child split allocations
+    - Enforces sum(split amounts) == parent.amount and sign invariants
+    """
+    try:
+        return transaction_split_manager.create_or_replace_split(
+            db=db,
+            transaction_id=transaction_id,
+            allocations=payload.splits,
+        )
+    except transaction_split_manager.TransactionNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    except (
+        transaction_split_manager.SplitValidationError,
+        transaction_split_manager.SplitTransactionPendingError,
+        transaction_split_manager.SplitTransactionTransferError,
+        ValueError,
+    ) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post("/{transaction_id}/unsplit", response_model=schemas.TransactionRead)
+def unsplit_transaction(
+    transaction_id: UUID,
+    payload: schemas.UnsplitTransactionRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Converts a split transaction back to a single category:
+    - Deletes all child split allocations
+    - Sets parent category_id to payload.category_id and category_source to 'manual'
+    - Advances ML training revision
+    """
+    try:
+        return transaction_split_manager.unsplit_transaction(
+            db=db,
+            transaction_id=transaction_id,
+            target_category_id=payload.category_id,
+        )
+    except transaction_split_manager.TransactionNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+    except (transaction_split_manager.SplitValidationError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))

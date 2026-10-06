@@ -5,6 +5,7 @@ cursor-based transaction pagination loop, legacy per-event persistence,
 and final cursor commitment.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -23,6 +24,8 @@ from ..access import (
 from ..domain.merchant_normalization import normalize_merchant
 from ..security import decrypt_token
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class PlaidTransactionSyncResult:
@@ -31,6 +34,7 @@ class PlaidTransactionSyncResult:
     modified: int
     removed: int
     next_cursor: str
+    warnings: tuple[str, ...] = ()
 
 
 class PlaidTransactionSyncMissingIdentifierError(Exception):
@@ -78,7 +82,7 @@ def _process_upsert_event(
     db: Session,
     tx_data: dict[str, Any],
     rules_lookup: Optional[dict[str, UUID]] = None,
-) -> None:
+) -> Optional[str]:
     remote_account_id = tx_data["account_id"]
     account = account_access.get_account_by_plaid_account_id(db, remote_account_id)
     if not account:
@@ -103,19 +107,25 @@ def _process_upsert_event(
         provider_merchant=provider_merchant,
     )
 
-    transaction_access.stage_or_update_plaid_transaction(
-        db=db,
-        plaid_transaction_id=tx_data["transaction_id"],
-        account_id=account.id,
-        description=tx_data["name"],
-        amount=amount_for_budget,
-        transaction_date=tx_date,
-        transaction_datetime=tx_datetime,
-        pending=tx_data["pending"],
-        merchant=normalized_merchant,
-        rules_lookup=rules_lookup,
-    )
-    db.commit()
+    try:
+        transaction_access.stage_or_update_plaid_transaction(
+            db=db,
+            plaid_transaction_id=tx_data["transaction_id"],
+            account_id=account.id,
+            description=tx_data["name"],
+            amount=amount_for_budget,
+            transaction_date=tx_date,
+            transaction_datetime=tx_datetime,
+            pending=tx_data["pending"],
+            merchant=normalized_merchant,
+            rules_lookup=rules_lookup,
+        )
+        db.commit()
+        return None
+    except transaction_access.PlaidReconciliationConflictError as exc:
+        db.commit()
+        logger.warning("Plaid sync reconciliation conflict on transaction %s: %s", tx_data["transaction_id"], exc)
+        return str(exc)
 
 
 def sync_plaid_transactions(
@@ -196,6 +206,7 @@ def sync_plaid_transactions(
     added_count = 0
     modified_count = 0
     removed_count = 0
+    warnings: list[str] = []
 
     while has_more:
         try:
@@ -217,12 +228,18 @@ def sync_plaid_transactions(
         cursor = page.next_cursor
 
         for tx_data in page.added:
-            _process_upsert_event(db, tx_data, rules_lookup=rules_lookup)
-            added_count += 1
+            conflict_msg = _process_upsert_event(db, tx_data, rules_lookup=rules_lookup)
+            if conflict_msg:
+                warnings.append(conflict_msg)
+            else:
+                added_count += 1
 
         for tx_data in page.modified:
-            _process_upsert_event(db, tx_data, rules_lookup=rules_lookup)
-            modified_count += 1
+            conflict_msg = _process_upsert_event(db, tx_data, rules_lookup=rules_lookup)
+            if conflict_msg:
+                warnings.append(conflict_msg)
+            else:
+                modified_count += 1
 
         for tx_data in page.removed:
             deleted = transaction_access.stage_delete_transaction_by_plaid_id(
@@ -249,4 +266,5 @@ def sync_plaid_transactions(
         modified=modified_count,
         removed=removed_count,
         next_cursor=cursor,
+        warnings=tuple(warnings),
     )

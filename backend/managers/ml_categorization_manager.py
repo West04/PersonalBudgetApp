@@ -29,6 +29,7 @@ from ..access import (
     category_access,
     categorization_rule_access,
     ml_model_access,
+    split_access,
     transaction_access,
 )
 from ..domain.categorization_rules import clean_merchant_key
@@ -287,6 +288,13 @@ def predict_category_for_transaction(
             reason="Transaction already has an explicit category assigned",
         )
 
+    # 1b. Split transactions are excluded from ML categorization
+    if split_access.transaction_has_splits(db, tx.transaction_id):
+        return schemas.TransactionCategorySuggestionRead(
+            transaction_id=transaction_id,
+            reason="Split transactions are excluded from ML categorization",
+        )
+
     # 2. Confirmed transfers are excluded
     if getattr(tx, "is_transfer", False):
         return schemas.TransactionCategorySuggestionRead(
@@ -389,6 +397,13 @@ def batch_predict_suggestions(
             results[tx_id] = schemas.TransactionCategorySuggestionRead(
                 transaction_id=tx_id,
                 reason="Transaction already has an explicit category assigned",
+            )
+            continue
+
+        if split_access.transaction_has_splits(db, tx.transaction_id):
+            results[tx_id] = schemas.TransactionCategorySuggestionRead(
+                transaction_id=tx_id,
+                reason="Split transactions are excluded from ML categorization",
             )
             continue
 

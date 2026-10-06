@@ -158,6 +158,29 @@ class TransactionClearedUpdate(BaseModel):
     is_cleared: bool
 
 
+class TransactionSplitLine(BaseModel):
+    category_id: UUID
+    amount: DecimalAmount
+
+
+class TransactionSplitRead(BaseModel):
+    id: UUID
+    transaction_id: UUID
+    category_id: UUID
+    category_name: Optional[str] = None
+    amount: DecimalAmount
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SetTransactionSplitsRequest(BaseModel):
+    splits: list[TransactionSplitLine]
+
+
+class UnsplitTransactionRequest(BaseModel):
+    category_id: Optional[UUID] = None
+
+
 class TransactionRead(BaseModel):
     transaction_id: UUID
     plaid_transaction_id: Optional[str] = None
@@ -176,6 +199,11 @@ class TransactionRead(BaseModel):
     is_cleared: bool = False
     is_reconciled: bool = False
     account: Optional[AccountRead] = None
+    is_split: bool = False
+    split_count: int = 0
+    splits: list[TransactionSplitRead] = []
+    plaid_reconciliation_conflict_amount: Optional[DecimalAmount] = None
+    plaid_reconciliation_conflict_at: Optional[DateTime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

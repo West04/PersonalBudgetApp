@@ -101,13 +101,16 @@ def sync_transactions(payload: schemas.PlaidSyncRequest, db: Session = Depends(g
             item_id=payload.item_id,
             plaid_item_id=payload.plaid_item_id,
         )
-        return {
+        resp: Dict[str, Any] = {
             "message": result.message,
             "added": result.added,
             "modified": result.modified,
             "removed": result.removed,
             "next_cursor": result.next_cursor,
         }
+        if result.warnings:
+            resp["warnings"] = list(result.warnings)
+        return resp
     except plaid_transaction_sync_manager.PlaidTransactionSyncMissingIdentifierError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except plaid_transaction_sync_manager.PlaidTransactionSyncItemNotFoundError as exc:

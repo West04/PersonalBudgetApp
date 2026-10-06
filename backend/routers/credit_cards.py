@@ -124,5 +124,11 @@ def mark_transfers(
     """
     Marks a list of transactions as transfers (is_transfer = True).
     """
-    transaction_access.mark_transactions_as_transfers(db, payload.transaction_ids)
+    try:
+        transaction_access.mark_transactions_as_transfers(db, payload.transaction_ids)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
 

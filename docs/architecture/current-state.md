@@ -129,4 +129,6 @@ backend/
    `backend/security.py` uses base64 string encoding instead of real cryptographic encryption. Plaid access tokens require migration to Fernet/KMS key management in a dedicated security slice.
 7. **Frontend Timezone Offset in Transaction Range End Date (`end_date` Calculation):**
    In `frontend/app/pages/transactions.vue`, `end_date` is computed as `new Date(Number(year), Number(month), 0).toISOString().slice(0, 10)`. Converting local midnight of the month's final day to UTC shifts the date back by one calendar day in positive UTC offset timezones (e.g. `2026-09-29` instead of `2026-09-30`), truncating end-of-month transactions. Preserved pending a focused frontend date utility fix.
+8. **Reconciled Plaid Corrections (Unresolved Follow-Up):**
+   Material provider corrections to already-reconciled transactions are currently blocked from mutating reconciled financial history. A future explicit workflow must define how reconciliation history is reopened or adjusted.
 

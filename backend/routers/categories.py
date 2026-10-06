@@ -195,10 +195,16 @@ def delete_category(
     category_id: UUID,
     db: Session = Depends(get_db)
 ):
-    deleted = category_access.delete_category(
-        db=db,
-        category_id=category_id,
-    )
+    try:
+        deleted = category_access.delete_category(
+            db=db,
+            category_id=category_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc)
+        )
     if deleted is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

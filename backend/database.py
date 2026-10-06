@@ -368,10 +368,108 @@ def migrate_recurring_state(engine) -> bool:
     return applied
 
 
+def migrate_split_state(engine) -> bool:
+    """
+    Applies one-time idempotent schema migration for Phase 12 Split Transactions:
+    - Creates 'transaction_splits' table if not exists.
+    - Creates index 'ix_transaction_splits_transaction_id' on (transaction_id) if not exists.
+    - Creates index 'ix_transaction_splits_category_id' on (category_id) if not exists.
+    Returns True if schema was modified, False otherwise.
+    """
+    applied = False
+    with engine.connect() as conn:
+        table_exists = conn.execute(
+            text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_name = 'transaction_splits';"
+            )
+        ).scalar()
+        if not table_exists:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE transaction_splits (
+                        id UUID PRIMARY KEY,
+                        transaction_id UUID NOT NULL REFERENCES transactions(transaction_id) ON DELETE CASCADE,
+                        category_id UUID NOT NULL REFERENCES categories(category_id) ON DELETE RESTRICT,
+                        amount NUMERIC(10, 2) NOT NULL,
+                        created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+            )
+            applied = True
+
+        idx_tx_exists = conn.execute(
+            text(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE tablename = 'transaction_splits' AND indexname = 'ix_transaction_splits_transaction_id';"
+            )
+        ).scalar()
+        if not idx_tx_exists:
+            conn.execute(
+                text(
+                    "CREATE INDEX ix_transaction_splits_transaction_id "
+                    "ON transaction_splits (transaction_id);"
+                )
+            )
+            applied = True
+
+        idx_cat_exists = conn.execute(
+            text(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE tablename = 'transaction_splits' AND indexname = 'ix_transaction_splits_category_id';"
+            )
+        ).scalar()
+        if not idx_cat_exists:
+            conn.execute(
+                text(
+                    "CREATE INDEX ix_transaction_splits_category_id "
+                    "ON transaction_splits (category_id);"
+                )
+            )
+            applied = True
+
+        uq_cat_exists = conn.execute(
+            text(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE tablename = 'transaction_splits' AND indexname = 'uq_transaction_splits_tx_cat';"
+            )
+        ).scalar()
+        if not uq_cat_exists:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX uq_transaction_splits_tx_cat "
+                    "ON transaction_splits (transaction_id, category_id);"
+                )
+            )
+            applied = True
+
+        # Phase 12 Plaid Reconciliation Conflict durable storage:
+        for col, col_type in [
+            ("plaid_reconciliation_conflict_amount", "NUMERIC(10, 2)"),
+            ("plaid_reconciliation_conflict_at", "TIMESTAMP WITH TIME ZONE"),
+        ]:
+            col_exists = conn.execute(
+                text(
+                    f"SELECT 1 FROM information_schema.columns "
+                    f"WHERE table_name = 'transactions' AND column_name = '{col}';"
+                )
+            ).scalar()
+            if not col_exists:
+                conn.execute(text(f"ALTER TABLE transactions ADD COLUMN {col} {col_type};"))
+                applied = True
+
+        if applied:
+            conn.commit()
+    return applied
+
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
 

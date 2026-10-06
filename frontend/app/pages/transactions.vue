@@ -453,50 +453,76 @@
                   <span class="account-tag">{{ tx.account?.name || 'Unknown' }}</span>
                 </td>
                 <td class="category-cell">
-                  <div
-                    v-if="!tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id"
-                    class="ml-suggestion-box"
-                    role="status"
-                    :aria-label="`Suggested category: ${suggestions[tx.transaction_id].suggested_category_name} (${suggestions[tx.transaction_id].score_label})`"
-                  >
-                    <span class="ml-suggestion-text" :title="`Suggested: ${suggestions[tx.transaction_id].suggested_category_name} · ${suggestions[tx.transaction_id].score_label}`">
-                      Suggested: <strong>{{ suggestions[tx.transaction_id].suggested_category_name }}</strong>
-                      <span class="ml-suggestion-score">· {{ suggestions[tx.transaction_id].score_label }}</span>
-                    </span>
+                  <div v-if="tx.is_split" class="split-cell-content">
                     <button
                       type="button"
-                      class="btn-accept-suggestion"
-                      @click="acceptSuggestion(tx, suggestions[tx.transaction_id])"
-                      :disabled="updatingId === tx.transaction_id"
-                      :aria-label="`Accept suggested category ${suggestions[tx.transaction_id].suggested_category_name} for ${tx.merchant || tx.description}`"
+                      class="btn-split-badge"
+                      @click="openSplitDialog(tx)"
+                      :title="`Split across ${tx.split_count} categories. Click to view or edit.`"
+                      :aria-label="`Split across ${tx.split_count} categories for transaction ${tx.merchant || tx.description}`"
                     >
-                      Accept
+                      <span class="split-badge-label">Split · {{ tx.split_count }}</span>
                     </button>
                   </div>
-
-                  <select
-                    :value="tx.category_id || ''"
-                    @change="updateTransactionCategory(tx.transaction_id, ($event.target as HTMLSelectElement).value)"
-                    class="category-select"
-                    :class="{ 'uncategorized': !tx.category_id, 'has-suggestion': !tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id }"
-                    :disabled="updatingId === tx.transaction_id"
-                    :aria-label="!tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id ? 'Or choose another category' : 'Assign category'"
-                  >
-                    <option value="">{{ !tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id ? 'Choose category...' : 'Uncategorized' }}</option>
-                    <optgroup
-                      v-for="group in categoryGroups"
-                      :key="group.category_group_id"
-                      :label="group.name"
+                  <div v-else class="unsplit-cell-content">
+                    <div
+                      v-if="!tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id"
+                      class="ml-suggestion-box"
+                      role="status"
+                      :aria-label="`Suggested category: ${suggestions[tx.transaction_id].suggested_category_name} (${suggestions[tx.transaction_id].score_label})`"
                     >
-                      <option
-                        v-for="cat in group.categories"
-                        :key="cat.category_id"
-                        :value="cat.category_id"
+                      <span class="ml-suggestion-text" :title="`Suggested: ${suggestions[tx.transaction_id].suggested_category_name} · ${suggestions[tx.transaction_id].score_label}`">
+                        Suggested: <strong>{{ suggestions[tx.transaction_id].suggested_category_name }}</strong>
+                        <span class="ml-suggestion-score">· {{ suggestions[tx.transaction_id].score_label }}</span>
+                      </span>
+                      <button
+                        type="button"
+                        class="btn-accept-suggestion"
+                        @click="acceptSuggestion(tx, suggestions[tx.transaction_id])"
+                        :disabled="updatingId === tx.transaction_id"
+                        :aria-label="`Accept suggested category ${suggestions[tx.transaction_id].suggested_category_name} for ${tx.merchant || tx.description}`"
                       >
-                        {{ cat.name }}
-                      </option>
-                    </optgroup>
-                  </select>
+                        Accept
+                      </button>
+                    </div>
+
+                    <div class="category-select-row">
+                      <select
+                        :value="tx.category_id || ''"
+                        @change="updateTransactionCategory(tx.transaction_id, ($event.target as HTMLSelectElement).value)"
+                        class="category-select"
+                        :class="{ 'uncategorized': !tx.category_id, 'has-suggestion': !tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id }"
+                        :disabled="updatingId === tx.transaction_id"
+                        :aria-label="!tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id ? 'Or choose another category' : 'Assign category'"
+                      >
+                        <option value="">{{ !tx.category_id && suggestions[tx.transaction_id]?.suggested_category_id ? 'Choose category...' : 'Uncategorized' }}</option>
+                        <optgroup
+                          v-for="group in categoryGroups"
+                          :key="group.category_group_id"
+                          :label="group.name"
+                        >
+                          <option
+                            v-for="cat in group.categories"
+                            :key="cat.category_id"
+                            :value="cat.category_id"
+                          >
+                            {{ cat.name }}
+                          </option>
+                        </optgroup>
+                      </select>
+
+                      <button
+                        v-if="!tx.is_transfer && !tx.pending"
+                        type="button"
+                        class="btn-split-trigger"
+                        @click="openSplitDialog(tx)"
+                        title="Split into multiple categories"
+                        :aria-label="`Split transaction ${tx.merchant || tx.description} into multiple categories`"
+                      >
+                        Split
+                      </button>
+                    </div>
+                  </div>
                 </td>
                 <td
                   class="amount-cell font-mono"
@@ -557,6 +583,217 @@
         </div>
       </div>
     </div>
+
+    <!-- Split Transaction Dialog -->
+    <AppDialog
+      :open="splitDialogOpen"
+      :title="splitDialogTitle"
+      max-width="660px"
+      @close="closeSplitDialog"
+    >
+      <div v-if="splitTx" class="split-dialog-body">
+        <!-- Parent Details Header -->
+        <div class="split-parent-summary">
+          <div class="summary-col">
+            <span class="summary-label">Date</span>
+            <span class="summary-val font-mono">{{ formatDate(splitTx.date) }}</span>
+          </div>
+          <div class="summary-col">
+            <span class="summary-label">Merchant / Description</span>
+            <span class="summary-val font-semibold">{{ splitTx.merchant || splitTx.description }}</span>
+          </div>
+          <div class="summary-col">
+            <span class="summary-label">Account</span>
+            <span class="summary-val">{{ splitTx.account?.name || 'Unknown' }}</span>
+          </div>
+          <div class="summary-col text-right">
+            <span class="summary-label">Transaction Total</span>
+            <span class="summary-val font-mono font-bold" :class="{ 'inflow': Number(splitTx.amount) < 0 }">
+              {{ Number(splitTx.amount) < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(splitTx.amount))) }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Error Banner inside dialog -->
+        <div v-if="splitDialogError" class="split-error-alert" role="alert">
+          <span>{{ splitDialogError }}</span>
+          <button type="button" class="alert-dismiss" @click="splitDialogError = null">✕</button>
+        </div>
+
+        <!-- Allocations Table -->
+        <div class="split-allocations-section">
+          <div class="split-allocations-header">
+            <span class="section-title">Category Allocations</span>
+            <span class="split-rule-hint">
+              {{ Number(splitTx.amount) < 0 ? 'Inflow transaction: split amounts are applied as credits.' : 'Outflow transaction: split lines must exactly total the transaction amount.' }}
+            </span>
+          </div>
+
+          <div class="split-lines-list">
+            <div
+              v-for="(line, idx) in splitLines"
+              :key="idx"
+              class="split-line-row"
+            >
+              <div class="line-category-col">
+                <label :for="`split-cat-${idx}`" class="sr-only">Category line {{ idx + 1 }}</label>
+                <select
+                  :id="`split-cat-${idx}`"
+                  v-model="line.category_id"
+                  class="split-select"
+                  :aria-label="`Category for split line ${idx + 1}`"
+                >
+                  <option value="" disabled>Select category...</option>
+                  <optgroup
+                    v-for="group in categoryGroups"
+                    :key="group.category_group_id"
+                    :label="group.name"
+                  >
+                    <option
+                      v-for="cat in group.categories"
+                      :key="cat.category_id"
+                      :value="cat.category_id"
+                    >
+                      {{ cat.name }}
+                    </option>
+                  </optgroup>
+                </select>
+              </div>
+
+              <div class="line-amount-col">
+                <label :for="`split-amount-${idx}`" class="sr-only">Amount line {{ idx + 1 }}</label>
+                <div class="amount-input-wrapper">
+                  <span class="currency-prefix">{{ Number(splitTx.amount) < 0 ? '-$' : '$' }}</span>
+                  <input
+                    :id="`split-amount-${idx}`"
+                    v-model="line.amountStr"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="0.00"
+                    class="split-amount-input font-mono"
+                    :aria-label="`Amount for split line ${idx + 1}`"
+                  />
+                </div>
+              </div>
+
+              <div class="line-actions-col">
+                <button
+                  type="button"
+                  class="btn-remove-line"
+                  :disabled="splitLines.length <= 2"
+                  @click="removeSplitLine(idx)"
+                  :title="splitLines.length <= 2 ? 'Splits require at least 2 allocations' : 'Remove allocation'"
+                  :aria-label="`Remove allocation line ${idx + 1}`"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="split-add-line-row">
+            <button
+              type="button"
+              class="btn-add-split-line"
+              @click="addSplitLine"
+            >
+              + Add Category Line
+            </button>
+          </div>
+        </div>
+
+        <!-- Allocation Reconciliation Math Bar -->
+        <div class="split-math-bar" :class="mathStatusClass">
+          <div class="math-item">
+            <span class="math-label">Transaction Total</span>
+            <span class="math-val font-mono">{{ formatCurrency(parentAbsTotal) }}</span>
+          </div>
+          <div class="math-operator">−</div>
+          <div class="math-item">
+            <span class="math-label">Allocated</span>
+            <span class="math-val font-mono">{{ formatCurrency(allocatedAbsTotal) }}</span>
+          </div>
+          <div class="math-operator">=</div>
+          <div class="math-item">
+            <span class="math-label">Remaining</span>
+            <span class="math-val font-mono font-bold">{{ formatCurrency(remainingAbsTotal) }}</span>
+          </div>
+          <div class="math-status-badge">
+            <span v-if="isBalanced" class="badge-balanced">Balanced</span>
+            <span v-else-if="remainingCents > 0" class="badge-remaining">
+              ${{ (remainingCents / 100).toFixed(2) }} unallocated
+            </span>
+            <span v-else class="badge-over">
+              ${{ (Math.abs(remainingCents) / 100).toFixed(2) }} overallocated
+            </span>
+          </div>
+        </div>
+
+        <div v-if="hasDuplicateCategories" class="split-warning-msg">
+          Each split line must be assigned to a different category.
+        </div>
+
+        <!-- Unsplit Section if currently split -->
+        <div v-if="splitTx.is_split" class="unsplit-collapse-box">
+          <div class="unsplit-header">
+            <span class="unsplit-title">Convert back to single category</span>
+            <span class="unsplit-subtitle">Removes all split allocations and restores a single category.</span>
+          </div>
+          <div class="unsplit-controls">
+            <select
+              v-model="unsplitTargetCategoryId"
+              class="unsplit-category-select"
+              aria-label="Select target category for unsplit"
+            >
+              <option value="">Leave Uncategorized</option>
+              <optgroup
+                v-for="group in categoryGroups"
+                :key="group.category_group_id"
+                :label="group.name"
+              >
+                <option
+                  v-for="cat in group.categories"
+                  :key="cat.category_id"
+                  :value="cat.category_id"
+                >
+                  {{ cat.name }}
+                </option>
+              </optgroup>
+            </select>
+            <button
+              type="button"
+              class="btn-unsplit-action"
+              :disabled="unsplitInProgress"
+              @click="handleUnsplit"
+            >
+              {{ unsplitInProgress ? 'Restoring...' : 'Unsplit' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="split-dialog-footer">
+          <button
+            type="button"
+            class="btn-dialog-cancel"
+            @click="closeSplitDialog"
+            :disabled="savingSplit || unsplitInProgress"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn-dialog-save"
+            :disabled="!canSaveSplit || savingSplit"
+            @click="handleSaveSplit"
+          >
+            {{ savingSplit ? 'Saving...' : 'Save Splits' }}
+          </button>
+        </div>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
@@ -1055,6 +1292,232 @@ const displayError = computed(() => {
 
 const clearErrors = () => {
   updateError.value = null
+}
+
+// Split Transactions Dialog State & Handlers
+interface SplitLineForm {
+  category_id: string
+  amountStr: string
+}
+
+const splitDialogOpen = ref(false)
+const splitTx = ref<any>(null)
+const splitLines = ref<SplitLineForm[]>([])
+const splitDialogError = ref<string | null>(null)
+const savingSplit = ref(false)
+const unsplitInProgress = ref(false)
+const unsplitTargetCategoryId = ref<string>('')
+
+const splitDialogTitle = computed(() => {
+  if (!splitTx.value) return 'Split Transaction'
+  return splitTx.value.is_split ? 'Edit Split Transaction' : 'Split Transaction'
+})
+
+const parentAbsTotal = computed(() => {
+  if (!splitTx.value) return 0
+  return Math.abs(Number(splitTx.value.amount))
+})
+
+const parentTotalCents = computed(() => {
+  return Math.round(parentAbsTotal.value * 100)
+})
+
+const allocatedTotalCents = computed(() => {
+  return splitLines.value.reduce((sum, line) => {
+    const val = parseFloat(line.amountStr)
+    if (isNaN(val) || val <= 0) return sum
+    return sum + Math.round(val * 100)
+  }, 0)
+})
+
+const allocatedAbsTotal = computed(() => {
+  return allocatedTotalCents.value / 100
+})
+
+const remainingCents = computed(() => {
+  return parentTotalCents.value - allocatedTotalCents.value
+})
+
+const remainingAbsTotal = computed(() => {
+  return Math.max(0, remainingCents.value) / 100
+})
+
+const isBalanced = computed(() => {
+  return remainingCents.value === 0
+})
+
+const hasDuplicateCategories = computed(() => {
+  const chosen = splitLines.value.map(l => l.category_id).filter(Boolean)
+  return chosen.length !== new Set(chosen).size
+})
+
+const canSaveSplit = computed(() => {
+  if (splitLines.value.length < 2) return false
+  if (!isBalanced.value) return false
+  if (hasDuplicateCategories.value) return false
+  for (const line of splitLines.value) {
+    if (!line.category_id) return false
+    const val = parseFloat(line.amountStr)
+    if (isNaN(val) || val <= 0) return false
+  }
+  return true
+})
+
+const mathStatusClass = computed(() => {
+  if (isBalanced.value) return 'status-balanced'
+  if (remainingCents.value > 0) return 'status-remaining'
+  return 'status-over'
+})
+
+const openSplitDialog = async (tx: any) => {
+  splitTx.value = tx
+  splitDialogError.value = null
+  unsplitTargetCategoryId.value = ''
+  savingSplit.value = false
+  unsplitInProgress.value = false
+
+  if (tx.is_split) {
+    if (tx.splits && tx.splits.length > 0) {
+      splitLines.value = tx.splits.map((s: any) => ({
+        category_id: s.category_id,
+        amountStr: Math.abs(Number(s.amount)).toFixed(2),
+      }))
+    } else {
+      try {
+        const data = await $fetch<any[]>(`${API_BASE}/transactions/${tx.transaction_id}/splits`)
+        splitLines.value = data.map((s: any) => ({
+          category_id: s.category_id,
+          amountStr: Math.abs(Number(s.amount)).toFixed(2),
+        }))
+      } catch (err: any) {
+        splitLines.value = [
+          { category_id: '', amountStr: '' },
+          { category_id: '', amountStr: '' },
+        ]
+      }
+    }
+  } else {
+    // New split: initialize with 2 lines
+    splitLines.value = [
+      {
+        category_id: tx.category_id || '',
+        amountStr: '',
+      },
+      {
+        category_id: '',
+        amountStr: '',
+      },
+    ]
+  }
+
+  splitDialogOpen.value = true
+}
+
+const closeSplitDialog = () => {
+  splitDialogOpen.value = false
+  splitTx.value = null
+  splitLines.value = []
+  splitDialogError.value = null
+}
+
+const addSplitLine = () => {
+  let defaultAmountStr = ''
+  if (remainingCents.value > 0) {
+    defaultAmountStr = (remainingCents.value / 100).toFixed(2)
+  }
+  splitLines.value.push({
+    category_id: '',
+    amountStr: defaultAmountStr,
+  })
+}
+
+const removeSplitLine = (idx: number) => {
+  if (splitLines.value.length <= 2) return
+  splitLines.value.splice(idx, 1)
+}
+
+const handleSaveSplit = async () => {
+  if (!canSaveSplit.value || !splitTx.value) return
+  savingSplit.value = true
+  splitDialogError.value = null
+
+  const isParentNegative = Number(splitTx.value.amount) < 0
+  const payloadLines = splitLines.value.map(line => {
+    const absVal = Math.abs(Number(line.amountStr))
+    return {
+      category_id: line.category_id,
+      amount: isParentNegative ? -absVal : absVal,
+    }
+  })
+
+  try {
+    const res = await fetch(`${API_BASE}/transactions/${splitTx.value.transaction_id}/splits`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ splits: payloadLines }),
+    })
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}))
+      throw new Error(errData.detail || 'Failed to save splits')
+    }
+
+    const updated = await res.json()
+    if (transactionsData.value?.items) {
+      const idx = transactionsData.value.items.findIndex(
+        (t: any) => t.transaction_id === splitTx.value.transaction_id
+      )
+      if (idx !== -1) {
+        transactionsData.value.items[idx] = updated
+      }
+    }
+
+    delete suggestions.value[splitTx.value.transaction_id]
+    closeSplitDialog()
+    await refresh()
+  } catch (err: any) {
+    splitDialogError.value = err.message || 'Failed to save splits. Please check inputs.'
+  } finally {
+    savingSplit.value = false
+  }
+}
+
+const handleUnsplit = async () => {
+  if (!splitTx.value) return
+  unsplitInProgress.value = true
+  splitDialogError.value = null
+
+  try {
+    const res = await fetch(`${API_BASE}/transactions/${splitTx.value.transaction_id}/unsplit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        category_id: unsplitTargetCategoryId.value || null,
+      }),
+    })
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}))
+      throw new Error(errData.detail || 'Failed to unsplit transaction')
+    }
+
+    const updated = await res.json()
+    if (transactionsData.value?.items) {
+      const idx = transactionsData.value.items.findIndex(
+        (t: any) => t.transaction_id === splitTx.value.transaction_id
+      )
+      if (idx !== -1) {
+        transactionsData.value.items[idx] = updated
+      }
+    }
+
+    closeSplitDialog()
+    await refresh()
+  } catch (err: any) {
+    splitDialogError.value = err.message || 'Failed to unsplit transaction.'
+  } finally {
+    unsplitInProgress.value = false
+  }
 }
 </script>
 
@@ -2040,5 +2503,460 @@ const clearErrors = () => {
   font-weight: var(--font-weight-semibold);
   color: #166534;
   letter-spacing: 0.02em;
+}
+
+/* Split Transactions Ledger Elements */
+.split-cell-content {
+  display: flex;
+  align-items: center;
+}
+
+.btn-split-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: var(--radius-full);
+  color: #166534;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-split-badge:hover {
+  background: #dcfce7;
+  border-color: #4ade80;
+  box-shadow: var(--shadow-sm);
+}
+
+.split-badge-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.category-select-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-split-trigger {
+  padding: 5px 8px;
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-split-trigger:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-bg, #f0f7ff);
+}
+
+/* Split Transaction Modal */
+.split-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.split-parent-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-sm);
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.summary-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary-label {
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.summary-val {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.summary-val.inflow {
+  color: var(--color-success);
+}
+
+.split-error-alert {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-sm);
+  color: #dc2626;
+  font-size: var(--font-size-sm);
+}
+
+.split-error-alert .alert-dismiss {
+  background: none;
+  border: none;
+  color: #dc2626;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.split-allocations-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.split-allocations-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.section-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.split-rule-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.split-lines-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.split-line-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.line-category-col {
+  flex: 1;
+}
+
+.split-select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.split-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-focus);
+}
+
+.line-amount-col {
+  width: 150px;
+}
+
+.amount-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.currency-prefix {
+  position: absolute;
+  left: 10px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  pointer-events: none;
+}
+
+.split-amount-input {
+  width: 100%;
+  padding: 7px 10px 7px 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  text-align: right;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.split-amount-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-focus);
+}
+
+.line-actions-col {
+  width: 68px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-remove-line {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-remove-line:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.btn-remove-line:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.split-add-line-row {
+  margin-top: 4px;
+}
+
+.btn-add-split-line {
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  color: var(--color-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-add-split-line:hover {
+  background: var(--color-primary-bg, #f0f7ff);
+  border-color: var(--color-primary);
+}
+
+/* Allocation Math Bar */
+.split-math-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border);
+  background: #f8fafc;
+}
+
+.split-math-bar.status-balanced {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.split-math-bar.status-remaining {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.split-math-bar.status-over {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.math-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.math-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.math-val {
+  font-weight: var(--font-weight-semibold);
+}
+
+.math-operator {
+  color: var(--color-text-muted);
+  font-weight: bold;
+}
+
+.math-status-badge {
+  margin-left: auto;
+}
+
+.badge-balanced {
+  font-size: 11px;
+  font-weight: var(--font-weight-bold);
+  color: #15803d;
+  background: #dcfce7;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.badge-remaining {
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  color: #b45309;
+  background: #fef3c7;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.badge-over {
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  color: #b91c1c;
+  background: #fee2e2;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.split-warning-msg {
+  padding: 6px 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: #92400e;
+}
+
+/* Unsplit Section */
+.unsplit-collapse-box {
+  margin-top: var(--space-xs);
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.unsplit-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.unsplit-title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.unsplit-subtitle {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.unsplit-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.unsplit-category-select {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.btn-unsplit-action {
+  padding: 6px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #475569;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-unsplit-action:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #1e293b;
+}
+
+/* Dialog Footer */
+.split-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.btn-dialog-cancel {
+  padding: 8px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-dialog-cancel:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.btn-dialog-save {
+  padding: 8px 18px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: #fff;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-dialog-save:hover:not(:disabled) {
+  background: var(--color-primary-hover, #2563eb);
+}
+
+.btn-dialog-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

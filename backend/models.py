@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import (
     Column,
@@ -84,9 +85,25 @@ class Transaction(Base):
     is_cleared = Column(Boolean, default=False, nullable=False, server_default="false")
     is_reconciled = Column(Boolean, default=False, nullable=False, server_default="false")
     category_source = Column(String(20), nullable=True)  # manual | rule | ml | legacy
+    plaid_reconciliation_conflict_amount = Column(DECIMAL(10, 2), nullable=True)
+    plaid_reconciliation_conflict_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     category = relationship("Category", back_populates="transactions")
     account = relationship("Account", back_populates="transactions")
+    splits = relationship(
+        "TransactionSplit",
+        back_populates="transaction",
+        cascade="all, delete-orphan",
+        order_by="TransactionSplit.created_at",
+    )
+
+    @property
+    def is_split(self) -> bool:
+        return bool(self.splits)
+
+    @property
+    def split_count(self) -> int:
+        return len(self.splits) if self.splits else 0
 
 
 class Budget(Base):
@@ -238,5 +255,41 @@ class RecurringItem(Base):
             unique=True,
         ),
     )
+
+
+class TransactionSplit(Base):
+    __tablename__ = "transaction_splits"
+
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    transaction_id = Column(
+        UUID,
+        ForeignKey("transactions.transaction_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    category_id = Column(
+        UUID,
+        ForeignKey("categories.category_id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    amount = Column(DECIMAL(10, 2), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    transaction = relationship("Transaction", back_populates="splits")
+    category = relationship("Category")
+
+    @property
+    def category_name(self) -> Optional[str]:
+        return self.category.name if self.category else None
+
+    __table_args__ = (
+        UniqueConstraint(
+            "transaction_id",
+            "category_id",
+            name="uq_transaction_splits_tx_cat",
+        ),
+    )
+
 
 

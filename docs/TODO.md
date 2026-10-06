@@ -243,6 +243,11 @@ These are documented decisions intentionally kept separate from architectural re
 - **Status:** Preserved characterized behavior
 - `get_actuals_by_category` does not filter out transaction-level `is_transfer = True`; high-level exclusion relies on the category being configured as type `transfer`.
 
+### Reconciled Plaid Corrections
+- **Classification:** Unresolved domain decision / follow-up
+- **Status:** Preserved characterized guard
+- Material provider corrections to already-reconciled transactions are currently blocked from mutating reconciled financial history. A future explicit workflow must define how reconciliation history is reopened or adjusted.
+
 ---
 
 # Deferred Backend & Plaid Cleanup
