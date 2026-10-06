@@ -602,4 +602,37 @@ class AcceptSuggestionRequest(BaseModel):
     category_id: UUID
 
 
+# --- Recurring Transaction Schemas ---
+
+RecurringCadence = Literal["weekly", "biweekly", "monthly", "annual"]
+RecurringStatus = Literal["detected", "confirmed", "dismissed"]
+RecurringAmountType = Literal["fixed", "variable"]
+RecurringDirection = Literal["outflow", "inflow"]
+
+
+class RecurringItemRead(BaseModel):
+    id: UUID
+    account_id: UUID
+    account_name: Optional[str] = None
+    merchant: str
+    direction: RecurringDirection
+    cadence: RecurringCadence
+    amount_type: RecurringAmountType
+    expected_amount: DecimalAmount
+    status: RecurringStatus
+    last_date: date
+    next_expected_date: Optional[date] = None
+    occurrence_count: int = 0
+    explanation: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    transaction_ids: List[UUID] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RecurringItemDetailRead(RecurringItemRead):
+    transactions: List[TransactionRead] = []
+
+
 

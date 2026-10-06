@@ -10,9 +10,10 @@ from .database import (
     migrate_merchant_state,
     migrate_categorization_rules,
     migrate_ml_state,
+    migrate_recurring_state,
 )
 from . import models
-from .routers import categories, budgets, transactions, plaid, summaries, accounts, upload, credit_cards, rules, ml
+from .routers import categories, budgets, transactions, plaid, summaries, accounts, upload, credit_cards, rules, ml, recurring
 from .initial_data import init_db
 
 
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     migrate_merchant_state(engine)
     migrate_categorization_rules(engine)
     migrate_ml_state(engine)
+    migrate_recurring_state(engine)
     
     # Initialize default data
     db = SessionLocal()
@@ -56,5 +58,6 @@ app.include_router(upload.router)
 app.include_router(credit_cards.router)
 app.include_router(rules.router)
 app.include_router(ml.router)
+app.include_router(recurring.router)
 
 

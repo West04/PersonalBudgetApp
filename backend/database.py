@@ -309,6 +309,65 @@ def migrate_ml_state(engine) -> bool:
     return applied
 
 
+def migrate_recurring_state(engine) -> bool:
+    """
+    Applies one-time idempotent schema migration for Phase 11 Recurring Transactions:
+    - Creates 'recurring_items' table if not exists.
+    - Creates unique index 'uq_recurring_items_identity' on (account_id, LOWER(TRIM(merchant)), direction, cadence) if not exists.
+    Returns True if schema was modified, False otherwise.
+    """
+    applied = False
+    with engine.connect() as conn:
+        table_exists = conn.execute(
+            text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_name = 'recurring_items';"
+            )
+        ).scalar()
+        if not table_exists:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE recurring_items (
+                        id UUID PRIMARY KEY,
+                        account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                        merchant VARCHAR NOT NULL,
+                        direction VARCHAR(10) NOT NULL,
+                        cadence VARCHAR(20) NOT NULL,
+                        amount_type VARCHAR(20) NOT NULL DEFAULT 'fixed',
+                        expected_amount NUMERIC(10, 2) NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'detected',
+                        last_date DATE NOT NULL,
+                        next_expected_date DATE NULL,
+                        occurrence_count INTEGER NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+            )
+            applied = True
+
+        index_exists = conn.execute(
+            text(
+                "SELECT 1 FROM pg_indexes "
+                "WHERE tablename = 'recurring_items' AND indexname = 'uq_recurring_items_identity';"
+            )
+        ).scalar()
+        if not index_exists:
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX uq_recurring_items_identity "
+                    "ON recurring_items (account_id, LOWER(TRIM(merchant)), direction, cadence);"
+                )
+            )
+            applied = True
+
+        if applied:
+            conn.commit()
+    return applied
+
+
 def get_db():
     db = SessionLocal()
     try:

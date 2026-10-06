@@ -19,6 +19,16 @@
           🔍 Find Transfer Matches
           <span v-if="candidates.length > 0" class="cand-badge">({{ candidates.length }})</span>
         </button>
+        <button
+          type="button"
+          class="btn-recurring-matches"
+          @click="toggleRecurringPanel"
+          :disabled="recurringLoading"
+          aria-label="View and manage recurring activity"
+        >
+          Recurring
+          <span v-if="activeRecurringCount > 0" class="cand-badge">({{ activeRecurringCount }})</span>
+        </button>
       </template>
     </PageHeader>
 
@@ -90,6 +100,138 @@
             </button>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- Recurring Activity Panel -->
+    <section v-if="showRecurringPanel" class="recurring-panel card" aria-label="Recurring activity review">
+      <div class="panel-header">
+        <div class="panel-title-row">
+          <div class="panel-title-with-badge">
+            <h2 class="panel-title">Recurring Activity</h2>
+            <span v-if="activeRecurringCount > 0" class="panel-count-badge">
+              {{ activeRecurringCount }} {{ activeRecurringCount === 1 ? 'pattern' : 'patterns' }}
+            </span>
+          </div>
+          <button type="button" class="btn-close-panel" @click="showRecurringPanel = false" aria-label="Close recurring panel">✕</button>
+        </div>
+        <p class="panel-sub">
+          Automatically detected repeating bills, subscriptions, and income patterns. Confirm genuine items or dismiss non-recurring charges.
+        </p>
+        <div class="recurring-tabs" role="tablist" aria-label="Recurring pattern filter tabs">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="recurringTab === 'all'"
+            class="tab-btn"
+            :class="{ active: recurringTab === 'all' }"
+            @click="recurringTab = 'all'"
+          >
+            All ({{ recurringItems.length }})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="recurringTab === 'confirmed'"
+            class="tab-btn"
+            :class="{ active: recurringTab === 'confirmed' }"
+            @click="recurringTab = 'confirmed'"
+          >
+            Confirmed ({{ recurringItems.filter(i => i.status === 'confirmed').length }})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="recurringTab === 'detected'"
+            class="tab-btn"
+            :class="{ active: recurringTab === 'detected' }"
+            @click="recurringTab = 'detected'"
+          >
+            Needs Review ({{ recurringItems.filter(i => i.status === 'detected').length }})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="recurringTab === 'dismissed'"
+            class="tab-btn"
+            :class="{ active: recurringTab === 'dismissed' }"
+            @click="recurringTab = 'dismissed'"
+          >
+            Dismissed ({{ recurringItems.filter(i => i.status === 'dismissed').length }})
+          </button>
+        </div>
+      </div>
+
+      <LoadingState v-if="recurringLoading" message="Analyzing recurring patterns..." />
+
+      <div v-else-if="recurringError" class="panel-error">
+        {{ recurringError }}
+      </div>
+
+      <div v-else-if="filteredRecurringItems.length === 0" class="empty-candidates">
+        <p>No recurring patterns found in this view.</p>
+      </div>
+
+      <div v-else class="recurring-table-wrapper">
+        <table class="recurring-table" aria-label="Recurring items table">
+          <thead>
+            <tr>
+              <th scope="col">Merchant</th>
+              <th scope="col">Cadence</th>
+              <th scope="col">Typical Amount</th>
+              <th scope="col">Next Expected</th>
+              <th scope="col">History</th>
+              <th scope="col">Status</th>
+              <th scope="col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in filteredRecurringItems" :key="item.id" class="recurring-row">
+              <td class="rec-merchant-cell">
+                <span class="rec-merchant-name">{{ item.merchant }}</span>
+                <span class="rec-account-name font-mono">{{ item.account_name || 'Account' }}</span>
+              </td>
+              <td class="rec-cadence-cell">
+                <span class="cadence-tag font-mono">{{ item.cadence }}</span>
+              </td>
+              <td class="rec-amount-cell font-mono">
+                {{ formatCurrency(Number(item.expected_amount)) }}
+                <span class="amount-type-hint">({{ item.amount_type }})</span>
+              </td>
+              <td class="rec-next-date-cell font-mono">
+                {{ item.next_expected_date ? formatDate(item.next_expected_date) : 'N/A' }}
+              </td>
+              <td class="rec-count-cell">
+                {{ item.occurrence_count }} occurrences
+              </td>
+              <td class="rec-status-cell">
+                <span class="status-pill" :class="item.status">{{ item.status }}</span>
+              </td>
+              <td class="rec-actions-cell">
+                <button
+                  v-if="item.status !== 'confirmed'"
+                  type="button"
+                  class="confirm-btn"
+                  @click="confirmRecurring(item)"
+                  :disabled="recurringActionId === item.id"
+                  :aria-label="`Confirm recurring pattern for ${item.merchant}`"
+                >
+                  Confirm
+                </button>
+                <button
+                  v-if="item.status !== 'dismissed'"
+                  type="button"
+                  class="dismiss-btn"
+                  @click="dismissRecurring(item)"
+                  :disabled="recurringActionId === item.id"
+                  :aria-label="`Dismiss recurring pattern for ${item.merchant}`"
+                >
+                  Dismiss
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -296,6 +438,7 @@
                         ✎
                       </button>
                       <span v-if="tx.is_transfer" class="transfer-tag">transfer</span>
+                      <span v-if="getRecurringCadenceForTx(tx)" class="recurring-tag font-mono">Recurring · {{ getRecurringCadenceForTx(tx) }}</span>
                     </div>
                   </template>
                   <div
@@ -418,7 +561,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBudgetMonth } from '~/composables/useBudgetMonth'
 import { useTransactionFilters } from '~/composables/useTransactionFilters'
@@ -505,6 +648,118 @@ const confirmTransfer = async (pair: TransferCandidate, idx: number) => {
 const dismissTransfer = (idx: number) => {
   candidates.value.splice(idx, 1)
 }
+
+// Recurring Transactions
+interface RecurringItem {
+  id: string
+  account_id: string
+  account_name?: string
+  merchant: string
+  direction: 'outflow' | 'inflow'
+  cadence: 'weekly' | 'biweekly' | 'monthly' | 'annual'
+  amount_type: 'fixed' | 'variable'
+  expected_amount: string | number
+  status: 'detected' | 'confirmed' | 'dismissed'
+  last_date: string
+  next_expected_date?: string
+  occurrence_count: number
+  explanation?: string
+  transaction_ids: string[]
+}
+
+const showRecurringPanel = ref(false)
+const recurringItems = ref<RecurringItem[]>([])
+const recurringLoading = ref(false)
+const recurringActionId = ref<string | null>(null)
+const recurringError = ref<string | null>(null)
+const recurringTab = ref<'all' | 'confirmed' | 'detected' | 'dismissed'>('all')
+
+const loadRecurringItems = async () => {
+  recurringLoading.value = true
+  recurringError.value = null
+  try {
+    recurringItems.value = await $fetch<RecurringItem[]>(`${API_BASE}/recurring/`)
+  } catch (err: any) {
+    recurringError.value = err.message || 'Failed to load recurring items'
+  } finally {
+    recurringLoading.value = false
+  }
+}
+
+const txRecurringMap = computed(() => {
+  const map = new Map<string, string>()
+  for (const item of recurringItems.value) {
+    if (item.status === 'dismissed') continue
+    const formattedCadence = item.cadence.charAt(0).toUpperCase() + item.cadence.slice(1)
+    for (const txId of item.transaction_ids || []) {
+      map.set(txId, formattedCadence)
+    }
+  }
+  return map
+})
+
+const getRecurringCadenceForTx = (tx: any): string | null => {
+  return txRecurringMap.value.get(tx.transaction_id) || null
+}
+
+const activeRecurringCount = computed(() => {
+  return recurringItems.value.filter(i => i.status !== 'dismissed').length
+})
+
+const filteredRecurringItems = computed(() => {
+  if (recurringTab.value === 'all') return recurringItems.value
+  return recurringItems.value.filter(i => i.status === recurringTab.value)
+})
+
+const toggleRecurringPanel = () => {
+  if (!showRecurringPanel.value && recurringItems.value.length === 0) {
+    loadRecurringItems()
+    showRecurringPanel.value = true
+  } else {
+    showRecurringPanel.value = !showRecurringPanel.value
+  }
+}
+
+const confirmRecurring = async (item: RecurringItem) => {
+  recurringActionId.value = item.id
+  recurringError.value = null
+  try {
+    const updated = await $fetch<RecurringItem>(`${API_BASE}/recurring/${item.id}/confirm`, {
+      method: 'POST',
+    })
+    const idx = recurringItems.value.findIndex(i => i.id === item.id)
+    if (idx !== -1) {
+      recurringItems.value[idx] = updated
+    }
+  } catch (err: any) {
+    recurringError.value = 'Failed to confirm recurring pattern'
+  } finally {
+    recurringActionId.value = null
+  }
+}
+
+const dismissRecurring = async (item: RecurringItem) => {
+  recurringActionId.value = item.id
+  recurringError.value = null
+  try {
+    const updated = await $fetch<RecurringItem>(`${API_BASE}/recurring/${item.id}/dismiss`, {
+      method: 'POST',
+    })
+    const idx = recurringItems.value.findIndex(i => i.id === item.id)
+    if (idx !== -1) {
+      recurringItems.value[idx] = updated
+    }
+  } catch (err: any) {
+    recurringError.value = 'Failed to dismiss recurring pattern'
+  } finally {
+    recurringActionId.value = null
+  }
+}
+
+onMounted(() => {
+  loadRecurringItems()
+})
+
 
 // Route-backed Account Filter
 const getRouteAccountId = () => {
@@ -1608,5 +1863,182 @@ const clearErrors = () => {
   color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+/* Header Recurring Button */
+.btn-recurring-matches {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 8px 16px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-recurring-matches:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-hover);
+}
+
+.btn-recurring-matches:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Recurring Panel */
+.recurring-panel {
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-lg);
+}
+
+.recurring-tabs {
+  display: flex;
+  gap: var(--space-xs);
+  margin-top: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.tab-btn {
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab-btn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.tab-btn.active {
+  background: var(--color-primary);
+  color: #ffffff;
+  font-weight: var(--font-weight-semibold);
+}
+
+.recurring-table-wrapper {
+  overflow-x: auto;
+  margin-top: var(--space-md);
+}
+
+.recurring-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.recurring-table th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.recurring-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  vertical-align: middle;
+}
+
+.rec-merchant-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rec-merchant-name {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.rec-account-name {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.cadence-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #e0f2fe;
+  color: #0369a1;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  text-transform: capitalize;
+}
+
+.amount-type-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-left: 4px;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  text-transform: capitalize;
+}
+
+.status-pill.confirmed {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
+}
+
+.status-pill.detected {
+  background: #fef9c3;
+  color: #a16207;
+  border: 1px solid #fde047;
+}
+
+.status-pill.dismissed {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+
+.rec-actions-cell {
+  white-space: nowrap;
+}
+
+.rec-actions-cell .confirm-btn,
+.rec-actions-cell .dismiss-btn {
+  margin-right: 6px;
+}
+
+/* Transaction Ledger Recurring Tag */
+.recurring-tag {
+  display: inline-block;
+  margin-left: var(--space-xs);
+  padding: 1px 6px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  color: #166534;
+  letter-spacing: 0.02em;
 }
 </style>

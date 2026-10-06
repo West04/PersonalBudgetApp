@@ -209,3 +209,34 @@ class MLModelMetadata(Base):
     status_message = Column(String, nullable=True)
 
 
+class RecurringItem(Base):
+    __tablename__ = "recurring_items"
+
+    id = Column(UUID, primary_key=True, default=uuid.uuid4)
+    account_id = Column(UUID, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    merchant = Column(String, nullable=False)
+    direction = Column(String(10), nullable=False)  # outflow | inflow
+    cadence = Column(String(20), nullable=False)    # weekly | biweekly | monthly | annual
+    amount_type = Column(String(20), nullable=False, default="fixed")  # fixed | variable
+    expected_amount = Column(DECIMAL(10, 2), nullable=False)
+    status = Column(String(20), nullable=False, default="detected")  # detected | confirmed | dismissed
+    last_date = Column(DATE, nullable=False)
+    next_expected_date = Column(DATE, nullable=True)
+    occurrence_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    account = relationship("Account")
+
+    __table_args__ = (
+        Index(
+            "uq_recurring_items_identity",
+            account_id,
+            func.lower(func.trim(merchant)),
+            direction,
+            cadence,
+            unique=True,
+        ),
+    )
+
+

@@ -737,6 +737,34 @@ def apply_category_to_uncategorized_by_merchant_key(
     return len(matching_txs)
 
 
+def get_eligible_transactions_for_recurrence(
+    db: Session,
+    account_id: Optional[UUID] = None,
+    as_of_date: Optional[date] = None,
+) -> Sequence[models.Transaction]:
+    """
+    Retrieves posted, non-transfer transactions dated on or before as_of_date (default today),
+    with non-zero amounts, ordered deterministically by date ASC, then transaction_id ASC.
+    """
+    if as_of_date is None:
+        as_of_date = date.today()
+
+    query = (
+        db.query(models.Transaction)
+        .options(joinedload(models.Transaction.account))
+        .filter(
+            models.Transaction.pending == False,
+            models.Transaction.is_transfer == False,
+            models.Transaction.date <= as_of_date,
+            models.Transaction.amount != 0,
+        )
+    )
+    if account_id is not None:
+        query = query.filter(models.Transaction.account_id == account_id)
+
+    return query.order_by(models.Transaction.date.asc(), models.Transaction.transaction_id.asc()).all()
+
+
 
 
 
