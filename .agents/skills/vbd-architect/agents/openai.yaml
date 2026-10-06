@@ -1,0 +1,3 @@
+interface:
+  display_name: "Budget VBD Architect"
+  short_description: "Analyze budget-app architecture by observed volatility before refactoring."

@@ -1,0 +1,3 @@
+interface:
+  display_name: "Budget VBD Refactor"
+  short_description: "Implement one behavior-preserving VBD boundary correction at a time."

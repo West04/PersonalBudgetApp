@@ -1,4 +1,18 @@
+> [!WARNING]
+> Historical architecture document.
+>
+> This file is preserved for project history and does not represent the
+> authoritative current VBD dependency structure.
+>
+> For current architecture constraints and evidence, see:
+>
+> - `../vbd-charter.md`
+> - `../component-map.md`
+> - `../dependency-rules.md`
+> - `../vbd-source-evidence-audit.md`
+
 # Current State Architecture & System Analysis
+
 
 ## 1. Executive Summary
 The Personal Budget App is a full-stack personal finance application built on the zero-based budgeting (ZBB) methodology. It supports automated bank syncing via Plaid and manual CSV statement uploads (with automatic header detection, custom format persistence, upload-first workflow, and route-query synchronized ledger). 

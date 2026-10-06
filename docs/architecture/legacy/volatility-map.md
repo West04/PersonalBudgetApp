@@ -1,4 +1,18 @@
+> [!WARNING]
+> Historical architecture document.
+>
+> This file is preserved for project history and does not represent the
+> authoritative current VBD dependency structure.
+>
+> For current architecture constraints and evidence, see:
+>
+> - `../vbd-charter.md`
+> - `../component-map.md`
+> - `../dependency-rules.md`
+> - `../vbd-source-evidence-audit.md`
+
 # Volatility Map & Decomposition Strategy
+
 
 ## 1. Overview & Core Principles
 

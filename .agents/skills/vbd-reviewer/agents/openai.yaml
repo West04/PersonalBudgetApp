@@ -1,0 +1,3 @@
+interface:
+  display_name: "Budget VBD Reviewer"
+  short_description: "Review VBD refactor diffs for boundary correctness and behavior safety."
