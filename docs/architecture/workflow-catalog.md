@@ -108,17 +108,23 @@ verify destination account
 
 ## Account reconciliation
 
+**Trigger:** `GET /accounts/{id}/reconciliation`, `POST /accounts/{id}/reconciliation/complete`
+
+**Manager:** `AccountReconciliationManager`
+
 ```text
-load account
--> validate supported account type
--> load unreconciled transactions
--> compute reconciliation state in Engine
--> on completion validate balanced state
--> mark participating transactions reconciled
--> update account reconciliation watermark
--> commit/rollback
--> return refreshed result
+load account via account_access
+-> validate supported depository account type
+-> load unreconciled transactions via transaction_access
+-> compute reconciliation state in Engine (domain/account_reconciliation.py)
+-> on completion validate balanced state (difference == 0.00)
+-> mark participating cleared transactions reconciled via transaction_access
+-> update account reconciliation watermark via account_access
+-> commit single atomic transaction (or rollback on failure)
+-> return refreshed summary result
 ```
+
+**Architecture boundary:** Router retains HTTP parameter extraction and response serialization, catching application exceptions (`AccountNotFoundError` -> 404, `UnsupportedAccountTypeError` -> 400, `UnbalancedReconciliationError` -> 400) and translating them to HTTP responses. `AccountReconciliationManager` coordinates the workflow and atomic transaction boundary without depending on FastAPI or transport exceptions. Pure domain engine `compute_reconciliation_state` performs cleared balance and difference calculations.
 
 ## Transaction split / unsplit
 

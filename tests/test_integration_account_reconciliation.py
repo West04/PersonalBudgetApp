@@ -301,3 +301,64 @@ def test_api_pending_transaction_reconciliation_exclusion_and_clearing_block(cli
     )
     assert patch_post.status_code == 200
     assert patch_post.json()["is_cleared"] is True
+
+
+def test_api_reconciliation_missing_account_error_mapping(client: TestClient):
+    """
+    Verifies that missing account requests return 404 with exact detail string:
+    'Account not found' on both GET preview and POST completion endpoints.
+    """
+    missing_id = uuid4()
+
+    # 1. GET reconciliation workspace for missing account -> 404
+    get_resp = client.get(
+        f"/accounts/{missing_id}/reconciliation",
+        params={"ending_date": "2026-10-31", "ending_balance": "500.00"},
+    )
+    assert get_resp.status_code == 404
+    assert get_resp.json()["detail"] == "Account not found"
+
+    # 2. POST complete reconciliation for missing account -> 404
+    post_resp = client.post(
+        f"/accounts/{missing_id}/reconciliation/complete",
+        json={"statement_ending_date": "2026-10-31", "statement_ending_balance": "500.00"},
+    )
+    assert post_resp.status_code == 404
+    assert post_resp.json()["detail"] == "Account not found"
+
+
+def test_api_reconciliation_unsupported_account_type_error_mapping(client: TestClient, db_session):
+    """
+    Verifies that non-depository account requests return 400 with exact detail string:
+    'Account reconciliation is currently supported for depository accounts only. Account '{name}' has type '{type}'.'
+    on both GET preview and POST completion endpoints.
+    """
+    credit_account = models.Account(
+        name="Sapphire Card",
+        type="credit",
+        subtype="credit card",
+        starting_balance=Decimal("0.00"),
+    )
+    db_session.add(credit_account)
+    db_session.commit()
+
+    expected_detail = (
+        f"Account reconciliation is currently supported for depository accounts only. "
+        f"Account '{credit_account.name}' has type '{credit_account.type}'."
+    )
+
+    # 1. GET reconciliation workspace for credit account -> 400
+    get_resp = client.get(
+        f"/accounts/{credit_account.id}/reconciliation",
+        params={"ending_date": "2026-10-31", "ending_balance": "0.00"},
+    )
+    assert get_resp.status_code == 400
+    assert get_resp.json()["detail"] == expected_detail
+
+    # 2. POST complete reconciliation for credit account -> 400
+    post_resp = client.post(
+        f"/accounts/{credit_account.id}/reconciliation/complete",
+        json={"statement_ending_date": "2026-10-31", "statement_ending_balance": "0.00"},
+    )
+    assert post_resp.status_code == 400
+    assert post_resp.json()["detail"] == expected_detail

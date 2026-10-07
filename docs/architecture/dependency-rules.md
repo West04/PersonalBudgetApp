@@ -56,7 +56,7 @@ The source evidence audit originally reported:
 - upload preview/loader sequencing in `backend/routers/upload.py` (RESOLVED in Slice 4: delegated to `CSVImportManager`)
 - Accessor-to-Accessor calls involving `transaction_access.py`, `split_access.py`, `categorization_rule_access.py`, `ml_model_access.py`, and `category_access.py` (PARTIALLY RESOLVED in Slice 2a: `stage_csv_import_transaction -> categorization_rule_access` removed; Slice 2b: `stage_or_update_plaid_transaction -> categorization_rule_access` removed; and Slice 2c: `stage_or_update_plaid_transaction -> split_access` removed)
 - categorization matching logic duplicated in `transaction_access.py` (PARTIALLY RESOLVED in Slice 2a: CSV import inlined matching replaced by domain `match_merchant_rule` in `CSVImportManager`; and Slice 2b: Plaid sync inlined matching replaced by domain `match_merchant_rule` in `PlaidTransactionSyncManager`)
-- FastAPI/Pydantic coupling in some Managers
+- FastAPI/Pydantic coupling in some Managers (PARTIALLY RESOLVED in Slice 5: FastAPI HTTPException and status coupling removed from AccountReconciliationManager; plain application exceptions mapped in accounts Router)
 - one current Manager-to-Manager call: `DashboardSummaryManager -> BudgetSummaryManager`
 
 Treat the audit as evidence, not as an instruction to rewrite all of these at once.

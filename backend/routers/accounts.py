@@ -72,12 +72,17 @@ def get_account_reconciliation(
     """
     target_date = ending_date or date.today()
     target_balance = ending_balance if ending_balance is not None else Decimal("0.00")
-    return account_reconciliation_manager.get_reconciliation_summary(
-        db=db,
-        account_id=account_id,
-        statement_ending_date=target_date,
-        statement_ending_balance=target_balance,
-    )
+    try:
+        return account_reconciliation_manager.get_reconciliation_summary(
+            db=db,
+            account_id=account_id,
+            statement_ending_date=target_date,
+            statement_ending_balance=target_balance,
+        )
+    except account_reconciliation_manager.AccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except account_reconciliation_manager.UnsupportedAccountTypeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/{account_id}/reconciliation/complete", response_model=schemas.AccountReconciliationSummary)
@@ -90,10 +95,17 @@ def complete_account_reconciliation(
     Finalizes reconciliation for an account when difference is zero.
     Marks participating cleared transactions as reconciled, and updates account reconciliation metadata.
     """
-    return account_reconciliation_manager.complete_reconciliation(
-        db=db,
-        account_id=account_id,
-        statement_ending_date=payload.statement_ending_date,
-        statement_ending_balance=payload.statement_ending_balance,
-    )
+    try:
+        return account_reconciliation_manager.complete_reconciliation(
+            db=db,
+            account_id=account_id,
+            statement_ending_date=payload.statement_ending_date,
+            statement_ending_balance=payload.statement_ending_balance,
+        )
+    except account_reconciliation_manager.AccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except account_reconciliation_manager.UnsupportedAccountTypeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except account_reconciliation_manager.UnbalancedReconciliationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 

@@ -11,10 +11,21 @@ from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 import pytest
-from fastapi import HTTPException
 
 from backend import models
 from backend.managers import account_reconciliation_manager
+
+
+def test_manager_rejects_missing_account(db_session):
+    missing_id = uuid4()
+    with pytest.raises(account_reconciliation_manager.AccountNotFoundError) as exc:
+        account_reconciliation_manager.get_reconciliation_summary(
+            db=db_session,
+            account_id=missing_id,
+            statement_ending_date=date(2026, 10, 31),
+            statement_ending_balance=Decimal("500.00"),
+        )
+    assert str(exc.value) == "Account not found"
 
 
 def test_manager_rejects_non_depository_account(db_session):
@@ -26,15 +37,14 @@ def test_manager_rejects_non_depository_account(db_session):
     db_session.add(account)
     db_session.commit()
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(account_reconciliation_manager.UnsupportedAccountTypeError) as exc:
         account_reconciliation_manager.get_reconciliation_summary(
             db=db_session,
             account_id=account.id,
             statement_ending_date=date(2026, 10, 31),
             statement_ending_balance=Decimal("500.00"),
         )
-    assert exc.value.status_code == 400
-    assert "depository accounts only" in exc.value.detail
+    assert "depository accounts only" in str(exc.value)
 
 
 def test_manager_first_reconciliation_uses_starting_balance(db_session):
@@ -152,15 +162,14 @@ def test_manager_complete_reconciliation_blocks_unbalanced(db_session):
     db_session.commit()
 
     # Cleared balance is 500 - 50 = 450.00. Statement is 400.00 -> diff = -50.00
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(account_reconciliation_manager.UnbalancedReconciliationError) as exc:
         account_reconciliation_manager.complete_reconciliation(
             db=db_session,
             account_id=account.id,
             statement_ending_date=date(2026, 10, 31),
             statement_ending_balance=Decimal("400.00"),
         )
-    assert exc.value.status_code == 400
-    assert "does not match cleared balance" in exc.value.detail
+    assert "does not match cleared balance" in str(exc.value)
 
 
 def test_manager_complete_reconciliation_success_state_transitions(db_session):

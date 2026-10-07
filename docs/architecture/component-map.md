@@ -12,7 +12,7 @@ Direct Router -> ResourceAccess is allowed for genuinely simple CRUD. Routers mu
 
 | Manager | Responsibility | Boundary assessment |
 |---|---|---|
-| AccountReconciliationManager | reconciliation workspace/completion sequence | justified meaningful workflow; remove FastAPI transport coupling |
+| AccountReconciliationManager | reconciliation workspace/completion sequence | justified meaningful workflow; transport coupling removed in Slice 5, raises application exceptions |
 | AccountSummaryManager | account listing plus derived depository balance | currently justified; review transport-schema coupling |
 | BudgetSummaryManager | category/budget/actual retrieval + budget Engine | strong reference Manager |
 | CategorizationRuleManager | retroactive rule preview/apply | lightweight but has batch workflow/transaction semantics |

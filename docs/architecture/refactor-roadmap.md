@@ -77,6 +77,14 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 
 **Guardrail:** do not create field-for-field Manager DTOs merely to remove Pydantic.
 
+### Slice 5a — Remove FastAPI coupling from AccountReconciliationManager [COMPLETED]
+- Removed `fastapi.HTTPException` and `fastapi.status` dependencies from `backend/managers/account_reconciliation_manager.py`.
+- Introduced plain, localized application exceptions: `AccountNotFoundError`, `UnsupportedAccountTypeError`, and `UnbalancedReconciliationError`.
+- Updated `backend/routers/accounts.py` (`get_account_reconciliation` and `complete_account_reconciliation`) to catch application exceptions and map them to HTTP 404/400 preserving exact detail strings and status codes.
+- Preserved Pydantic return models (`schemas.AccountReconciliationSummary`, `schemas.ReconciliationTransactionRead`) per guardrail against duplicate DTO ceremony.
+- Preserved exact reconciliation domain math, baseline derivation, transaction filtering, and atomic single-commit completion semantics.
+- Exit criteria met: zero `fastapi` references in `account_reconciliation_manager.py`; Manager unit tests assert application exceptions; integration suite asserts exact HTTP contract; full test suite (974 tests) green.
+
 ## Slice 6 — Manager topology review
 
 Re-evaluate the summary family and the single `DashboardSummaryManager -> BudgetSummaryManager` call after boundary leaks are fixed. Merge or retain Managers only based on demonstrated sequencing volatility, not a target count.

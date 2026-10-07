@@ -16,7 +16,6 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -27,6 +26,21 @@ from ..domain.account_reconciliation import (
 )
 
 SUPPORTED_ACCOUNT_TYPES = {"depository"}
+
+
+class AccountNotFoundError(Exception):
+    """Raised when the target account cannot be found in persistence."""
+    pass
+
+
+class UnsupportedAccountTypeError(Exception):
+    """Raised when reconciliation is attempted for an unsupported account type."""
+    pass
+
+
+class UnbalancedReconciliationError(Exception):
+    """Raised when completing a reconciliation with a non-zero difference."""
+    pass
 
 
 def get_reconciliation_summary(
@@ -45,18 +59,12 @@ def get_reconciliation_summary(
     """
     account = account_access.get_account_by_id(db, account_id)
     if account is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Account not found",
-        )
+        raise AccountNotFoundError("Account not found")
 
     if account.type not in SUPPORTED_ACCOUNT_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Account reconciliation is currently supported for depository accounts only. "
-                f"Account '{account.name}' has type '{account.type}'."
-            ),
+        raise UnsupportedAccountTypeError(
+            f"Account reconciliation is currently supported for depository accounts only. "
+            f"Account '{account.name}' has type '{account.type}'."
         )
 
     prior_balance = (
@@ -150,13 +158,10 @@ def complete_reconciliation(
     )
 
     if not summary.is_balanced:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Cannot complete reconciliation: statement ending balance ({statement_ending_balance}) "
-                f"does not match cleared balance ({summary.cleared_balance}). "
-                f"Difference: {summary.difference}."
-            ),
+        raise UnbalancedReconciliationError(
+            f"Cannot complete reconciliation: statement ending balance ({statement_ending_balance}) "
+            f"does not match cleared balance ({summary.cleared_balance}). "
+            f"Difference: {summary.difference}."
         )
 
     cleared_tx_ids = [
