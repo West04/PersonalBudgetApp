@@ -35,8 +35,18 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 - Introduced `_EXISTING_TRANSACTION_NOT_PROVIDED` sentinel in `transaction_access.py` to distinguish known-absent (`existing_transaction=None`) from omitted parameter, guaranteeing exactly one lookup per event while preserving 100% backwards compatibility for legacy/direct callers.
 - Exit criteria met: zero cross-accessor calls between `stage_or_update_plaid_transaction` and `categorization_rule_access`; `rules_lookup` removed from `stage_or_update_plaid_transaction`; characterization suite and full test suite (956 tests) green.
 
+### Slice 2c — Plaid sync split invalidation decoupling [COMPLETED]
+- Decoupled `stage_or_update_plaid_transaction` from `split_access` and removed split invalidation orchestration from `transaction_access.py`.
+- `PlaidTransactionSyncManager._process_upsert_event` now authoritatively coordinates the ledger-first split invalidation workflow:
+  1. Computes `amount_changed` and evaluates reconciliation conflict gate first.
+  2. If not a reconciliation conflict, checks split existence via `split_access.transaction_has_splits(db, existing_tx.transaction_id)`.
+  3. If split and amount changed: deletes splits via `split_access.stage_delete_splits(db, existing_tx.transaction_id)`, invalidates ORM collection via `db.expire(existing_tx, ["splits"])`, and resets parent state (`category_id=None`, `category_source=None`, `is_reviewed=False`).
+  4. Suppresses rule categorization for transactions known to be split during the event.
+  5. Stages entity update via `stage_or_update_plaid_transaction` and commits the transaction boundary.
+- Reconciliation conflict ownership remained authoritative inside `transaction_access.stage_or_update_plaid_transaction` (guaranteeing zero split deletions before conflict rejection, staging markers, and raising `PlaidReconciliationConflictError`).
+- Exit criteria met: zero cross-accessor calls between `stage_or_update_plaid_transaction` and `split_access`; characterization suite (21 tests in `test_plaid_split_conflict.py`) and full test suite (966 tests) green.
+
 ### Remaining in Slice 2 / Slice 3:
-- Plaid sync split invalidation (`stage_or_update_plaid_transaction -> split_access`).
 - Manual transaction creation/update policy concerns (unresolved future slices; no generic TransactionManager).
 
 ## Slice 3 — Categorization policy authority

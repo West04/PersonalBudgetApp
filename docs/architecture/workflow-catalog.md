@@ -48,15 +48,24 @@ resolve Plaid item
 -> page /transactions/sync
 -> process added/modified/removed events:
      lookup existing transaction (single event read)
-     select effective merchant (overridden vs normalized)
-     evaluate categorization rule via domain helpers (if eligible)
+     determine amount_changed
+     reconciliation-conflict guard (blocks split deletion on reconciled mismatch)
+     split existence check via split_access (when not in reconciliation conflict)
+     if split and amount changed:
+       stage split deletion via split_access
+       expire ORM relationship collection (db.expire)
+       reset parent state (category_id=None, category_source=None, is_reviewed=False)
+     if not split:
+       select effective merchant (overridden vs normalized)
+       evaluate categorization rule via domain helpers (if eligible)
      stage transaction via transaction_access with explicit scalars & lookup state
+     Manager db.commit() per event (or records/commits reconciliation warning)
 -> persist cursor
 -> finish current commit sequence
 -> return sync result
 ```
 
-**Architecture boundary:** `PlaidTransactionSyncManager` determines effective merchant and resolves categorization rules via domain helpers `is_eligible_for_rule` and `match_merchant_rule` before delegating to `transaction_access.stage_or_update_plaid_transaction`. ResourceAccess performs entity staging without evaluating rules or calling `categorization_rule_access`.
+**Architecture boundary:** `PlaidTransactionSyncManager` coordinates reconciliation conflict checking, split existence checking and invalidation via `split_access`, and categorization rule matching before delegating to `transaction_access.stage_or_update_plaid_transaction`. ResourceAccess performs entity staging without evaluating rules or calling other Accessors (`split_access` or `categorization_rule_access`).
 
 Transaction granularity is a separate correctness concern; do not alter it during unrelated decomposition work.
 

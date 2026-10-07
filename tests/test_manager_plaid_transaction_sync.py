@@ -221,6 +221,7 @@ def test_sync_transactions_multi_page_pagination():
 # 12. Cursor advanced before event processing
 def test_sync_transactions_cursor_advanced_before_event_processing():
     db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
     item = _make_dummy_item(cursor="c0")
     dummy_acc = MagicMock()
     dummy_acc.id = uuid4()
@@ -258,6 +259,7 @@ def test_sync_transactions_cursor_advanced_before_event_processing():
 # 13 & 14 & 15. Added before modified before removed & ResourceAccess helpers called & counts
 def test_sync_transactions_event_order_and_counts():
     db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
     item = _make_dummy_item()
     dummy_acc = MagicMock()
     dummy_acc.id = uuid4()
@@ -430,6 +432,7 @@ def test_sync_manager_does_not_call_plaid_account_sync_manager():
 # 27. Commit after added event
 def test_sync_manager_commit_after_added():
     db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
     item = _make_dummy_item()
     dummy_acc = MagicMock(id=uuid4())
     page = _make_dummy_page(
@@ -454,6 +457,7 @@ def test_sync_manager_commit_after_added():
 # 28. Commit after modified event
 def test_sync_manager_commit_after_modified():
     db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
     item = _make_dummy_item()
     dummy_acc = MagicMock(id=uuid4())
     page = _make_dummy_page(
@@ -542,6 +546,7 @@ def test_sync_manager_missing_account_exact_error_text():
 # 32. Existing transaction changed remote account still requires remote Account lookup
 def test_sync_manager_changed_remote_account_still_looks_up_remote_account():
     db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
     item = _make_dummy_item()
     dummy_acc = MagicMock(id=uuid4())
     page = _make_dummy_page(
@@ -572,6 +577,7 @@ def test_sync_manager_no_crud_imports():
 # 34. Missing pending in added or modified event raises KeyError / fails rather than defaulting
 def test_sync_manager_missing_pending_fails():
     db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
     item = _make_dummy_item()
     dummy_acc = MagicMock(id=uuid4())
     page = _make_dummy_page(

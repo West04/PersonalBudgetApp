@@ -281,11 +281,9 @@ def stage_or_update_plaid_transaction(
       is_merchant_overridden=False, and assigns category_id and category_source provided by caller.
     - If txn exists:
       validates reconciliation conflicts against provider amount.
-      handles split invalidation on provider amount change (Slice 2c target).
       updates description, amount, date, datetime, pending while preserving
       transaction_id, plaid_transaction_id, account_id, and is_transfer.
-      If existing category_id is None and not a split transaction:
-      assigns category_id and category_source provided by caller.
+      If existing category_id is None: assigns category_id and category_source provided by caller.
       If existing category_id is NOT None: preserves existing category.
       If is_merchant_overridden is True: preserves existing user-corrected merchant.
       If is_merchant_overridden is False: updates merchant to new normalized merchant.
@@ -336,20 +334,6 @@ def stage_or_update_plaid_transaction(
             txn.plaid_reconciliation_conflict_amount = None
             txn.plaid_reconciliation_conflict_at = None
 
-    is_split_tx = False
-    if txn.transaction_id is not None and isinstance(txn.transaction_id, UUID):
-        from . import split_access
-        is_split_tx = split_access.transaction_has_splits(db, txn.transaction_id)
-        if is_split_tx and isinstance(txn.amount, (Decimal, int, float, str)):
-            if Decimal(str(amount)) != Decimal(str(txn.amount)):
-                # Ledger-first policy for non-reconciled split transactions:
-                # Atomically invalidate splits, clear category fields, and flag for review.
-                split_access.stage_delete_splits(db, txn.transaction_id)
-                db.expire(txn, ["splits"])
-                txn.category_id = None
-                txn.category_source = None
-                txn.is_reviewed = False
-
     txn.description = description
     if not getattr(txn, "is_merchant_overridden", False):
         txn.merchant = resolved_merchant
@@ -358,8 +342,8 @@ def stage_or_update_plaid_transaction(
     txn.datetime = transaction_datetime
     txn.pending = pending
 
-    # If the transaction is not split, was uncategorized, and caller provided category, assign it
-    if not is_split_tx and txn.category_id is None and category_id is not None:
+    # If the transaction was uncategorized and caller provided category, assign it
+    if txn.category_id is None and category_id is not None:
         txn.category_id = category_id
         txn.category_source = category_source
 

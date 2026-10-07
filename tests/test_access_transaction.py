@@ -135,18 +135,28 @@ def test_stage_or_update_sentinel_lookup_behavior():
     existing_mock.category_id = None
     existing_mock.is_merchant_overridden = False
 
-    with patch("backend.access.split_access.transaction_has_splits", return_value=False):
-        result_existing = transaction_access.stage_or_update_plaid_transaction(
-            db=mock_db,
-            plaid_transaction_id="tx_known_existing",
-            account_id=uuid4(),
-            description="Known Existing",
-            amount=Decimal("10.00"),
-            transaction_date=date(2026, 6, 15),
-            existing_transaction=existing_mock,
-        )
+    result_existing = transaction_access.stage_or_update_plaid_transaction(
+        db=mock_db,
+        plaid_transaction_id="tx_known_existing",
+        account_id=uuid4(),
+        description="Known Existing",
+        amount=Decimal("10.00"),
+        transaction_date=date(2026, 6, 15),
+        existing_transaction=existing_mock,
+    )
     mock_db.query.assert_not_called()
     assert result_existing is existing_mock
+
+
+def test_stage_or_update_zero_split_access_dependency():
+    """
+    Verify stage_or_update_plaid_transaction contains zero references to split_access.
+    """
+    import inspect
+    source = inspect.getsource(transaction_access.stage_or_update_plaid_transaction)
+    assert "split_access" not in source
+    assert "stage_delete_splits" not in source
+    assert "transaction_has_splits" not in source
 
 
 # 3. Update: stage_or_update_plaid_transaction (existing record)

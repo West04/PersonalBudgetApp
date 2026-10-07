@@ -29,12 +29,13 @@ import pytest
 from backend import models, schemas
 from backend.access import account_access, ml_model_access, split_access, transaction_access
 from backend.domain.accounts import calculate_depository_balance
-from backend.managers import transaction_split_manager
+from backend.managers import plaid_transaction_sync_manager, transaction_split_manager
 
 
 def _setup_account_and_categories(db_session):
     acc = models.Account(
         name="Plaid Checking",
+        plaid_account_id="plaid_acc_split_test",
         type="depository",
         subtype="checking",
         starting_balance=Decimal("1000.00"),
@@ -83,18 +84,21 @@ def test_non_reconciled_split_plaid_amount_correction(db_session):
 
     rev_before = ml_model_access.get_model_metadata(db_session).current_training_revision
 
-    # 2. Plaid sends authoritative amount correction: $160.00
-    updated_tx = transaction_access.stage_or_update_plaid_transaction(
+    # 2. Plaid sends authoritative amount correction: $160.00 via Manager
+    plaid_transaction_sync_manager._process_upsert_event(
         db=db_session,
-        plaid_transaction_id="plaid_tx_split_1",
-        account_id=acc.id,
-        description="Target Store #102 Corrected",
-        amount=Decimal("160.00"),
-        transaction_date=date(2026, 8, 15),
-        pending=False,
+        tx_data={
+            "transaction_id": "plaid_tx_split_1",
+            "account_id": acc.plaid_account_id,
+            "name": "Target Store #102 Corrected",
+            "amount": -160.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
     )
-    db_session.commit()
-    db_session.refresh(updated_tx)
+    db_session.refresh(tx)
+    updated_tx = tx
 
     # 3. Verify ledger-first policy
     assert updated_tx.amount == Decimal("160.00")
@@ -138,17 +142,19 @@ def test_plaid_split_amount_correction_balance_correctness(db_session):
     bal_before = calculate_depository_balance(acc.starting_balance, net_before)
     assert bal_before == Decimal("850.00")  # 1000 - 150
 
-    # Provider updates amount to $175.00
-    transaction_access.stage_or_update_plaid_transaction(
+    # Provider updates amount to $175.00 via Manager
+    plaid_transaction_sync_manager._process_upsert_event(
         db=db_session,
-        plaid_transaction_id="plaid_tx_bal_1",
-        account_id=acc.id,
-        description="Costco",
-        amount=Decimal("175.00"),
-        transaction_date=date(2026, 8, 15),
-        pending=False,
+        tx_data={
+            "transaction_id": "plaid_tx_bal_1",
+            "account_id": acc.plaid_account_id,
+            "name": "Costco",
+            "amount": -175.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
     )
-    db_session.commit()
 
     # Financial balance after provider update
     net_after = transaction_access.get_transaction_net_by_account(db_session, [acc.id]).get(acc.id, Decimal("0.00"))
@@ -183,16 +189,18 @@ def test_plaid_split_invalidation_atomic_rollback_on_failure(db_session):
     # Simulate failure during session commit
     with patch.object(db_session, "commit", side_effect=RuntimeError("Simulated DB Sync Crash")):
         with pytest.raises(RuntimeError):
-            transaction_access.stage_or_update_plaid_transaction(
+            plaid_transaction_sync_manager._process_upsert_event(
                 db=db_session,
-                plaid_transaction_id="plaid_tx_rollback_1",
-                account_id=acc.id,
-                description="Costco Wholesale",
-                amount=Decimal("160.00"),
-                transaction_date=date(2026, 8, 15),
-                pending=False,
+                tx_data={
+                    "transaction_id": "plaid_tx_rollback_1",
+                    "account_id": acc.plaid_account_id,
+                    "name": "Costco Wholesale",
+                    "amount": -160.00,
+                    "date": "2026-08-15",
+                    "datetime": None,
+                    "pending": False,
+                },
             )
-            db_session.commit()
 
     db_session.rollback()
 
@@ -228,17 +236,19 @@ def test_plaid_split_no_automatic_reallocation(db_session):
     ]
     transaction_split_manager.create_or_replace_split(db_session, tx.transaction_id, allocations)
 
-    # Provider updates amount
-    transaction_access.stage_or_update_plaid_transaction(
+    # Provider updates amount via Manager
+    plaid_transaction_sync_manager._process_upsert_event(
         db=db_session,
-        plaid_transaction_id="plaid_tx_no_realloc",
-        account_id=acc.id,
-        description="Home Depot",
-        amount=Decimal("170.00"),
-        transaction_date=date(2026, 8, 15),
-        pending=False,
+        tx_data={
+            "transaction_id": "plaid_tx_no_realloc",
+            "account_id": acc.plaid_account_id,
+            "name": "Home Depot",
+            "amount": -170.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
     )
-    db_session.commit()
 
     # Verify zero TransactionSplit rows exist
     total_splits_in_db = db_session.query(models.TransactionSplit).filter_by(transaction_id=tx.transaction_id).count()
@@ -905,4 +915,405 @@ def test_plaid_sync_cursor_durability_on_commit_failure(db_session):
     # Verify cursor did NOT falsely advance
     db_session.refresh(item)
     assert item.transactions_cursor == "cursor_cursor_fail_0"
+
+
+# ---------------------------------------------------------------------------
+# Slice 2c Characterization Tests (Plaid Sync Split Invalidation Decoupling)
+# ---------------------------------------------------------------------------
+
+def test_slice_2c_non_reconciled_non_split_unchanged_amount(db_session):
+    acc, cat1, cat2 = _setup_account_and_categories(db_session)
+    tx = models.Transaction(
+        account_id=acc.id,
+        plaid_transaction_id="tx_2c_nr_ns_same",
+        date=date(2026, 8, 15),
+        amount=Decimal("50.00"),
+        description="Original Grocery",
+        pending=False,
+        is_reviewed=True,
+        is_reconciled=False,
+        category_id=cat1.category_id,
+        category_source="manual",
+    )
+    db_session.add(tx)
+    db_session.commit()
+
+    warning = plaid_transaction_sync_manager._process_upsert_event(
+        db=db_session,
+        tx_data={
+            "transaction_id": "tx_2c_nr_ns_same",
+            "account_id": acc.plaid_account_id,
+            "name": "Updated Grocery Name",
+            "amount": -50.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
+    )
+    assert warning is None
+    db_session.refresh(tx)
+    assert tx.amount == Decimal("50.00")
+    assert tx.description == "Updated Grocery Name"
+    assert tx.category_id == cat1.category_id
+    assert tx.is_reviewed is True
+    assert tx.is_split is False
+
+
+def test_slice_2c_non_reconciled_non_split_changed_amount(db_session):
+    acc, cat1, cat2 = _setup_account_and_categories(db_session)
+    tx = models.Transaction(
+        account_id=acc.id,
+        plaid_transaction_id="tx_2c_nr_ns_diff",
+        date=date(2026, 8, 15),
+        amount=Decimal("50.00"),
+        description="Original Grocery",
+        pending=False,
+        is_reviewed=True,
+        is_reconciled=False,
+        category_id=cat1.category_id,
+        category_source="manual",
+    )
+    db_session.add(tx)
+    db_session.commit()
+
+    warning = plaid_transaction_sync_manager._process_upsert_event(
+        db=db_session,
+        tx_data={
+            "transaction_id": "tx_2c_nr_ns_diff",
+            "account_id": acc.plaid_account_id,
+            "name": "Updated Grocery Name",
+            "amount": -60.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
+    )
+    assert warning is None
+    db_session.refresh(tx)
+    assert tx.amount == Decimal("60.00")
+    assert tx.description == "Updated Grocery Name"
+    assert tx.category_id == cat1.category_id
+    assert tx.is_reviewed is True
+    assert tx.is_split is False
+
+
+def test_slice_2c_non_reconciled_split_unchanged_amount(db_session):
+    acc, cat1, cat2 = _setup_account_and_categories(db_session)
+    tx = models.Transaction(
+        account_id=acc.id,
+        plaid_transaction_id="tx_2c_nr_s_same",
+        date=date(2026, 8, 15),
+        amount=Decimal("150.00"),
+        description="Store Split",
+        pending=False,
+        is_reviewed=True,
+        is_reconciled=False,
+    )
+    db_session.add(tx)
+    db_session.commit()
+
+    allocations = [
+        schemas.TransactionSplitLine(category_id=cat1.category_id, amount=Decimal("100.00")),
+        schemas.TransactionSplitLine(category_id=cat2.category_id, amount=Decimal("50.00")),
+    ]
+    transaction_split_manager.create_or_replace_split(db_session, tx.transaction_id, allocations)
+    db_session.refresh(tx)
+    assert tx.is_split is True
+
+    warning = plaid_transaction_sync_manager._process_upsert_event(
+        db=db_session,
+        tx_data={
+            "transaction_id": "tx_2c_nr_s_same",
+            "account_id": acc.plaid_account_id,
+            "name": "Store Split Updated Desc",
+            "amount": -150.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
+    )
+    assert warning is None
+    db_session.refresh(tx)
+    assert tx.amount == Decimal("150.00")
+    assert tx.description == "Store Split Updated Desc"
+    assert tx.is_split is True
+    assert tx.split_count == 2
+    splits = split_access.get_splits_for_transaction(db_session, tx.transaction_id)
+    assert len(splits) == 2
+    assert tx.category_id is None
+    assert tx.is_reviewed is True
+
+
+def test_slice_2c_non_reconciled_split_changed_amount(db_session):
+    acc, cat1, cat2 = _setup_account_and_categories(db_session)
+    tx = models.Transaction(
+        account_id=acc.id,
+        plaid_transaction_id="tx_2c_nr_s_diff",
+        date=date(2026, 8, 15),
+        amount=Decimal("150.00"),
+        description="Store Split",
+        pending=False,
+        is_reviewed=True,
+        is_reconciled=False,
+    )
+    db_session.add(tx)
+    db_session.commit()
+
+    allocations = [
+        schemas.TransactionSplitLine(category_id=cat1.category_id, amount=Decimal("100.00")),
+        schemas.TransactionSplitLine(category_id=cat2.category_id, amount=Decimal("50.00")),
+    ]
+    transaction_split_manager.create_or_replace_split(db_session, tx.transaction_id, allocations)
+    db_session.refresh(tx)
+
+    warning = plaid_transaction_sync_manager._process_upsert_event(
+        db=db_session,
+        tx_data={
+            "transaction_id": "tx_2c_nr_s_diff",
+            "account_id": acc.plaid_account_id,
+            "name": "Store Split Amount Changed",
+            "amount": -165.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
+    )
+    assert warning is None
+    db_session.refresh(tx)
+    assert tx.amount == Decimal("165.00")
+    assert tx.is_split is False
+    assert tx.split_count == 0
+    assert len(tx.splits) == 0
+    assert tx.category_id is None
+    assert tx.category_source is None
+    assert tx.is_reviewed is False
+    assert split_access.get_splits_for_transaction(db_session, tx.transaction_id) == []
+
+
+def test_slice_2c_reconciled_split_unchanged_amount(db_session):
+    acc, cat1, cat2 = _setup_account_and_categories(db_session)
+    tx = models.Transaction(
+        account_id=acc.id,
+        plaid_transaction_id="tx_2c_rec_s_same",
+        date=date(2026, 8, 15),
+        amount=Decimal("150.00"),
+        description="Reconciled Split",
+        pending=False,
+        is_reviewed=True,
+        is_cleared=True,
+        is_reconciled=True,
+    )
+    db_session.add(tx)
+    db_session.commit()
+
+    allocations = [
+        schemas.TransactionSplitLine(category_id=cat1.category_id, amount=Decimal("100.00")),
+        schemas.TransactionSplitLine(category_id=cat2.category_id, amount=Decimal("50.00")),
+    ]
+    transaction_split_manager.create_or_replace_split(db_session, tx.transaction_id, allocations)
+    db_session.refresh(tx)
+
+    warning = plaid_transaction_sync_manager._process_upsert_event(
+        db=db_session,
+        tx_data={
+            "transaction_id": "tx_2c_rec_s_same",
+            "account_id": acc.plaid_account_id,
+            "name": "Reconciled Split Bank Desc",
+            "amount": -150.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
+    )
+    assert warning is None
+    db_session.refresh(tx)
+    assert tx.amount == Decimal("150.00")
+    assert tx.description == "Reconciled Split Bank Desc"
+    assert tx.is_reconciled is True
+    assert tx.is_split is True
+    assert len(tx.splits) == 2
+    assert tx.plaid_reconciliation_conflict_amount is None
+
+
+def test_slice_2c_reconciled_split_changed_amount(db_session):
+    acc, cat1, cat2 = _setup_account_and_categories(db_session)
+    tx = models.Transaction(
+        account_id=acc.id,
+        plaid_transaction_id="tx_2c_rec_s_diff",
+        date=date(2026, 8, 15),
+        amount=Decimal("150.00"),
+        description="Reconciled Split",
+        pending=False,
+        is_reviewed=True,
+        is_cleared=True,
+        is_reconciled=True,
+    )
+    db_session.add(tx)
+    db_session.commit()
+
+    allocations = [
+        schemas.TransactionSplitLine(category_id=cat1.category_id, amount=Decimal("100.00")),
+        schemas.TransactionSplitLine(category_id=cat2.category_id, amount=Decimal("50.00")),
+    ]
+    transaction_split_manager.create_or_replace_split(db_session, tx.transaction_id, allocations)
+    db_session.refresh(tx)
+
+    warning = plaid_transaction_sync_manager._process_upsert_event(
+        db=db_session,
+        tx_data={
+            "transaction_id": "tx_2c_rec_s_diff",
+            "account_id": acc.plaid_account_id,
+            "name": "Reconciled Split Change",
+            "amount": -160.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
+    )
+    assert warning is not None
+    assert "reconciliation-history policy" in warning
+
+    db_session.refresh(tx)
+    assert tx.amount == Decimal("150.00")
+    assert tx.is_reconciled is True
+    assert tx.is_split is True
+    assert len(tx.splits) == 2
+    assert tx.plaid_reconciliation_conflict_amount == Decimal("160.00")
+    assert tx.plaid_reconciliation_conflict_at is not None
+
+
+def test_slice_2c_no_split_access_calls_before_reconciliation_rejection(db_session):
+    acc, cat1, cat2 = _setup_account_and_categories(db_session)
+    tx = models.Transaction(
+        account_id=acc.id,
+        plaid_transaction_id="tx_2c_no_split_call",
+        date=date(2026, 8, 15),
+        amount=Decimal("150.00"),
+        description="Reconciled Tx",
+        pending=False,
+        is_reviewed=True,
+        is_cleared=True,
+        is_reconciled=True,
+    )
+    db_session.add(tx)
+    db_session.commit()
+
+    with patch("backend.access.split_access.transaction_has_splits") as mock_has_splits, \
+         patch("backend.access.split_access.stage_delete_splits") as mock_delete_splits:
+        warning = plaid_transaction_sync_manager._process_upsert_event(
+            db=db_session,
+            tx_data={
+                "transaction_id": "tx_2c_no_split_call",
+                "account_id": acc.plaid_account_id,
+                "name": "Reconciled Tx Change",
+                "amount": -160.00,
+                "date": "2026-08-15",
+                "datetime": None,
+                "pending": False,
+            },
+        )
+        assert warning is not None
+        mock_has_splits.assert_not_called()
+        mock_delete_splits.assert_not_called()
+
+
+def test_slice_2c_no_recategorization_after_split_invalidation(db_session):
+    acc, cat1, cat2 = _setup_account_and_categories(db_session)
+
+    rule = models.CategorizationRule(
+        merchant="Starbucks",
+        category_id=cat1.category_id,
+    )
+    db_session.add(rule)
+    db_session.commit()
+
+    tx = models.Transaction(
+        account_id=acc.id,
+        plaid_transaction_id="tx_2c_no_recat",
+        date=date(2026, 8, 15),
+        amount=Decimal("10.00"),
+        description="Starbucks #123",
+        merchant="Starbucks",
+        pending=False,
+        is_reviewed=True,
+        is_reconciled=False,
+    )
+    db_session.add(tx)
+    db_session.commit()
+
+    allocations = [
+        schemas.TransactionSplitLine(category_id=cat1.category_id, amount=Decimal("6.00")),
+        schemas.TransactionSplitLine(category_id=cat2.category_id, amount=Decimal("4.00")),
+    ]
+    transaction_split_manager.create_or_replace_split(db_session, tx.transaction_id, allocations)
+    db_session.refresh(tx)
+    assert tx.is_split is True
+
+    rules_lookup = {"starbucks": cat1.category_id}
+
+    warning = plaid_transaction_sync_manager._process_upsert_event(
+        db=db_session,
+        tx_data={
+            "transaction_id": "tx_2c_no_recat",
+            "account_id": acc.plaid_account_id,
+            "name": "Starbucks #123",
+            "amount": -12.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
+        rules_lookup=rules_lookup,
+    )
+    assert warning is None
+    db_session.refresh(tx)
+    assert tx.amount == Decimal("12.00")
+    assert tx.is_split is False
+    assert tx.category_id is None
+    assert tx.category_source is None
+    assert tx.is_reviewed is False
+
+
+def test_slice_2c_db_expire_splits_relationship(db_session):
+    acc, cat1, cat2 = _setup_account_and_categories(db_session)
+    tx = models.Transaction(
+        account_id=acc.id,
+        plaid_transaction_id="tx_2c_expire_check",
+        date=date(2026, 8, 15),
+        amount=Decimal("100.00"),
+        description="Expire Check",
+        pending=False,
+        is_reviewed=True,
+        is_reconciled=False,
+    )
+    db_session.add(tx)
+    db_session.commit()
+
+    allocations = [
+        schemas.TransactionSplitLine(category_id=cat1.category_id, amount=Decimal("60.00")),
+        schemas.TransactionSplitLine(category_id=cat2.category_id, amount=Decimal("40.00")),
+    ]
+    transaction_split_manager.create_or_replace_split(db_session, tx.transaction_id, allocations)
+    db_session.refresh(tx)
+
+    # Populate in-memory relationship collection
+    assert len(tx.splits) == 2
+    assert tx.is_split is True
+
+    warning = plaid_transaction_sync_manager._process_upsert_event(
+        db=db_session,
+        tx_data={
+            "transaction_id": "tx_2c_expire_check",
+            "account_id": acc.plaid_account_id,
+            "name": "Expire Check",
+            "amount": -110.00,
+            "date": "2026-08-15",
+            "datetime": None,
+            "pending": False,
+        },
+    )
+    assert warning is None
+
+    # tx.splits should immediately be empty due to db.expire without calling refresh
+    assert len(tx.splits) == 0
+    assert tx.is_split is False
 
