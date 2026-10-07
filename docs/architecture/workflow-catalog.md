@@ -46,11 +46,17 @@ resolve Plaid item
 -> refresh/stage account snapshots
 -> load categorization lookup
 -> page /transactions/sync
--> process added/modified/removed events
+-> process added/modified/removed events:
+     lookup existing transaction (single event read)
+     select effective merchant (overridden vs normalized)
+     evaluate categorization rule via domain helpers (if eligible)
+     stage transaction via transaction_access with explicit scalars & lookup state
 -> persist cursor
 -> finish current commit sequence
 -> return sync result
 ```
+
+**Architecture boundary:** `PlaidTransactionSyncManager` determines effective merchant and resolves categorization rules via domain helpers `is_eligible_for_rule` and `match_merchant_rule` before delegating to `transaction_access.stage_or_update_plaid_transaction`. ResourceAccess performs entity staging without evaluating rules or calling `categorization_rule_access`.
 
 Transaction granularity is a separate correctness concern; do not alter it during unrelated decomposition work.
 

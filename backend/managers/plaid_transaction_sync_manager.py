@@ -21,6 +21,7 @@ from ..access import (
     plaid_transaction_access,
     transaction_access,
 )
+from ..domain.categorization_rules import is_eligible_for_rule, match_merchant_rule
 from ..domain.merchant_normalization import normalize_merchant
 from ..security import decrypt_token
 
@@ -107,6 +108,24 @@ def _process_upsert_event(
         provider_merchant=provider_merchant,
     )
 
+    existing_tx = transaction_access.get_transaction_by_plaid_id(db, tx_data["transaction_id"])
+
+    effective_merchant = (
+        existing_tx.merchant
+        if existing_tx and getattr(existing_tx, "is_merchant_overridden", False)
+        else normalized_merchant
+    )
+
+    candidate_category_id: Optional[UUID] = None
+    candidate_category_source: Optional[str] = None
+
+    current_cat_id = existing_tx.category_id if existing_tx else None
+    if is_eligible_for_rule(current_cat_id) and rules_lookup and effective_merchant:
+        matched_id = match_merchant_rule(effective_merchant, rules_lookup)
+        if matched_id is not None:
+            candidate_category_id = matched_id
+            candidate_category_source = "rule"
+
     try:
         transaction_access.stage_or_update_plaid_transaction(
             db=db,
@@ -118,7 +137,9 @@ def _process_upsert_event(
             transaction_datetime=tx_datetime,
             pending=tx_data["pending"],
             merchant=normalized_merchant,
-            rules_lookup=rules_lookup,
+            category_id=candidate_category_id,
+            category_source=candidate_category_source,
+            existing_transaction=existing_tx,
         )
         db.commit()
         return None

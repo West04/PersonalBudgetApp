@@ -5,7 +5,7 @@ focusing on Plaid transaction lookup, staging upsert, and staged deletion.
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 import pytest
 
@@ -89,6 +89,64 @@ def test_stage_or_update_insert_does_not_commit_or_refresh():
     mock_db.add.assert_called_once_with(result)
     mock_db.commit.assert_not_called()
     mock_db.refresh.assert_not_called()
+
+
+def test_stage_or_update_sentinel_lookup_behavior():
+    """
+    Test Slice 2b sentinel semantics:
+    1. Omitted existing_transaction / sentinel -> performs lookup via get_transaction_by_plaid_id.
+    2. existing_transaction=None -> skips lookup (known absent) and stages new Transaction.
+    3. existing_transaction=<Transaction> -> skips lookup and stages update on that Transaction.
+    """
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = None
+
+    # Case 1: Sentinel (omitted) calls query
+    result_omitted = transaction_access.stage_or_update_plaid_transaction(
+        db=mock_db,
+        plaid_transaction_id="tx_lookup_omitted",
+        account_id=uuid4(),
+        description="Lookup Omitted",
+        amount=Decimal("10.00"),
+        transaction_date=date(2026, 6, 15),
+    )
+    mock_db.query.assert_called()
+
+    # Case 2: existing_transaction=None (Manager confirmed absent) -> does NOT query
+    mock_db.reset_mock()
+    result_none = transaction_access.stage_or_update_plaid_transaction(
+        db=mock_db,
+        plaid_transaction_id="tx_known_none",
+        account_id=uuid4(),
+        description="Known None",
+        amount=Decimal("10.00"),
+        transaction_date=date(2026, 6, 15),
+        existing_transaction=None,
+    )
+    mock_db.query.assert_not_called()
+    mock_db.add.assert_called_once_with(result_none)
+
+    # Case 3: existing_transaction=<Transaction> -> does NOT query
+    mock_db.reset_mock()
+    existing_mock = MagicMock(spec=models.Transaction)
+    existing_mock.is_reconciled = False
+    existing_mock.transaction_id = uuid4()
+    existing_mock.amount = Decimal("10.00")
+    existing_mock.category_id = None
+    existing_mock.is_merchant_overridden = False
+
+    with patch("backend.access.split_access.transaction_has_splits", return_value=False):
+        result_existing = transaction_access.stage_or_update_plaid_transaction(
+            db=mock_db,
+            plaid_transaction_id="tx_known_existing",
+            account_id=uuid4(),
+            description="Known Existing",
+            amount=Decimal("10.00"),
+            transaction_date=date(2026, 6, 15),
+            existing_transaction=existing_mock,
+        )
+    mock_db.query.assert_not_called()
+    assert result_existing is existing_mock
 
 
 # 3. Update: stage_or_update_plaid_transaction (existing record)

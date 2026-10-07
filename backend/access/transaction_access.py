@@ -258,6 +258,9 @@ def get_transaction_by_plaid_id(
     )
 
 
+_EXISTING_TRANSACTION_NOT_PROVIDED: Any = object()
+
+
 def stage_or_update_plaid_transaction(
     db: Session,
     plaid_transaction_id: str,
@@ -268,48 +271,44 @@ def stage_or_update_plaid_transaction(
     transaction_datetime: Optional[datetime] = None,
     pending: bool = False,
     merchant: Optional[str] = None,
-    rules_lookup: Optional[Mapping[str, UUID]] = None,
+    category_id: Optional[UUID] = None,
+    category_source: Optional[str] = None,
+    existing_transaction: Any = _EXISTING_TRANSACTION_NOT_PROVIDED,
 ) -> models.Transaction:
     """
     Stages an insert or update of a Plaid transaction:
-    - If no existing transaction matches plaid_transaction_id:
-      stages a new models.Transaction record with normalized merchant with is_merchant_overridden=False.
-      Evaluates matching categorization rule if category_id is None.
-    - If existing transaction matches:
+    - If txn does not exist: stages new models.Transaction record with normalized merchant,
+      is_merchant_overridden=False, and assigns category_id and category_source provided by caller.
+    - If txn exists:
+      validates reconciliation conflicts against provider amount.
+      handles split invalidation on provider amount change (Slice 2c target).
       updates description, amount, date, datetime, pending while preserving
       transaction_id, plaid_transaction_id, account_id, and is_transfer.
-      If existing category_id is None and merchant matches a rule, assigns category.
-      If existing category_id is NOT None, preserves existing category.
+      If existing category_id is None and not a split transaction:
+      assigns category_id and category_source provided by caller.
+      If existing category_id is NOT None: preserves existing category.
       If is_merchant_overridden is True: preserves existing user-corrected merchant.
       If is_merchant_overridden is False: updates merchant to new normalized merchant.
+    - Sentinel semantics:
+      If existing_transaction is omitted / sentinel: performs get_transaction_by_plaid_id lookup.
+      If existing_transaction is None: record is known absent, skips lookup and performs insert.
+      If existing_transaction is Transaction: record exists, skips lookup and performs update.
     Calls db.add(txn). Does not commit or refresh.
     """
     from ..domain.merchant_normalization import normalize_merchant
-    from ..domain.categorization_rules import clean_merchant_key
 
     resolved_merchant = merchant if merchant is not None else normalize_merchant(description)
 
-    txn = get_transaction_by_plaid_id(db, plaid_transaction_id)
-    if txn is None:
-        matched_category_id = None
-        category_source = None
-        if resolved_merchant:
-            if rules_lookup is not None:
-                clean_key = clean_merchant_key(resolved_merchant)
-                if clean_key and clean_key in rules_lookup:
-                    matched_category_id = rules_lookup[clean_key]
-                    category_source = "rule"
-            else:
-                from . import categorization_rule_access
-                rule = categorization_rule_access.get_rule_by_merchant(db, resolved_merchant)
-                if rule:
-                    matched_category_id = rule.category_id
-                    category_source = "rule"
+    if existing_transaction is _EXISTING_TRANSACTION_NOT_PROVIDED:
+        txn = get_transaction_by_plaid_id(db, plaid_transaction_id)
+    else:
+        txn = existing_transaction
 
+    if txn is None:
         txn = models.Transaction(
             plaid_transaction_id=plaid_transaction_id,
             account_id=account_id,
-            category_id=matched_category_id,
+            category_id=category_id,
             category_source=category_source,
             description=description,
             merchant=resolved_merchant,
@@ -359,19 +358,10 @@ def stage_or_update_plaid_transaction(
     txn.datetime = transaction_datetime
     txn.pending = pending
 
-    # If the transaction is currently uncategorized and merchant matches a rule, assign it
-    if not is_split_tx and txn.category_id is None and txn.merchant:
-        if rules_lookup is not None:
-            clean_key = clean_merchant_key(txn.merchant)
-            if clean_key and clean_key in rules_lookup:
-                txn.category_id = rules_lookup[clean_key]
-                txn.category_source = "rule"
-        else:
-            from . import categorization_rule_access
-            rule = categorization_rule_access.get_rule_by_merchant(db, txn.merchant)
-            if rule:
-                txn.category_id = rule.category_id
-                txn.category_source = "rule"
+    # If the transaction is not split, was uncategorized, and caller provided category, assign it
+    if not is_split_tx and txn.category_id is None and category_id is not None:
+        txn.category_id = category_id
+        txn.category_source = category_source
 
     db.add(txn)
     return txn

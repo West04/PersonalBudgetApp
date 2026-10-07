@@ -29,8 +29,14 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 - `CSVImportManager` now authoritatively resolves categorization rules via pure domain helper `match_merchant_rule(merchant, rules_lookup)` and passes resolved scalars `category_id` and `category_source` to `stage_csv_import_transaction`.
 - Exit criteria met: zero cross-accessor calls between `stage_csv_import_transaction` and `categorization_rule_access`; `rules_lookup` removed from `stage_csv_import_transaction`; characterization suite and full test suite (953 tests) green.
 
+### Slice 2b — Plaid sync categorization rule decoupling [COMPLETED]
+- Decoupled `stage_or_update_plaid_transaction` from `categorization_rule_access` and removed inlined rule-matching logic.
+- `PlaidTransactionSyncManager._process_upsert_event` now authoritatively resolves categorization rules via pure domain helpers `is_eligible_for_rule` and `match_merchant_rule(effective_merchant, rules_lookup)` with inline effective merchant selection (`existing_tx.merchant` if overridden else `normalized_merchant`).
+- Introduced `_EXISTING_TRANSACTION_NOT_PROVIDED` sentinel in `transaction_access.py` to distinguish known-absent (`existing_transaction=None`) from omitted parameter, guaranteeing exactly one lookup per event while preserving 100% backwards compatibility for legacy/direct callers.
+- Exit criteria met: zero cross-accessor calls between `stage_or_update_plaid_transaction` and `categorization_rule_access`; `rules_lookup` removed from `stage_or_update_plaid_transaction`; characterization suite and full test suite (956 tests) green.
+
 ### Remaining in Slice 2 / Slice 3:
-- Plaid sync split invalidation & rule evaluation (`stage_or_update_plaid_transaction -> split_access`, `categorization_rule_access`).
+- Plaid sync split invalidation (`stage_or_update_plaid_transaction -> split_access`).
 - Manual transaction creation/update policy concerns (unresolved future slices; no generic TransactionManager).
 
 ## Slice 3 — Categorization policy authority

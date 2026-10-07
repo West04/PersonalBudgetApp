@@ -303,6 +303,58 @@ def test_rule_application_plaid_sync_and_protection(db_session):
     assert tx2.category_id == cat_dining.category_id  # Now categorized since it was previously None
 
 
+def test_rule_application_plaid_sync_merchant_overridden(db_session):
+    """
+    Test Slice 2b effective merchant behavior:
+    Existing transaction with is_merchant_overridden=True matches rule based on the
+    user's overridden merchant, not the incoming Plaid description/merchant.
+    """
+    acc, cat_dining, _, _ = _create_account_and_categories(db_session)
+    acc.plaid_account_id = "plaid_acc_override_test"
+    db_session.add(acc)
+    db_session.commit()
+
+    categorization_rule_access.create_rule(db_session, "Starbucks", cat_dining.category_id)
+
+    # 1. Pre-existing transaction with manual merchant override to "Starbucks"
+    tx = models.Transaction(
+        account_id=acc.id,
+        plaid_transaction_id="plaid_tx_override_1",
+        description="SQ *UNKNOWN CAFE",
+        merchant="Starbucks",
+        is_merchant_overridden=True,
+        category_id=None,
+        amount=Decimal("4.50"),
+        date=date(2026, 7, 10),
+        pending=False,
+    )
+    db_session.add(tx)
+    db_session.commit()
+
+    # 2. Plaid update event arrives with noisy raw description and bank merchant
+    plaid_data = {
+        "account_id": "plaid_acc_override_test",
+        "transaction_id": "plaid_tx_override_1",
+        "date": "2026-07-10",
+        "datetime": None,
+        "amount": -4.50,  # Plaid -4.50 -> budget +4.50
+        "name": "SQ *UNKNOWN CAFE UPDATED",
+        "merchant_name": "Unknown Cafe",
+        "pending": False,
+    }
+
+    rules_lookup = categorization_rule_access.get_rules_lookup_dict(db_session)
+    plaid_transaction_sync_manager._process_upsert_event(db_session, plaid_data, rules_lookup=rules_lookup)
+
+    db_session.refresh(tx)
+    # The user's overridden merchant is preserved
+    assert tx.merchant == "Starbucks"
+    assert tx.is_merchant_overridden is True
+    # The rule matched against the overridden merchant ("Starbucks" -> Dining)
+    assert tx.category_id == cat_dining.category_id
+    assert tx.category_source == "rule"
+
+
 def test_rule_edit_and_delete_effects(db_session):
     """
     Test Section 60:
