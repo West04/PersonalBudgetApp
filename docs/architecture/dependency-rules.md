@@ -50,9 +50,9 @@ Do not ban these mechanically. Treat them as a review trigger. Prefer a Manager 
 
 ## Current known violations to remove incrementally
 
-The source evidence audit reports:
+The source evidence audit originally reported:
 
-- live workflow orchestration in `backend/routers/plaid.py::exchange_public_token`
+- live workflow orchestration in `backend/routers/plaid.py::exchange_public_token` (RESOLVED in Slice 1: delegated to `PlaidAccountSyncManager.exchange_public_token`)
 - upload inspection/preview/loader sequencing in `backend/routers/upload.py`
 - Accessor-to-Accessor calls involving `transaction_access.py`, `split_access.py`, `categorization_rule_access.py`, `ml_model_access.py`, and `category_access.py`
 - categorization matching logic duplicated in `transaction_access.py`

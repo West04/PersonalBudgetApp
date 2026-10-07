@@ -2,15 +2,26 @@
 
 Document meaningful use-case sequences here. Do not add entries for trivial CRUD simply to make the catalog complete.
 
-## Plaid public-token exchange — migration target
+## Plaid public-token exchange
 
 **Trigger:** `POST /plaid/exchange_public_token`
 
-**Current evidence:** Router constructs/uses Plaid SDK, exchanges token, calls live legacy CRUD functions, commits directly, and lists accounts.
+**Manager:** `PlaidAccountSyncManager.exchange_public_token`
 
-**Target ownership:** one Manager operation coordinating concrete Plaid access and persistence Accessors. Router retains HTTP/Pydantic mapping only.
+```text
+exchange public token via plaid_access
+-> lookup or create PlaidItem via plaid_item_access
+-> if new item created: Commit #1
+-> fetch remote account snapshots via plaid_access
+-> stage/update local accounts via account_access
+-> Commit #2
+-> return staged Account instances to Router for schema serialization
+```
 
-**Behavior constraint:** preserve token exchange, item creation/resolution, account sync, returned linked-account behavior, and existing error semantics unless separately authorized.
+**Architecture boundary:** Router retains HTTP extraction, 422 validation, and response serialization only. Manager owns SDK coordination, multi-step staging, and two-commit transaction sequencing.
+
+**Behavior constraint:** preserves token exchange, item creation/resolution, account sync, orphan item persistence on downstream failure, returned linked-account behavior, and existing error semantics. Slice 1b will address transaction atomicity.
+
 
 ## Plaid account sync
 

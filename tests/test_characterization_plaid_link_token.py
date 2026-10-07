@@ -30,7 +30,7 @@ def test_create_link_token_success_contract(client):
     mock_resp = MagicMock()
     mock_resp.link_token = "link-sandbox-de052594-3996-4122-8610-85f2ff6ff1f3"
 
-    with patch("backend.routers.plaid.client.link_token_create", return_value=mock_resp):
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp):
         response = client.post("/plaid/create_link_token")
 
     assert response.status_code == 200
@@ -54,7 +54,7 @@ def test_create_link_token_sdk_request_parameters_matrix(client):
     mock_resp = MagicMock()
     mock_resp.link_token = "link-sandbox-test-token"
 
-    with patch("backend.routers.plaid.client.link_token_create", return_value=mock_resp) as mock_create:
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp) as mock_create:
         response = client.post("/plaid/create_link_token")
 
     assert response.status_code == 200
@@ -109,7 +109,7 @@ def test_create_link_token_plaid_api_exception_maps_to_500_with_str_error(client
     exc = ApiException(status=400, reason="Bad Request")
     exc.body = '{"error_code": "INVALID_FIELD", "error_message": "client_name must be non-empty"}'
 
-    with patch("backend.routers.plaid.client.link_token_create", side_effect=exc):
+    with patch("backend.access.plaid_access.client.link_token_create", side_effect=exc):
         response = client.post("/plaid/create_link_token")
 
     assert response.status_code == 500
@@ -137,7 +137,7 @@ def test_create_link_token_plaid_api_exception_various_statuses_all_map_to_500(c
     exc = ApiException(status=status, reason=reason)
     exc.body = body
 
-    with patch("backend.routers.plaid.client.link_token_create", side_effect=exc):
+    with patch("backend.access.plaid_access.client.link_token_create", side_effect=exc):
         response = client.post("/plaid/create_link_token")
 
     assert response.status_code == 500
@@ -153,7 +153,7 @@ def test_create_link_token_generic_runtime_error_maps_to_500(client):
     When client.link_token_create raises a non-Plaid exception (RuntimeError),
     the router returns HTTP 500 with detail=str(e).
     """
-    with patch("backend.routers.plaid.client.link_token_create", side_effect=RuntimeError("SDK unexpected failure")):
+    with patch("backend.access.plaid_access.client.link_token_create", side_effect=RuntimeError("SDK unexpected failure")):
         response = client.post("/plaid/create_link_token")
 
     assert response.status_code == 500
@@ -165,7 +165,7 @@ def test_create_link_token_connection_error_maps_to_500(client):
     When client.link_token_create raises a connection error,
     the router returns HTTP 500 with detail=str(e).
     """
-    with patch("backend.routers.plaid.client.link_token_create", side_effect=ConnectionError("Failed to connect to Plaid API")):
+    with patch("backend.access.plaid_access.client.link_token_create", side_effect=ConnectionError("Failed to connect to Plaid API")):
         response = client.post("/plaid/create_link_token")
 
     assert response.status_code == 500
@@ -183,7 +183,7 @@ def test_create_link_token_missing_link_token_attribute_raises_attribute_error_5
     """
     mock_resp = object()  # plain object without link_token attribute
 
-    with patch("backend.routers.plaid.client.link_token_create", return_value=mock_resp):
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp):
         response = client.post("/plaid/create_link_token")
 
     assert response.status_code == 500
@@ -201,7 +201,7 @@ def test_create_link_token_none_link_token_triggers_response_validation_error_50
 
     # Using TestClient with raise_server_exceptions=False to capture FastAPI response validation error
     test_client = TestClient(app, raise_server_exceptions=False)
-    with patch("backend.routers.plaid.client.link_token_create", return_value=mock_resp):
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp):
         response = test_client.post("/plaid/create_link_token")
 
     assert response.status_code == 500
@@ -216,7 +216,7 @@ def test_create_link_token_empty_string_link_token_is_accepted(client):
     mock_resp = MagicMock()
     mock_resp.link_token = ""
 
-    with patch("backend.routers.plaid.client.link_token_create", return_value=mock_resp):
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp):
         response = client.post("/plaid/create_link_token")
 
     assert response.status_code == 200
@@ -245,7 +245,7 @@ def test_create_link_token_does_not_touch_database(client, db_session):
         "plaid_items": db_session.query(models.PlaidItem).count(),
     }
 
-    with patch("backend.routers.plaid.client.link_token_create", return_value=mock_resp):
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp):
         response = client.post("/plaid/create_link_token")
 
     assert response.status_code == 200
@@ -277,7 +277,7 @@ def test_create_link_token_repeated_calls_are_stateless_and_independent(client):
     mock_resp_2 = MagicMock()
     mock_resp_2.link_token = "link-token-call-2"
 
-    with patch("backend.routers.plaid.client.link_token_create", side_effect=[mock_resp_1, mock_resp_2]):
+    with patch("backend.access.plaid_access.client.link_token_create", side_effect=[mock_resp_1, mock_resp_2]):
         resp1 = client.post("/plaid/create_link_token")
         resp2 = client.post("/plaid/create_link_token")
 
@@ -301,7 +301,7 @@ def test_create_link_token_post_body_variations(client):
     mock_resp = MagicMock()
     mock_resp.link_token = "link-sandbox-body-test"
 
-    with patch("backend.routers.plaid.client.link_token_create", return_value=mock_resp):
+    with patch("backend.access.plaid_access.client.link_token_create", return_value=mock_resp):
         # 1. POST without body
         r1 = client.post("/plaid/create_link_token")
         assert r1.status_code == 200

@@ -7,7 +7,7 @@ import pytest
 
 from backend import models
 from backend.access import plaid_item_access
-from backend.crud.plaid import create_plaid_item
+from backend.access.plaid_item_access import create_plaid_item
 
 
 def test_get_plaid_item_by_id_found(db_session):
@@ -68,6 +68,7 @@ def test_stage_transactions_cursor_missing_item_noop(db_session):
 
 def test_stage_transactions_cursor_no_commit_or_flush(db_session):
     item = create_plaid_item(db_session, plaid_item_id="item_stage_noflush", access_token="tok_noflush")
+    db_session.commit()
     assert item.transactions_cursor is None
 
     plaid_item_access.stage_transactions_cursor(db_session, "item_stage_noflush", "uncommitted_cur")

@@ -14,7 +14,7 @@ from plaid.exceptions import ApiException
 import requests
 
 from backend import models
-from backend.crud.plaid import create_plaid_item
+from backend.access.plaid_item_access import create_plaid_item
 from backend.database import SessionLocal
 
 

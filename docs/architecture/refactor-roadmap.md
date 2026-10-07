@@ -2,15 +2,21 @@
 
 This roadmap is structural. It does not replace the product roadmap. Perform one slice at a time, run the full suite, review, and commit before continuing.
 
-## Slice 1 — Plaid public-token exchange boundary
+## Slice 1 — Plaid public-token exchange boundary [COMPLETED]
 
 **Problem:** meaningful workflow, SDK construction, legacy CRUD, and commit exist in Presentation.
 
-**Target:** Router -> Plaid Manager -> concrete Plaid/persistence ResourceAccess.
+**Target:** Router -> Plaid Manager (`PlaidAccountSyncManager.exchange_public_token`) -> concrete Plaid/persistence ResourceAccess (`plaid_access`, `plaid_item_access`, `account_access`).
 
-**Behavior preserved:** public token exchange, Plaid item semantics, account synchronization, response/error contract.
+**Behavior preserved:** public token exchange, Plaid item semantics, two-commit sequencing, orphan item persistence on downstream failure, account synchronization, response/error contract.
 
-**Exit criteria:** no live `crud/plaid.py` dependency from this route; Router owns no workflow commit or Plaid SDK orchestration; tests green; docs updated.
+**Exit criteria met:**
+- no live `crud/plaid.py` dependency (file and package retired);
+- Router owns no workflow commit or Plaid SDK orchestration;
+- Characterization suite (6 tests) and full test suite (952 tests) green;
+- Architecture documentation updated (`component-map.md`, `workflow-catalog.md`, `dependency-rules.md`, `refactor-roadmap.md`).
+
+**Follow-up (Slice 1b):** Atomicity refactor to collapse the two-commit sequence into a single atomic transaction.
 
 ## Slice 2 — Transaction ResourceAccess cross-dependencies
 

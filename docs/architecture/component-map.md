@@ -20,7 +20,7 @@ Direct Router -> ResourceAccess is allowed for genuinely simple CRUD. Routers mu
 | CSVImportManager | parse/dedupe/normalize/categorize/stage/commit import | strongly justified |
 | DashboardSummaryManager | composite dashboard read workflow | justified only while composition changes independently; review screen-driven boundary and Manager-to-Manager edge |
 | MLCategorizationManager | training/evaluation/artifact/metadata/inference workflows | strongly justified |
-| PlaidAccountSyncManager | item resolution, token decode, remote account fetch, upsert, commit | strongly justified |
+| PlaidAccountSyncManager | public-token exchange, item creation/resolution, token decode, remote account fetch, upsert, commit | strongly justified |
 | PlaidTransactionSyncManager | item resolution, account refresh, paged sync, event persistence, cursor | strongly justified; transaction semantics reviewed separately |
 | RecurringTransactionManager | detection/sync plus status/list operations | detection workflow justified; trivial operations need no additional abstraction |
 | TransactionSplitManager | split/unsplit invariants and coordinated persistence | strongly justified |
@@ -59,4 +59,4 @@ Database Accessors may remain concrete, but their boundaries must not be justifi
 
 ## Transitional/legacy
 
-`backend/crud/plaid.py` remains live in the public-token exchange workflow according to the source audit. It is transitional production code, not dead compatibility scaffolding. Retire live functions only through a tested vertical slice.
+`backend/crud/plaid.py` (and the legacy `backend/crud/` package) has been retired as part of Slice 1 (Plaid public-token exchange boundary migration). All Plaid persistence operations now route through `backend/access/plaid_item_access.py` and `backend/access/account_access.py`.

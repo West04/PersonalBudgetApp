@@ -6,7 +6,7 @@ import pytest
 from plaid.exceptions import ApiException
 
 from backend import models
-from backend.crud.plaid import create_plaid_item
+from backend.access.plaid_item_access import create_plaid_item
 
 
 # ---------------------------------------------------------------------------

@@ -58,6 +58,12 @@ class PlaidAccountSnapshot:
     currency: str
 
 
+@dataclass(frozen=True)
+class PlaidPublicTokenExchangeResult:
+    access_token: str
+    item_id: str
+
+
 class PlaidAccessError(Exception):
     """Raised when external Plaid API communication fails."""
 
@@ -198,4 +204,28 @@ def create_link_token() -> str:
             status_code=500,
             detail=str(exc),
         ) from exc
+
+
+def exchange_public_token(public_token: str) -> PlaidPublicTokenExchangeResult:
+    """
+    Calls Plaid /item/public_token/exchange using the provided public token.
+    Translates raw SDK response into immutable PlaidPublicTokenExchangeResult.
+    Normalizes any external failure into PlaidAccessError with status_code=500
+    and detail=str(exc) to preserve exact observable error formatting.
+    """
+    from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
+
+    try:
+        request = ItemPublicTokenExchangeRequest(public_token=public_token)
+        response = client.item_public_token_exchange(request)
+        return PlaidPublicTokenExchangeResult(
+            access_token=response.access_token,
+            item_id=response.item_id,
+        )
+    except Exception as exc:
+        raise PlaidAccessError(
+            status_code=500,
+            detail=str(exc),
+        ) from exc
+
 

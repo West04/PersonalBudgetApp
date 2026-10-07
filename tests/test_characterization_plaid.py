@@ -6,7 +6,7 @@ import pytest
 import requests_mock
 
 from backend import models
-from backend.crud.plaid import create_plaid_item
+from backend.access.plaid_item_access import create_plaid_item
 from backend.managers.plaid_transaction_sync_manager import sync_plaid_transactions
 
 

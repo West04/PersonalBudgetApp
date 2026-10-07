@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
 from backend import models, schemas
-from backend.crud.plaid import create_plaid_item
+from backend.access.plaid_item_access import create_plaid_item
 
 
 # ---------------------------------------------------------------------------

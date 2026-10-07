@@ -11,7 +11,7 @@ import pytest
 
 from backend import models
 from backend.access import account_access
-from backend.crud.plaid import create_plaid_item
+from backend.access.plaid_item_access import create_plaid_item
 
 
 def test_stage_or_update_new_account_creation_and_defaults(db_session):

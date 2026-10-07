@@ -51,3 +51,26 @@ def stage_transactions_cursor(
         plaid_item.transactions_cursor = cursor
         db.add(plaid_item)
 
+
+def create_plaid_item(
+    db: Session,
+    plaid_item_id: str,
+    access_token: str,
+) -> models.PlaidItem:
+    """
+    Encapsulates token encryption, stages a new models.PlaidItem, and flushes
+    to assign the primary key UUID. Performs NO database commit.
+    """
+    from ..security import encrypt_token
+
+    encrypted_access_token = encrypt_token(access_token)
+    db_item = models.PlaidItem(
+        plaid_item_id=plaid_item_id,
+        plaid_access_token_encrypted=encrypted_access_token,
+        transactions_cursor=None,
+    )
+    db.add(db_item)
+    db.flush()
+    return db_item
+
+

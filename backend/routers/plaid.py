@@ -3,12 +3,8 @@ from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
-from plaid.model.accounts_get_request import AccountsGetRequest
-from plaid.exceptions import ApiException
 from .. import schemas
 from ..access import plaid_access
-from ..crud import plaid as crud_plaid
 from ..database import get_db
 from ..managers import plaid_account_sync_manager
 from ..managers import plaid_transaction_sync_manager
@@ -16,8 +12,6 @@ from ..managers import plaid_transaction_sync_manager
 load_dotenv()
 
 router = APIRouter(prefix="/plaid", tags=["Plaid"])
-
-client = plaid_access.client
 
 
 @router.post("/create_link_token", response_model=schemas.PlaidLinkTokenResponse)
@@ -38,27 +32,7 @@ def exchange_public_token(payload: schemas.PlaidPublicTokenRequest, db: Session 
     and store accounts + balances immediately.
     """
     try:
-        request = ItemPublicTokenExchangeRequest(public_token=payload.public_token)
-        response = client.item_public_token_exchange(request)
-
-        access_token = response.access_token
-        plaid_item_id = response.item_id
-
-        db_item = crud_plaid.get_plaid_item_by_plaid_item_id(db, plaid_item_id)
-        if not db_item:
-            db_item = crud_plaid.create_plaid_item(db=db, plaid_item_id=plaid_item_id, access_token=access_token)
-
-        # ✅ Upsert accounts + balances
-        crud_plaid.sync_accounts_and_balances(
-            db=db,
-            client=client,
-            access_token=access_token,
-            item_id=db_item.id,
-        )
-
-        db.commit()
-        return crud_plaid.list_accounts_by_item(db, db_item.id)
-
+        return plaid_account_sync_manager.exchange_public_token(db, payload.public_token)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
