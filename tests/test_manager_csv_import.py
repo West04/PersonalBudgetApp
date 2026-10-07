@@ -1,51 +1,167 @@
 from dataclasses import FrozenInstanceError, is_dataclass
-from decimal import Decimal, InvalidOperation
-from unittest.mock import MagicMock, call, patch
+from decimal import Decimal
+from io import BytesIO
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 import pytest
 
 from backend import models
-from backend.bank_statement_loader import BankStatementLoader, ParsedStatement, USAALoader
+from backend.access import csv_format_access
+from backend.bank_statement_loader import BankStatementLoader, ParsedStatement, USAALoader, MappedStatementLoader
 from backend.managers.csv_import_manager import (
     CSVImportAccountNotFoundError,
+    CSVImportFormatNotFoundError,
     CSVImportParseError,
     CSVImportSummary,
     CSVImportUnknownFormatError,
+    CSVPreviewRow,
+    CSVPreviewSummary,
+    _resolve_statement_loader,
     confirm_csv_import,
+    preview_csv_import,
 )
+from sqlalchemy import text
 from backend.schemas import TransactionCreate
 
+
+@pytest.fixture(autouse=True)
+def clean_csv_formats(db_session):
+    """Ensure csv_formats table is clean before and after each test."""
+    db_session.execute(text("TRUNCATE TABLE csv_formats CASCADE;"))
+    db_session.commit()
+    yield
+    db_session.execute(text("TRUNCATE TABLE csv_formats CASCADE;"))
+    db_session.commit()
+
+
+
+# ---------------------------------------------------------------------------
+# Account Validation Precedence
+# ---------------------------------------------------------------------------
 
 def test_manager_validation_order_mocked():
     """
     Verify validation precedence using controlled mocks:
-    1. Account lookup occurs before statement parsing.
-    2. Missing account raises CSVImportAccountNotFoundError before loader is invoked.
+    1. Account lookup occurs before format resolution and statement parsing.
+    2. Missing account raises CSVImportAccountNotFoundError before loader resolution.
     """
     db_mock = MagicMock()
     account_id = uuid4()
     raw_bytes = b"sample,csv,data"
-    loader_mock = MagicMock(spec=BankStatementLoader)
-    loader_mock.account_id = account_id
 
-    with patch("backend.access.account_access.get_account_by_id", return_value=None) as mock_get_account:
+    with patch("backend.access.account_access.get_account_by_id", return_value=None) as mock_get_account, \
+         patch("backend.managers.csv_import_manager._resolve_statement_loader") as mock_resolve:
         with pytest.raises(CSVImportAccountNotFoundError, match=f"Account {account_id} not found"):
             confirm_csv_import(
                 db=db_mock,
+                account_id=account_id,
+                format_identifier="usaa",
                 raw_bytes=raw_bytes,
-                loader=loader_mock,
             )
 
         mock_get_account.assert_called_once_with(db_mock, account_id)
-        loader_mock.load_records_tolerant.assert_not_called()
+        mock_resolve.assert_not_called()
 
 
-def test_manager_delegates_parsing_to_provided_loader(db_session):
+def test_manager_preview_validation_order_mocked():
     """
-    Verify confirm_csv_import delegates CSV parsing to the provided BankStatementLoader.
+    Verify preview validation precedence:
+    Account check precedes format resolution in preview_csv_import.
+    """
+    db_mock = MagicMock()
+    account_id = uuid4()
+    raw_bytes = b"sample,csv,data"
+
+    with patch("backend.access.account_access.get_account_by_id", return_value=None) as mock_get_account, \
+         patch("backend.managers.csv_import_manager._resolve_statement_loader") as mock_resolve:
+        with pytest.raises(CSVImportAccountNotFoundError, match=f"Account {account_id} not found"):
+            preview_csv_import(
+                db=db_mock,
+                account_id=account_id,
+                format_identifier="invalid_format",
+                raw_bytes=raw_bytes,
+            )
+
+        mock_get_account.assert_called_once_with(db_mock, account_id)
+        mock_resolve.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Format Resolution
+# ---------------------------------------------------------------------------
+
+def test_manager_builtin_format_resolution(db_session):
+    """
+    Verify _resolve_statement_loader resolves built-in formats case-insensitively.
+    """
+    account_id = uuid4()
+    loader_usaa = _resolve_statement_loader(db_session, account_id, "usaa")
+    assert isinstance(loader_usaa, USAALoader)
+    assert loader_usaa.account_id == account_id
+
+    loader_usaa_upper = _resolve_statement_loader(db_session, account_id, "  USAA  ")
+    assert isinstance(loader_usaa_upper, USAALoader)
+
+    loader_discover = _resolve_statement_loader(db_session, account_id, "Discover")
+    assert loader_discover.account_id == account_id
+
+
+def test_manager_custom_format_resolution(db_session):
+    """
+    Verify _resolve_statement_loader resolves custom format UUIDs via csv_format_access.
+    """
+    account_id = uuid4()
+    custom_format = csv_format_access.create_custom_format(
+        db=db_session,
+        name="My Bank",
+        date_column="Date",
+        description_column="Desc",
+        amount_column="Amount",
+        date_format="%Y-%m-%d",
+        amount_sign_convention="positive_is_outflow",
+    )
+
+    loader = _resolve_statement_loader(db_session, account_id, str(custom_format.id))
+    assert isinstance(loader, MappedStatementLoader)
+    assert loader.account_id == account_id
+    assert loader.config.date_column == "Date"
+    assert loader.config.description_column == "Desc"
+
+
+def test_manager_missing_custom_format_raises_error(db_session):
+    """
+    Verify _resolve_statement_loader raises CSVImportFormatNotFoundError
+    when a valid UUID is not found in csv_formats.
+    """
+    account_id = uuid4()
+    missing_format_uuid = uuid4()
+
+    with pytest.raises(CSVImportFormatNotFoundError, match=f"Format {missing_format_uuid} not found"):
+        _resolve_statement_loader(db_session, account_id, str(missing_format_uuid))
+
+
+def test_manager_unknown_format_string_raises_error(db_session):
+    """
+    Verify _resolve_statement_loader raises CSVImportUnknownFormatError
+    when format string is neither built-in nor a valid UUID.
+    """
+    account_id = uuid4()
+
+    with pytest.raises(CSVImportUnknownFormatError, match="Unknown format 'chase'. Available: \\['usaa', 'discover'\\]"):
+        _resolve_statement_loader(db_session, account_id, "chase")
+
+
+# ---------------------------------------------------------------------------
+# Preview Workflow
+# ---------------------------------------------------------------------------
+
+def test_manager_preview_success_utf8_sig(db_session):
+    """
+    Verify preview_csv_import parses UTF-8-SIG encoded bytes, produces 1-indexed rows,
+    counts valid and error rows, and performs zero database mutations.
     """
     account = models.Account(
-        name="Test Acct",
+        name="Test Account",
         type="depository",
         current_balance=Decimal("0"),
         starting_balance=Decimal("0"),
@@ -54,27 +170,125 @@ def test_manager_delegates_parsing_to_provided_loader(db_session):
     db_session.add(account)
     db_session.commit()
 
-    raw_bytes = b"dummy,csv,bytes"
-    mock_loader = MagicMock(spec=BankStatementLoader)
-    mock_loader.account_id = account.id
-    mock_loader.load_records_tolerant.return_value = ParsedStatement(
-        valid_transactions=(),
-        row_errors=(),
-    )
+    csv_data = (
+        "Date,Description,Category,Amount,Status\n"
+        "2026-06-01,COFFEE SHOP,Food,-4.50,posted\n"
+        "2026-06-02,PAYROLL,Income,2500.00,posted\n"
+    ).encode("utf-8-sig")
 
-    summary = confirm_csv_import(
+    preview = preview_csv_import(
         db=db_session,
-        raw_bytes=raw_bytes,
-        loader=mock_loader,
+        account_id=account.id,
+        format_identifier="usaa",
+        raw_bytes=csv_data,
     )
-    mock_loader.load_records_tolerant.assert_called_once_with(raw_bytes)
-    assert summary.imported == 0
-    assert summary.skipped == 0
 
+    assert preview.total_rows == 2
+    assert preview.valid_rows == 2
+    assert preview.error_rows == 0
+    assert len(preview.rows) == 2
+
+    # Row 1
+    assert preview.rows[0].row_number == 1
+    assert preview.rows[0].transaction_date == "2026-06-01"
+    assert preview.rows[0].description == "COFFEE SHOP"
+    assert preview.rows[0].amount == Decimal("4.50")
+    assert preview.rows[0].pending is False
+    assert preview.rows[0].parse_error is None
+
+    # Row 2
+    assert preview.rows[1].row_number == 2
+    assert preview.rows[1].transaction_date == "2026-06-02"
+    assert preview.rows[1].description == "PAYROLL"
+    assert preview.rows[1].amount == Decimal("-2500.00")
+    assert preview.rows[1].pending is False
+    assert preview.rows[1].parse_error is None
+
+    # Zero transactions created in DB
+    tx_count = db_session.query(models.Transaction).filter_by(account_id=account.id).count()
+    assert tx_count == 0
+
+
+def test_manager_preview_latin1_fallback(db_session):
+    """
+    Verify preview_csv_import falls back to latin-1 when utf-8-sig decoding fails.
+    """
+    account = models.Account(
+        name="Test Account",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    # 'Caf\xe9' is valid latin-1 but invalid utf-8
+    csv_bytes = b"Date,Description,Category,Amount,Status\n2026-06-01,Caf\xe9,Food,-5.00,posted\n"
+
+    preview = preview_csv_import(
+        db=db_session,
+        account_id=account.id,
+        format_identifier="usaa",
+        raw_bytes=csv_bytes,
+    )
+
+    assert preview.total_rows == 1
+    assert preview.valid_rows == 1
+    assert preview.rows[0].description == "Café"
+
+
+def test_manager_preview_row_numbering_and_tolerant_errors(db_session):
+    """
+    Verify preview collects row errors without failing the batch, preserves 1-based
+    row numbering, and correctly counts valid and error rows.
+    """
+    account = models.Account(
+        name="Test Account",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_data = (
+        "Date,Description,Category,Amount,Status\n"
+        "2026-06-01,VALID ROW 1,Food,-10.00,posted\n"
+        "invalid-date,BAD ROW 2,Food,-20.00,posted\n"
+        "2026-06-03,VALID ROW 3,Food,-30.00,posted\n"
+    ).encode("utf-8")
+
+    preview = preview_csv_import(
+        db=db_session,
+        account_id=account.id,
+        format_identifier="usaa",
+        raw_bytes=csv_data,
+    )
+
+    assert preview.total_rows == 3
+    assert preview.valid_rows == 2
+    assert preview.error_rows == 1
+
+    assert preview.rows[0].row_number == 1
+    assert preview.rows[0].parse_error is None
+
+    assert preview.rows[1].row_number == 2
+    assert preview.rows[1].parse_error is not None
+    assert "invalid-date" in preview.rows[1].parse_error
+
+    assert preview.rows[2].row_number == 3
+    assert preview.rows[2].parse_error is None
+
+
+# ---------------------------------------------------------------------------
+# Confirm Workflow
+# ---------------------------------------------------------------------------
 
 def test_manager_parse_failure_raises_parse_error(db_session):
     """
-    Verify valid account + invalid CSV bytes raises CSVImportParseError from loader.
+    Verify valid account + invalid CSV bytes raises CSVImportParseError from loader in confirm.
     """
     account = models.Account(
         name="Test Acct",
@@ -87,12 +301,12 @@ def test_manager_parse_failure_raises_parse_error(db_session):
     db_session.commit()
 
     malformed_csv = b"BadHeader1,BadHeader2\n123,456\n"
-    loader = USAALoader(account_id=account.id)
     with pytest.raises(CSVImportParseError, match="Missing columns"):
         confirm_csv_import(
             db=db_session,
+            account_id=account.id,
+            format_identifier="usaa",
             raw_bytes=malformed_csv,
-            loader=loader,
         )
 
 
@@ -119,11 +333,11 @@ def test_manager_successful_import_and_duplicate_skipping(db_session):
     ).encode("utf-8")
 
     # Initial import: 2 imported, 0 skipped
-    loader = USAALoader(account_id=account.id)
     res1 = confirm_csv_import(
         db=db_session,
+        account_id=account.id,
+        format_identifier="usaa",
         raw_bytes=csv_data,
-        loader=loader,
     )
     assert res1.imported == 2
     assert res1.skipped == 0
@@ -132,8 +346,9 @@ def test_manager_successful_import_and_duplicate_skipping(db_session):
     # Re-import identical file: 0 imported, 2 skipped
     res2 = confirm_csv_import(
         db=db_session,
+        account_id=account.id,
+        format_identifier="usaa",
         raw_bytes=csv_data,
-        loader=loader,
     )
     assert res2.imported == 0
     assert res2.skipped == 2
@@ -161,11 +376,11 @@ def test_manager_same_request_duplicates_both_imported(db_session):
         "2026-06-01,COFFEE,Food,-4.50,posted\n"
     ).encode("utf-8")
 
-    loader = USAALoader(account_id=account.id)
     res = confirm_csv_import(
         db=db_session,
+        account_id=account.id,
+        format_identifier="usaa",
         raw_bytes=csv_data,
-        loader=loader,
     )
     assert res.imported == 2
     assert res.skipped == 0
@@ -202,12 +417,12 @@ def test_manager_row_level_exception_formatting_and_continuation(db_session):
             raise ValueError("Staging exploded")
         return real_stage(db, account_id, transaction_date, amount, description, **kwargs)
 
-    loader = USAALoader(account_id=account.id)
     with patch("backend.access.transaction_access.stage_csv_import_transaction", side_effect=mock_stage):
         res = confirm_csv_import(
             db=db_session,
+            account_id=account.id,
+            format_identifier="usaa",
             raw_bytes=csv_data,
-            loader=loader,
         )
 
     assert res.imported == 1
@@ -243,12 +458,12 @@ def test_manager_single_final_commit_after_all_rows(db_session):
         "2026-06-03,ROW 3,Food,-30.00,posted\n"
     ).encode("utf-8")
 
-    loader = USAALoader(account_id=account.id)
     with patch.object(db_session, "commit", wraps=db_session.commit) as mock_commit:
         res = confirm_csv_import(
             db=db_session,
+            account_id=account.id,
+            format_identifier="usaa",
             raw_bytes=csv_data,
-            loader=loader,
         )
         assert res.imported == 3
         # Exactly one commit for the entire 3-row import
@@ -275,21 +490,20 @@ def test_manager_commit_failure_propagates(db_session):
         "2026-06-01,ROW 1,Food,-10.00,posted\n"
     ).encode("utf-8")
 
-    loader = USAALoader(account_id=account.id)
     with patch.object(db_session, "commit", side_effect=RuntimeError("DB Commit Crash")):
         with pytest.raises(RuntimeError, match="DB Commit Crash"):
             confirm_csv_import(
                 db=db_session,
+                account_id=account.id,
+                format_identifier="usaa",
                 raw_bytes=csv_data,
-                loader=loader,
             )
 
 
 def test_manager_summary_dataclass_contract():
     """
-    Verify CSVImportSummary:
-    - Is an immutable frozen dataclass.
-    - errors is a tuple.
+    Verify CSVImportSummary, CSVPreviewSummary, CSVPreviewRow:
+    - Are immutable frozen dataclasses.
     """
     summary = CSVImportSummary(imported=5, skipped=2, errors=("err1", "err2"))
     assert is_dataclass(summary)
@@ -300,6 +514,16 @@ def test_manager_summary_dataclass_contract():
 
     with pytest.raises(FrozenInstanceError):
         summary.imported = 10  # type: ignore
+
+    row = CSVPreviewRow(row_number=1, description="Test", amount=Decimal("10.00"))
+    assert is_dataclass(row)
+    with pytest.raises(FrozenInstanceError):
+        row.description = "Changed"  # type: ignore
+
+    prev = CSVPreviewSummary(rows=(row,), total_rows=1, valid_rows=1, error_rows=0)
+    assert is_dataclass(prev)
+    with pytest.raises(FrozenInstanceError):
+        prev.total_rows = 5  # type: ignore
 
 
 def test_manager_has_no_fastapi_or_pydantic_dependencies():
@@ -315,10 +539,6 @@ def test_manager_has_no_fastapi_or_pydantic_dependencies():
     assert "pydantic" not in mgr_source.lower()
     assert "HTTPException" not in mgr_source
 
-
-# ---------------------------------------------------------------------------
-# Row Error Tolerant Behavior
-# ---------------------------------------------------------------------------
 
 def test_manager_confirm_invalid_date_tolerates_and_imports_valid_rows(db_session):
     """
@@ -342,11 +562,11 @@ def test_manager_confirm_invalid_date_tolerates_and_imports_valid_rows(db_sessio
         b"2026-06-03,VALID ROW 2,Food,-30.00,posted\n"
     )
 
-    loader = USAALoader(account_id=account.id)
     summary = confirm_csv_import(
         db=db_session,
+        account_id=account.id,
+        format_identifier="usaa",
         raw_bytes=csv_bad_date,
-        loader=loader,
     )
 
     assert summary.imported == 2
@@ -380,11 +600,11 @@ def test_manager_confirm_invalid_amount_tolerates_and_imports_valid_rows(db_sess
         b"2026-06-03,VALID ROW 2,Food,-30.00,posted\n"
     )
 
-    loader = USAALoader(account_id=account.id)
     summary = confirm_csv_import(
         db=db_session,
+        account_id=account.id,
+        format_identifier="usaa",
         raw_bytes=csv_bad_amount,
-        loader=loader,
     )
 
     assert summary.imported == 2
@@ -396,13 +616,10 @@ def test_manager_confirm_invalid_amount_tolerates_and_imports_valid_rows(db_sess
     assert count == 2
 
 
-def test_manager_confirm_with_explicit_loader_instance(db_session):
+def test_manager_confirm_custom_format(db_session):
     """
-    Verify confirm_csv_import executes workflow when passed an explicit
-    BankStatementLoader instance (e.g. MappedStatementLoader) rather than a format name string.
+    Verify confirm_csv_import executes workflow with custom format UUID.
     """
-    from backend.bank_statement_loader import MappedCSVFormatConfig, MappedStatementLoader
-
     account = models.Account(
         name="Credit Union Checking",
         type="depository",
@@ -413,14 +630,15 @@ def test_manager_confirm_with_explicit_loader_instance(db_session):
     db_session.add(account)
     db_session.commit()
 
-    config = MappedCSVFormatConfig(
+    custom_format = csv_format_access.create_custom_format(
+        db=db_session,
+        name="Credit Union",
         date_column="TxDate",
         description_column="Payee",
         amount_column="Value",
         date_format="%Y-%m-%d",
         amount_sign_convention="positive_is_outflow",
     )
-    loader = MappedStatementLoader(account_id=account.id, config=config)
 
     csv_bytes = (
         b"TxDate,Payee,Value\n"
@@ -430,8 +648,9 @@ def test_manager_confirm_with_explicit_loader_instance(db_session):
 
     summary = confirm_csv_import(
         db=db_session,
+        account_id=account.id,
+        format_identifier=str(custom_format.id),
         raw_bytes=csv_bytes,
-        loader=loader,
     )
 
     assert summary.imported == 2
@@ -444,71 +663,3 @@ def test_manager_confirm_with_explicit_loader_instance(db_session):
     assert txns[0].amount == Decimal("45.50")
     assert txns[1].description == "Salary"
     assert txns[1].amount == Decimal("-2000.00")
-
-
-def test_manager_derives_account_id_from_loader(db_session):
-    """
-    Verify the Manager derives account context exclusively from loader.account_id:
-    - Validates loader.account_id exists in persistence.
-    - Persists imported transactions to that exact account.
-    """
-    account_a = models.Account(
-        name="Account Alpha",
-        type="depository",
-        current_balance=Decimal("0"),
-        starting_balance=Decimal("0"),
-        currency="USD",
-    )
-    account_b = models.Account(
-        name="Account Beta",
-        type="depository",
-        current_balance=Decimal("0"),
-        starting_balance=Decimal("0"),
-        currency="USD",
-    )
-    db_session.add_all([account_a, account_b])
-    db_session.commit()
-
-    csv_data = (
-        b"Date,Description,Category,Amount,Status\n"
-        b"2026-06-01,STORE ON ALPHA,Food,-10.00,posted\n"
-    )
-
-    loader = USAALoader(account_id=account_a.id)
-    summary = confirm_csv_import(
-        db=db_session,
-        raw_bytes=csv_data,
-        loader=loader,
-    )
-
-    assert summary.imported == 1
-    assert summary.skipped == 0
-
-    # Ensure transaction was persisted under Account Alpha, NOT Account Beta
-    txns_a = db_session.query(models.Transaction).filter_by(account_id=account_a.id).all()
-    txns_b = db_session.query(models.Transaction).filter_by(account_id=account_b.id).all()
-    assert len(txns_a) == 1
-    assert len(txns_b) == 0
-    assert txns_a[0].description == "STORE ON ALPHA"
-
-
-def test_manager_fails_when_loader_account_id_does_not_exist(db_session):
-    """
-    Verify the Manager validates loader.account_id and fails cleanly
-    outside of the HTTP router if the loader's account_id does not exist in persistence.
-    """
-    nonexistent_id = uuid4()
-    loader = USAALoader(account_id=nonexistent_id)
-
-    csv_data = (
-        b"Date,Description,Category,Amount,Status\n"
-        b"2026-06-01,SOME STORE,Food,-10.00,posted\n"
-    )
-
-    with pytest.raises(CSVImportAccountNotFoundError, match=f"Account {nonexistent_id} not found"):
-        confirm_csv_import(
-            db=db_session,
-            raw_bytes=csv_data,
-            loader=loader,
-        )
-

@@ -57,13 +57,17 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 
 **Exit criteria:** no duplicated business rule matching in `transaction_access.py`; ingestion flows use the authoritative policy.
 
-## Slice 4 — CSV/upload application boundary
+## Slice 4 — CSV/upload application boundary [COMPLETED]
 
-**Problem:** upload Router owns loader resolution, format DB lookup, parser construction, inspect/preview sequencing, and redundant account validation.
+**Problem:** upload Router owned loader resolution, format DB lookup, parser construction, inspect/preview sequencing, and redundant account validation.
 
-**Target:** Presentation handles HTTP/upload mechanics; Manager/application/parser boundary handles format/parser/use-case sequencing.
+**Target:** Presentation handles HTTP/upload mechanics; `CSVImportManager` owns format resolution, account verification, preview sequencing, and confirm import workflow.
 
-**Exit criteria:** Router contains no application parsing loop or persisted-format-driven construction; preview/confirm behavior remains characterized and green.
+**Exit criteria met:**
+- Router contains zero database lookups, zero loader strategy construction, zero byte decoding, and zero row parsing loops;
+- `CSVImportManager` authoritatively coordinates destination account validation, format identifier resolution (built-ins vs custom UUID via `csv_format_access`), statement loader construction, and preview row parsing / error aggregation;
+- Application exceptions (`CSVImportAccountNotFoundError`, `CSVImportUnknownFormatError`, `CSVImportFormatNotFoundError`, `CSVImportParseError`) mapped in Router to existing HTTP status codes (400, 404, 422);
+- Characterization suite (109 tests across preview, confirm, format resolution, and categorization) and full test suite (971 tests) green.
 
 ## Slice 5 — Remove Presentation coupling from Managers
 

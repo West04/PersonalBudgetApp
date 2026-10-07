@@ -114,8 +114,12 @@ def test_rule_application_csv_import(db_session):
         b"2026-07-11,UNKNOWN BOOKSTORE,UNKNOWN BOOKSTORE RAW,, -25.00,Posted\n"
     )
 
-    loader = USAALoader(account_id=acc.id)
-    summary = csv_import_manager.confirm_csv_import(db_session, csv_content, loader)
+    summary = csv_import_manager.confirm_csv_import(
+        db=db_session,
+        account_id=acc.id,
+        format_identifier="usaa",
+        raw_bytes=csv_content,
+    )
 
     assert summary.imported == 2
     assert summary.skipped == 0
@@ -137,7 +141,12 @@ def test_rule_application_csv_import(db_session):
     assert txs[1].is_reviewed is False
 
     # Re-importing same CSV deduplicates properly
-    summary2 = csv_import_manager.confirm_csv_import(db_session, csv_content, loader)
+    summary2 = csv_import_manager.confirm_csv_import(
+        db=db_session,
+        account_id=acc.id,
+        format_identifier="usaa",
+        raw_bytes=csv_content,
+    )
     assert summary2.imported == 0
     assert summary2.skipped == 2
 
@@ -177,8 +186,12 @@ def test_csv_import_categorization_equivalence(db_session):
         b"2026-07-12,RANDOM BOOKSHOP,RAW,, -15.00,Posted\n"
     )
 
-    loader = USAALoader(account_id=acc.id)
-    summary = csv_import_manager.confirm_csv_import(db_session, csv_content, loader)
+    summary = csv_import_manager.confirm_csv_import(
+        db=db_session,
+        account_id=acc.id,
+        format_identifier="usaa",
+        raw_bytes=csv_content,
+    )
     assert summary.imported == 3
     assert summary.skipped == 0
     assert len(summary.errors) == 0
@@ -203,7 +216,7 @@ def test_csv_import_categorization_equivalence(db_session):
     assert txs[2].category_source is None
 
     # 3. Test loader with pre-assigned category_id: preserves it with category_source='legacy'
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
     from backend.bank_statement_loader import BankStatementLoader, ParsedStatement
     from backend.schemas import TransactionCreate
 
@@ -221,7 +234,13 @@ def test_csv_import_categorization_equivalence(db_session):
         ),
         row_errors=(),
     )
-    summary_legacy = csv_import_manager.confirm_csv_import(db_session, b"dummy", mock_loader)
+    with patch("backend.managers.csv_import_manager._resolve_statement_loader", return_value=mock_loader):
+        summary_legacy = csv_import_manager.confirm_csv_import(
+            db=db_session,
+            account_id=acc.id,
+            format_identifier="mock",
+            raw_bytes=b"dummy",
+        )
     assert summary_legacy.imported == 1
     tx_legacy = db_session.query(models.Transaction).filter_by(description="STARBUCKS GIFT SHOP").one()
     assert tx_legacy.category_id == cat_shopping.category_id

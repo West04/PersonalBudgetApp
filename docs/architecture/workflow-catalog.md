@@ -70,12 +70,12 @@ resolve Plaid item
 Transaction granularity is a separate correctness concern; do not alter it during unrelated decomposition work.
 
 ## CSV import confirmation
-
+ 
 **Manager:** `CSVImportManager`
 
 ```text
-resolve/receive statement parser
--> verify destination account
+verify destination account
+-> resolve statement loader (built-in registry vs custom format via csv_format_access)
 -> parse tolerant records
 -> load categorization inputs
 -> for each valid row:
@@ -88,13 +88,23 @@ resolve/receive statement parser
 -> return import summary
 ```
 
-**Architecture boundary:** `CSVImportManager` determines categorization using domain helper `match_merchant_rule` before delegating to `transaction_access.stage_csv_import_transaction`. ResourceAccess performs atomic staging without evaluating rules or calling other Accessors.
+**Architecture boundary:** Router handles multipart form extraction, invokes `CSVImportManager.confirm_csv_import`, and serializes the summary. `CSVImportManager` authoritatively validates account existence, resolves loader strategies, parses records, applies categorization rules via domain `match_merchant_rule`, and stages via `transaction_access.stage_csv_import_transaction`.
 
-**Migration concern:** loader resolution and a redundant account check currently live in Presentation.
+## CSV preview
 
-## CSV inspect/preview — migration target
+**Manager:** `CSVImportManager.preview_csv_import`
 
-Current Presentation performs format sniffing, custom-format retrieval, loader selection/construction, row parsing, and error aggregation. Move application/parser sequencing out of the Router while leaving HTTP file extraction and response mapping in Presentation.
+```text
+verify destination account
+-> resolve statement loader (built-in registry vs custom format via csv_format_access)
+-> decode raw bytes (utf-8-sig with latin-1 fallback)
+-> iterate rows with 1-based indexing
+-> normalize and transform row via loader
+-> collect row errors non-fatally
+-> return CSVPreviewSummary without database mutation
+```
+
+**Architecture boundary:** Router retains HTTP multipart upload handling, invokes `CSVImportManager.preview_csv_import`, and maps domain exceptions (`CSVImportAccountNotFoundError`, `CSVImportUnknownFormatError`, `CSVImportFormatNotFoundError`) to HTTP responses (404, 400). All parsing logic, loader resolution, and row error aggregation live inside `CSVImportManager`.
 
 ## Account reconciliation
 

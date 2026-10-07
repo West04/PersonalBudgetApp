@@ -447,7 +447,7 @@ def test_inspect_does_not_invoke_parsers_managers_or_loaders(client):
     )
     files = {"file": ("usaa.csv", BytesIO(csv_content.encode("utf-8")), "text/csv")}
 
-    with patch("backend.routers.upload._resolve_statement_loader") as mock_resolve, \
+    with patch("backend.managers.csv_import_manager._resolve_statement_loader") as mock_resolve, \
          patch("backend.bank_statement_loader.USAALoader.transform_row") as mock_usaa_transform, \
          patch("backend.bank_statement_loader.DiscoverLoader.transform_row") as mock_disc_transform, \
          patch("backend.bank_statement_loader.MappedStatementLoader.transform_row") as mock_mapped_transform, \

@@ -47,9 +47,12 @@ def test_csv_import_populates_normalized_merchant(db_session, test_account):
         "2026-06-16,HEB GROCERY,Groceries,-64.20,posted\n"
     )
     raw_bytes = csv_text.encode("utf-8")
-    loader = USAALoader(account_id=test_account.id)
-
-    summary = confirm_csv_import(db_session, raw_bytes, loader)
+    summary = confirm_csv_import(
+        db=db_session,
+        account_id=test_account.id,
+        format_identifier="usaa",
+        raw_bytes=raw_bytes,
+    )
     assert summary.imported == 2
     assert summary.skipped == 0
 

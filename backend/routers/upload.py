@@ -20,15 +20,11 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, s
 from sqlalchemy.orm import Session
 
 from .. import schemas
-from ..access import account_access, csv_format_access
+from ..access import csv_format_access
 from ..database import get_db
 from ..bank_statement_loader import (
     BUILTIN_FORMAT_MATCHES,
-    BankStatementLoader,
-    LOADER_REGISTRY,
-    MappedStatementLoader,
     detect_csv_format,
-    get_loader,
 )
 from ..managers import csv_import_manager
 
@@ -43,37 +39,6 @@ async def _read_upload(file: UploadFile) -> bytes:
     raw = await file.read()
     await file.seek(0)  # reset so callers can re-read if needed
     return raw
-
-
-def _resolve_statement_loader(
-    db: Session,
-    account_id: UUID,
-    format_identifier: str,
-) -> BankStatementLoader:
-    clean_fmt = format_identifier.strip()
-
-    # 1. Built-in format?
-    if clean_fmt.lower() in LOADER_REGISTRY:
-        return get_loader(clean_fmt, account_id)
-
-    # 2. Custom format UUID?
-    try:
-        format_uuid = UUID(clean_fmt)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown format '{format_identifier}'. Available: {list(LOADER_REGISTRY.keys())}",
-        )
-
-    custom_format = csv_format_access.get_custom_format_by_id(db, format_uuid)
-    if not custom_format:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Format {format_uuid} not found",
-        )
-
-    config = csv_format_access.csv_format_to_mapped_config(custom_format)
-    return MappedStatementLoader(account_id=account_id, config=config)
 
 
 # ---------------------------------------------------------------------------
@@ -230,58 +195,46 @@ async def preview_csv(
     Parse a CSV file and return a preview of the transactions it contains.
     Nothing is written to the database.
     """
-    account = account_access.get_account_by_id(db, account_id)
-    if not account:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Account {account_id} not found",
-        )
-
-    loader = _resolve_statement_loader(db, account_id, format)
-
     raw = await _read_upload(file)
 
-    # Parse row by row so we can capture per-row errors gracefully
-    rows: list[schemas.CSVTransactionRow] = []
-    import csv, io
-
     try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = raw.decode("latin-1")
-
-    reader = csv.DictReader(io.StringIO(text))
-    for i, raw_row in enumerate(reader, start=1):
-        try:
-            normalized = loader.normalize_row(raw_row)
-            txn = loader.transform_row(normalized)
-            if txn is None:
-                continue
-            rows.append(
-                schemas.CSVTransactionRow(
-                    row_number=i,
-                    transaction_date=txn.date.isoformat(),
-                    description=txn.description,
-                    amount=txn.amount,
-                    pending=txn.pending,
-                )
-            )
-        except Exception as exc:
-            rows.append(
-                schemas.CSVTransactionRow(
-                    row_number=i,
-                    parse_error=str(exc),
-                )
-            )
-
-    valid_rows = [r for r in rows if r.parse_error is None]
-    error_rows = [r for r in rows if r.parse_error is not None]
+        summary = csv_import_manager.preview_csv_import(
+            db=db,
+            account_id=account_id,
+            format_identifier=format,
+            raw_bytes=raw,
+        )
+    except csv_import_manager.CSVImportAccountNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+    except csv_import_manager.CSVImportUnknownFormatError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except csv_import_manager.CSVImportFormatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
 
     return schemas.CSVPreviewResponse(
-        rows=rows,
-        total_rows=len(rows),
-        valid_rows=len(valid_rows),
-        error_rows=len(error_rows),
+        rows=[
+            schemas.CSVTransactionRow(
+                row_number=r.row_number,
+                transaction_date=r.transaction_date,
+                description=r.description,
+                amount=r.amount,
+                pending=r.pending,
+                parse_error=r.parse_error,
+            )
+            for r in summary.rows
+        ],
+        total_rows=summary.total_rows,
+        valid_rows=summary.valid_rows,
+        error_rows=summary.error_rows,
     )
 
 
@@ -302,24 +255,26 @@ async def confirm_csv(
     Duplicate detection: a row is skipped (not errored) if a transaction with the
     same account_id, date, amount, and description already exists.
     """
-    account = account_access.get_account_by_id(db, account_id)
-    if not account:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Account {account_id} not found",
-        )
-
-    loader = _resolve_statement_loader(db, account_id, format)
-
     raw = await _read_upload(file)
 
     try:
         summary = csv_import_manager.confirm_csv_import(
             db=db,
+            account_id=account_id,
+            format_identifier=format,
             raw_bytes=raw,
-            loader=loader,
         )
     except csv_import_manager.CSVImportAccountNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+    except csv_import_manager.CSVImportUnknownFormatError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except csv_import_manager.CSVImportFormatNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
