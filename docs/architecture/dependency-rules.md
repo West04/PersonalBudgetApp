@@ -54,8 +54,8 @@ The source evidence audit originally reported:
 
 - live workflow orchestration in `backend/routers/plaid.py::exchange_public_token` (RESOLVED in Slice 1: delegated to `PlaidAccountSyncManager.exchange_public_token`)
 - upload inspection/preview/loader sequencing in `backend/routers/upload.py`
-- Accessor-to-Accessor calls involving `transaction_access.py`, `split_access.py`, `categorization_rule_access.py`, `ml_model_access.py`, and `category_access.py`
-- categorization matching logic duplicated in `transaction_access.py`
+- Accessor-to-Accessor calls involving `transaction_access.py`, `split_access.py`, `categorization_rule_access.py`, `ml_model_access.py`, and `category_access.py` (PARTIALLY RESOLVED in Slice 2a: `stage_csv_import_transaction -> categorization_rule_access` removed)
+- categorization matching logic duplicated in `transaction_access.py` (PARTIALLY RESOLVED in Slice 2a: CSV import inlined matching replaced by domain `match_merchant_rule` in `CSVImportManager`)
 - FastAPI/Pydantic coupling in some Managers
 - one current Manager-to-Manager call: `DashboardSummaryManager -> BudgetSummaryManager`
 

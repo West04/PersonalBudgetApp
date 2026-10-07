@@ -246,3 +246,58 @@ def test_stage_csv_import_transaction_staged_in_session(db_session):
 
     # Object is staged in Session.new
     assert staged in db_session.new
+
+
+def test_stage_csv_import_transaction_persists_explicit_category_and_provenance(db_session):
+    """
+    Verify stage_csv_import_transaction performs zero provenance inference:
+    - category_id and category_source are persisted exactly as passed.
+    - If category_id is set but category_source is None, category_source remains None (no 'legacy' fallback).
+    - If category_source is 'legacy' or 'rule', it is persisted directly.
+    """
+    import uuid
+    acct = models.Account(name="Acct2", type="depository", current_balance=Decimal("0"), currency="USD")
+    db_session.add(acct)
+    db_session.commit()
+
+    dummy_cat_id = uuid.uuid4()
+
+    # Case 1: category_id provided with explicit category_source="legacy"
+    tx1 = stage_csv_import_transaction(
+        db=db_session,
+        account_id=acct.id,
+        transaction_date=date(2026, 6, 1),
+        amount=Decimal("10.00"),
+        description="Explicit Legacy",
+        category_id=dummy_cat_id,
+        category_source="legacy",
+    )
+    assert tx1.category_id == dummy_cat_id
+    assert tx1.category_source == "legacy"
+
+    # Case 2: category_id provided with explicit category_source="rule"
+    tx2 = stage_csv_import_transaction(
+        db=db_session,
+        account_id=acct.id,
+        transaction_date=date(2026, 6, 2),
+        amount=Decimal("20.00"),
+        description="Explicit Rule",
+        category_id=dummy_cat_id,
+        category_source="rule",
+    )
+    assert tx2.category_id == dummy_cat_id
+    assert tx2.category_source == "rule"
+
+    # Case 3: category_id provided with category_source=None -> remains None (zero inference)
+    tx3 = stage_csv_import_transaction(
+        db=db_session,
+        account_id=acct.id,
+        transaction_date=date(2026, 6, 3),
+        amount=Decimal("30.00"),
+        description="No Inference",
+        category_id=dummy_cat_id,
+        category_source=None,
+    )
+    assert tx3.category_id == dummy_cat_id
+    assert tx3.category_source is None
+

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..access import account_access, transaction_access, categorization_rule_access
 from ..bank_statement_loader import BankStatementLoader
+from ..domain.categorization_rules import match_merchant_rule
 from ..domain.merchant_normalization import normalize_merchant
 
 
@@ -91,6 +92,18 @@ def confirm_csv_import(
                 continue
 
             merchant = normalize_merchant(txn.description)
+            if txn.category_id is not None:
+                assigned_category_id = txn.category_id
+                category_source = "legacy"
+            else:
+                matched_category_id = match_merchant_rule(merchant, rules_lookup)
+                if matched_category_id is not None:
+                    assigned_category_id = matched_category_id
+                    category_source = "rule"
+                else:
+                    assigned_category_id = None
+                    category_source = None
+
             transaction_access.stage_csv_import_transaction(
                 db,
                 account_id=txn.account_id,
@@ -98,10 +111,10 @@ def confirm_csv_import(
                 amount=txn.amount,
                 description=txn.description,
                 pending=txn.pending,
-                category_id=txn.category_id,
+                category_id=assigned_category_id,
+                category_source=category_source,
                 transaction_datetime=txn.datetime,
                 merchant=merchant,
-                rules_lookup=rules_lookup,
             )
 
             imported += 1

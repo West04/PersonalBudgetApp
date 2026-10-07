@@ -274,17 +274,28 @@ def stage_csv_import_transaction(
     description: str,
     pending: bool = False,
     category_id: Optional[UUID] = None,
+    category_source: Optional[str] = None,
     transaction_datetime: Optional[datetime] = None,
+    merchant: Optional[str] = None,
 ) -> models.Transaction:
     """
     Instantiates and stages a new manual CSV import Transaction in the session.
     Explicitly sets plaid_transaction_id = None.
+    If merchant is omitted, normalizes merchant from description.
+    Sets is_merchant_overridden = False.
     Does not flush or commit.
     """
+    from ..domain.merchant_normalization import normalize_merchant
+
+    resolved_merchant = merchant if merchant is not None else normalize_merchant(description)
+
     txn = models.Transaction(
         account_id=account_id,
         category_id=category_id,
+        category_source=category_source,
         description=description,
+        merchant=resolved_merchant,
+        is_merchant_overridden=False,
         amount=amount,
         date=transaction_date,
         datetime=transaction_datetime,
@@ -300,6 +311,7 @@ def stage_csv_import_transaction(
 - It does **not** flush and does **not** commit.
 - `plaid_transaction_id` is explicitly set to `None`.
 - `is_transfer` defaults to `False` via ORM model column default.
+- `category_id` and `category_source` are persisted exactly as passed; `TransactionAccess` performs zero provenance or categorization inference.
 
 ---
 

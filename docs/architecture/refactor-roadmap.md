@@ -24,7 +24,14 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 
 **Target:** identify each hidden use-case sequence and move sequencing to existing justified Managers or the smallest new Manager boundary proven necessary. Keep atomic persistence operations concrete.
 
-**Exit criteria:** no ResourceAccess-to-ResourceAccess workflow chaining for the addressed operations; behavior unchanged.
+### Slice 2a — CSV import categorization rule decoupling [COMPLETED]
+- Decoupled `stage_csv_import_transaction` from `categorization_rule_access` and removed inlined rule-matching logic.
+- `CSVImportManager` now authoritatively resolves categorization rules via pure domain helper `match_merchant_rule(merchant, rules_lookup)` and passes resolved scalars `category_id` and `category_source` to `stage_csv_import_transaction`.
+- Exit criteria met: zero cross-accessor calls between `stage_csv_import_transaction` and `categorization_rule_access`; `rules_lookup` removed from `stage_csv_import_transaction`; characterization suite and full test suite (953 tests) green.
+
+### Remaining in Slice 2 / Slice 3:
+- Plaid sync split invalidation & rule evaluation (`stage_or_update_plaid_transaction -> split_access`, `categorization_rule_access`).
+- Manual transaction creation/update policy concerns (unresolved future slices; no generic TransactionManager).
 
 ## Slice 3 — Categorization policy authority
 

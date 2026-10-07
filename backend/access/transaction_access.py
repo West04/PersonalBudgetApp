@@ -211,41 +211,24 @@ def stage_csv_import_transaction(
     description: str,
     pending: bool = False,
     category_id: Optional[UUID] = None,
+    category_source: Optional[str] = None,
     transaction_datetime: Optional[datetime] = None,
     merchant: Optional[str] = None,
-    rules_lookup: Optional[Mapping[str, UUID]] = None,
 ) -> models.Transaction:
     """
     Instantiates and stages a new manual CSV import Transaction in the session.
     Explicitly sets plaid_transaction_id = None.
     If merchant is omitted, normalizes merchant from description.
     Sets is_merchant_overridden = False.
-    Evaluates matching categorization rule if category_id is None.
     Does not flush or commit.
     """
     from ..domain.merchant_normalization import normalize_merchant
-    from ..domain.categorization_rules import clean_merchant_key
 
     resolved_merchant = merchant if merchant is not None else normalize_merchant(description)
 
-    assigned_category_id = category_id
-    category_source = "legacy" if assigned_category_id is not None else None
-    if assigned_category_id is None and resolved_merchant:
-        if rules_lookup is not None:
-            clean_key = clean_merchant_key(resolved_merchant)
-            if clean_key and clean_key in rules_lookup:
-                assigned_category_id = rules_lookup[clean_key]
-                category_source = "rule"
-        else:
-            from . import categorization_rule_access
-            rule = categorization_rule_access.get_rule_by_merchant(db, resolved_merchant)
-            if rule:
-                assigned_category_id = rule.category_id
-                category_source = "rule"
-
     txn = models.Transaction(
         account_id=account_id,
-        category_id=assigned_category_id,
+        category_id=category_id,
         category_source=category_source,
         description=description,
         merchant=resolved_merchant,

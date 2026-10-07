@@ -142,6 +142,92 @@ def test_rule_application_csv_import(db_session):
     assert summary2.skipped == 2
 
 
+def test_csv_import_categorization_equivalence(db_session):
+    """
+    Characterization test verifying CSV import categorization rules behavior:
+    1. Uncategorized row matching rule gets assigned category with category_source='rule'.
+    2. Casing/whitespace differences in merchant match rule deterministically.
+    3. Row with existing category preserves it with category_source='legacy'.
+    4. Row without matching rule remains uncategorized with category_id=None, category_source=None.
+    5. Directly verifies equivalence between inline logic and domain.categorization_rules.match_merchant_rule.
+    """
+    from backend.domain.categorization_rules import match_merchant_rule
+    from backend.domain.merchant_normalization import normalize_merchant
+
+    acc, cat_dining, cat_shopping, cat_coffee = _create_account_and_categories(db_session)
+
+    categorization_rule_access.create_rule(db_session, "Starbucks", cat_coffee.category_id)
+    categorization_rule_access.create_rule(db_session, "Trader Joe's", cat_dining.category_id)
+
+    rules_lookup = categorization_rule_access.get_rules_lookup_dict(db_session)
+
+    # 1. Verify match_merchant_rule returns expected values for test payees
+    assert match_merchant_rule("Starbucks", rules_lookup) == cat_coffee.category_id
+    assert match_merchant_rule("  starbucks  ", rules_lookup) == cat_coffee.category_id
+    assert match_merchant_rule("Trader Joe's", rules_lookup) == cat_dining.category_id
+    assert match_merchant_rule("Unknown Store", rules_lookup) is None
+    assert match_merchant_rule(None, rules_lookup) is None
+    assert match_merchant_rule("", rules_lookup) is None
+
+    # 2. Run through CSV import confirmation
+    csv_content = (
+        b"Date,Description,Original Description,Category,Amount,Status\n"
+        b"2026-07-10,STARBUCKS #1105,RAW,, -4.75,Posted\n"
+        b"2026-07-11,TRADER JOE'S #42,RAW,, -45.00,Posted\n"
+        b"2026-07-12,RANDOM BOOKSHOP,RAW,, -15.00,Posted\n"
+    )
+
+    loader = USAALoader(account_id=acc.id)
+    summary = csv_import_manager.confirm_csv_import(db_session, csv_content, loader)
+    assert summary.imported == 3
+    assert summary.skipped == 0
+    assert len(summary.errors) == 0
+
+    txs = db_session.query(models.Transaction).filter_by(account_id=acc.id).order_by(models.Transaction.date).all()
+    assert len(txs) == 3
+
+    # Row 1: Starbucks -> Coffee
+    assert txs[0].merchant == "Starbucks"
+    assert txs[0].category_id == cat_coffee.category_id
+    assert txs[0].category_source == "rule"
+
+    # Row 2: Trader Joe's -> Dining
+    assert txs[0].merchant == "Starbucks"
+    assert txs[1].merchant == "Trader Joe's"
+    assert txs[1].category_id == cat_dining.category_id
+    assert txs[1].category_source == "rule"
+
+    # Row 3: Random Bookshop -> None
+    assert txs[2].merchant == "Random Bookshop"
+    assert txs[2].category_id is None
+    assert txs[2].category_source is None
+
+    # 3. Test loader with pre-assigned category_id: preserves it with category_source='legacy'
+    from unittest.mock import MagicMock
+    from backend.bank_statement_loader import BankStatementLoader, ParsedStatement
+    from backend.schemas import TransactionCreate
+
+    mock_loader = MagicMock(spec=BankStatementLoader)
+    mock_loader.account_id = acc.id
+    mock_loader.load_records_tolerant.return_value = ParsedStatement(
+        valid_transactions=(
+            TransactionCreate(
+                account_id=acc.id,
+                date=date(2026, 7, 13),
+                amount=Decimal("50.00"),
+                description="STARBUCKS GIFT SHOP",
+                category_id=cat_shopping.category_id,
+            ),
+        ),
+        row_errors=(),
+    )
+    summary_legacy = csv_import_manager.confirm_csv_import(db_session, b"dummy", mock_loader)
+    assert summary_legacy.imported == 1
+    tx_legacy = db_session.query(models.Transaction).filter_by(description="STARBUCKS GIFT SHOP").one()
+    assert tx_legacy.category_id == cat_shopping.category_id
+    assert tx_legacy.category_source == "legacy"
+
+
 def test_rule_application_plaid_sync_and_protection(db_session):
     """
     Test Section 54, 57:

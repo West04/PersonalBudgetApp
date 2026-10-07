@@ -73,6 +73,8 @@ resolve/receive statement parser
 -> return import summary
 ```
 
+**Architecture boundary:** `CSVImportManager` determines categorization using domain helper `match_merchant_rule` before delegating to `transaction_access.stage_csv_import_transaction`. ResourceAccess performs atomic staging without evaluating rules or calling other Accessors.
+
 **Migration concern:** loader resolution and a redundant account check currently live in Presentation.
 
 ## CSV inspect/preview — migration target
