@@ -7,7 +7,7 @@ Verifies:
    - Initializes normalized merchant for new records.
    - Updates merchant on provider metadata changes when not overridden.
    - Preserves manual corrections when is_merchant_overridden=True.
-3. create_manual_transaction:
+3. manual_transaction_manager.create_transaction:
    - Derives normalized merchant when omitted.
    - Preserves explicit user-provided merchant and marks is_merchant_overridden=True.
 4. update_manual_transaction:
@@ -29,6 +29,7 @@ from sqlalchemy import text
 from backend import models, schemas
 from backend.access import transaction_access
 from backend.database import migrate_merchant_state
+from backend.managers import manual_transaction_manager
 
 
 @pytest.fixture(autouse=True)
@@ -128,8 +129,8 @@ def test_plaid_staging_initializes_and_updates_merchant(db_session, test_account
 # 3. Manual Creation
 # ---------------------------------------------------------------------------
 
-def test_create_manual_transaction_omitted_merchant_is_normalized(db_session, test_account):
-    txn = transaction_access.create_manual_transaction(
+def test_manual_create_omitted_merchant_is_normalized(db_session, test_account):
+    txn = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=test_account.id,
         category_id=None,
@@ -145,8 +146,8 @@ def test_create_manual_transaction_omitted_merchant_is_normalized(db_session, te
     assert txn.is_merchant_overridden is False
 
 
-def test_create_manual_transaction_explicit_merchant_marked_overridden(db_session, test_account):
-    txn = transaction_access.create_manual_transaction(
+def test_manual_create_explicit_merchant_marked_overridden(db_session, test_account):
+    txn = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=test_account.id,
         category_id=None,
@@ -168,17 +169,16 @@ def test_create_manual_transaction_explicit_merchant_marked_overridden(db_sessio
 # ---------------------------------------------------------------------------
 
 def test_update_manual_transaction_merchant_sets_override(db_session, test_account):
-    txn = transaction_access.create_manual_transaction(
+    txn = transaction_access.stage_manual_transaction(
         db=db_session,
         account_id=test_account.id,
-        category_id=None,
-        description="SAFEWAY #456",
         amount=Decimal("30.00"),
         transaction_date=date(2026, 6, 10),
-        transaction_datetime=None,
-        pending=False,
-        plaid_transaction_id=None,
+        description="SAFEWAY #456",
+        merchant="Safeway",
+        is_merchant_overridden=False,
     )
+    db_session.commit()
     assert txn.merchant == "Safeway"
     assert txn.is_merchant_overridden is False
 
@@ -203,17 +203,16 @@ def test_update_manual_transaction_merchant_sets_override(db_session, test_accou
 
 
 def test_update_manual_transaction_description_renormalizes_when_not_overridden(db_session, test_account):
-    txn = transaction_access.create_manual_transaction(
+    txn = transaction_access.stage_manual_transaction(
         db=db_session,
         account_id=test_account.id,
-        category_id=None,
-        description="SAFEWAY #456",
         amount=Decimal("30.00"),
         transaction_date=date(2026, 6, 10),
-        transaction_datetime=None,
-        pending=False,
-        plaid_transaction_id=None,
+        description="SAFEWAY #456",
+        merchant="Safeway",
+        is_merchant_overridden=False,
     )
+    db_session.commit()
     assert txn.merchant == "Safeway"
     assert txn.is_merchant_overridden is False
 
@@ -229,16 +228,14 @@ def test_update_manual_transaction_description_renormalizes_when_not_overridden(
 
 
 def test_update_merchant_on_reconciled_transaction_permitted(db_session, test_account):
-    txn = transaction_access.create_manual_transaction(
+    txn = transaction_access.stage_manual_transaction(
         db=db_session,
         account_id=test_account.id,
-        category_id=None,
-        description="NETFLIX.COM",
         amount=Decimal("15.99"),
         transaction_date=date(2026, 6, 10),
-        transaction_datetime=None,
-        pending=False,
-        plaid_transaction_id=None,
+        description="NETFLIX.COM",
+        merchant="Netflix",
+        is_merchant_overridden=False,
     )
     txn.is_cleared = True
     txn.is_reconciled = True
@@ -262,17 +259,16 @@ def test_update_merchant_on_reconciled_transaction_permitted(db_session, test_ac
 
 def test_list_transactions_search_matches_both_merchant_and_description(db_session, test_account):
     # Tx A: Raw description has noisy ID, merchant is normalized
-    tx_a = transaction_access.create_manual_transaction(
+    tx_a = transaction_access.stage_manual_transaction(
         db=db_session,
         account_id=test_account.id,
-        category_id=None,
-        description="SQ *BLUE BOTTLE 98765 SAN FRANCISCO CA",
         amount=Decimal("6.50"),
         transaction_date=date(2026, 6, 15),
-        transaction_datetime=None,
-        pending=False,
-        plaid_transaction_id=None,
+        description="SQ *BLUE BOTTLE 98765 SAN FRANCISCO CA",
+        merchant="Blue Bottle",
+        is_merchant_overridden=False,
     )
+    db_session.commit()
 
     # Search by normalized merchant name ("Blue Bottle")
     res1 = transaction_access.list_transactions(db=db_session, q="Blue Bottle")

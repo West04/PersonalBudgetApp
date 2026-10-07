@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from backend.main import app
 from backend import models, schemas
 from backend.access import transaction_access, account_access
+from backend.managers import manual_transaction_manager
 
 client = TestClient(app)
 
@@ -48,7 +49,7 @@ def test_characterization_existing_transaction_invariants_preserved(db_session: 
     db_session.add(account)
     db_session.commit()
 
-    txn = transaction_access.create_manual_transaction(
+    txn = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=account.id,
         category_id=None,

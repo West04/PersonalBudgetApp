@@ -8,7 +8,12 @@ from sqlalchemy.orm import Session
 from .. import schemas
 from ..access import transaction_access
 from ..database import get_db
-from ..managers import transfer_reconciliation_manager, ml_categorization_manager, transaction_split_manager
+from ..managers import (
+    transfer_reconciliation_manager,
+    ml_categorization_manager,
+    transaction_split_manager,
+    manual_transaction_manager,
+)
 
 router = APIRouter(
     prefix="/transactions",
@@ -163,7 +168,7 @@ def create_transaction(
     """
     Manually create a transaction.
     """
-    return transaction_access.create_manual_transaction(
+    return manual_transaction_manager.create_transaction(
         db=db,
         account_id=payload.account_id,
         category_id=payload.category_id,

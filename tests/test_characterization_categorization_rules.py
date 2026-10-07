@@ -5,7 +5,12 @@ import pytest
 
 from backend import models
 from backend.access import categorization_rule_access, transaction_access
-from backend.managers import csv_import_manager, plaid_transaction_sync_manager, categorization_rule_manager
+from backend.managers import (
+    csv_import_manager,
+    plaid_transaction_sync_manager,
+    categorization_rule_manager,
+    manual_transaction_manager,
+)
 from backend.bank_statement_loader import USAALoader
 
 
@@ -36,7 +41,7 @@ def test_rule_application_manual_creation_and_protection(db_session):
     categorization_rule_access.create_rule(db_session, "Starbucks", cat_dining.category_id)
 
     # 1. Manual creation without category
-    t1 = transaction_access.create_manual_transaction(
+    t1 = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=acc.id,
         category_id=None,
@@ -53,7 +58,7 @@ def test_rule_application_manual_creation_and_protection(db_session):
     assert t1.is_merchant_overridden is False
 
     # 2. Manual creation with explicit category
-    t2 = transaction_access.create_manual_transaction(
+    t2 = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=acc.id,
         category_id=cat_shopping.category_id,
@@ -79,7 +84,7 @@ def test_rule_application_manual_merchant_override(db_session):
     categorization_rule_access.create_rule(db_session, "Starbucks", cat_dining.category_id)
 
     # Create transaction with weird description but manual merchant override to "Starbucks"
-    t = transaction_access.create_manual_transaction(
+    t = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=acc.id,
         category_id=None,
@@ -385,7 +390,7 @@ def test_rule_edit_and_delete_effects(db_session):
     rule = categorization_rule_access.create_rule(db_session, "Starbucks", cat_dining.category_id)
 
     # Transaction 1 categorized with Dining
-    t1 = transaction_access.create_manual_transaction(
+    t1 = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=acc.id,
         category_id=None,
@@ -406,7 +411,7 @@ def test_rule_edit_and_delete_effects(db_session):
     assert t1.category_id == cat_dining.category_id
 
     # New transaction receives Coffee
-    t2 = transaction_access.create_manual_transaction(
+    t2 = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=acc.id,
         category_id=None,
@@ -429,7 +434,7 @@ def test_rule_edit_and_delete_effects(db_session):
     assert t2.category_id == cat_coffee.category_id
 
     # Future transaction receives None
-    t3 = transaction_access.create_manual_transaction(
+    t3 = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=acc.id,
         category_id=None,

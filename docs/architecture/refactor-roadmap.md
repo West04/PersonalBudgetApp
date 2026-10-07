@@ -46,8 +46,20 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 - Reconciliation conflict ownership remained authoritative inside `transaction_access.stage_or_update_plaid_transaction` (guaranteeing zero split deletions before conflict rejection, staging markers, and raising `PlaidReconciliationConflictError`).
 - Exit criteria met: zero cross-accessor calls between `stage_or_update_plaid_transaction` and `split_access`; characterization suite (21 tests in `test_plaid_split_conflict.py`) and full test suite (966 tests) green.
 
+### Slice 2d — Manual transaction create decoupling [COMPLETED]
+- Decoupled manual transaction creation from `transaction_access.py` into a new narrowly scoped `ManualTransactionManager.create_transaction`.
+- `ManualTransactionManager.create_transaction` authoritatively coordinates:
+  1. Resolving merchant identity (stripping explicit merchant and setting `is_merchant_overridden=True`, or normalizing description via domain `normalize_merchant` and setting `is_merchant_overridden=False`).
+  2. Resolving category precedence: explicit category assigns `category_source="manual"` and stages ML revision bump via `ml_model_access.increment_training_revision`; otherwise evaluates merchant rule fallback via `categorization_rule_access.get_rule_by_merchant` (setting `category_source="rule"` without ML revision bump); otherwise unassigned.
+  3. Staging entity via `transaction_access.stage_manual_transaction` with zero cross-accessor dependencies and no commit/refresh.
+  4. Owning the atomic single-commit and refresh transaction boundary.
+- Replaced `transaction_access.create_manual_transaction` with pure `stage_manual_transaction` (db.add only, zero cross-accessor calls, zero commit/refresh).
+- Permanently deleted `create_manual_transaction` with zero `ResourceAccess -> Manager` backward compatibility wrappers.
+- Migrated all test callers (unit characterization tests moved to `ManualTransactionManager`, fixture callers updated to `stage_manual_transaction` + commit).
+- Exit criteria met: zero cross-accessor calls from `stage_manual_transaction`; `POST /transactions/` routed to `ManualTransactionManager`; characterization suite (7 unit tests in `test_manager_manual_transaction.py`, 85 targeted tests) and full test suite (981 tests) green.
+
 ### Remaining in Slice 2 / Slice 3:
-- Manual transaction creation/update policy concerns (unresolved future slices; no generic TransactionManager).
+- Slice 2e: Manual transaction update workflow decoupling (`update_manual_transaction` split/reconciled guards, rule fallback, and ML revision bump; no generic TransactionManager).
 
 ## Slice 3 — Categorization policy authority
 

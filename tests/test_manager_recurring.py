@@ -4,7 +4,8 @@ Tests for Recurring Transaction Workflow Manager (backend/managers/recurring_tra
 
 from datetime import date
 from decimal import Decimal
-from uuid import uuid4
+from typing import Optional
+from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.orm import Session
 
@@ -28,70 +29,78 @@ def _create_account(db: Session, name="Checking Account") -> models.Account:
     return acc
 
 
+def _create_transaction(
+    db: Session,
+    account_id: UUID,
+    amount: Decimal,
+    transaction_date: date,
+    description: str,
+    merchant: Optional[str] = None,
+    pending: bool = False,
+) -> models.Transaction:
+    from backend.domain.merchant_normalization import normalize_merchant
+
+    resolved_merchant = merchant if merchant is not None else normalize_merchant(description)
+    txn = transaction_access.stage_manual_transaction(
+        db=db,
+        account_id=account_id,
+        amount=amount,
+        transaction_date=transaction_date,
+        description=description,
+        merchant=resolved_merchant,
+        pending=pending,
+    )
+    db.commit()
+    db.refresh(txn)
+    return txn
+
+
 def test_detect_and_sync_orchestration(db_session: Session):
     acc = _create_account(db_session)
 
     # 1. Eligible posted transactions for Netflix
-    t1 = transaction_access.create_manual_transaction(
+    t1 = _create_transaction(
         db=db_session,
         account_id=acc.id,
-        category_id=None,
-        description="NETFLIX.COM",
         amount=Decimal("15.49"),
         transaction_date=date(2026, 6, 15),
-        transaction_datetime=None,
-        pending=False,
-        plaid_transaction_id=None,
+        description="NETFLIX.COM",
     )
-    t2 = transaction_access.create_manual_transaction(
+    t2 = _create_transaction(
         db=db_session,
         account_id=acc.id,
-        category_id=None,
-        description="NETFLIX.COM",
         amount=Decimal("15.49"),
         transaction_date=date(2026, 7, 15),
-        transaction_datetime=None,
-        pending=False,
-        plaid_transaction_id=None,
+        description="NETFLIX.COM",
     )
-    t3 = transaction_access.create_manual_transaction(
+    t3 = _create_transaction(
         db=db_session,
         account_id=acc.id,
-        category_id=None,
-        description="NETFLIX.COM",
         amount=Decimal("15.49"),
         transaction_date=date(2026, 8, 15),
-        transaction_datetime=None,
-        pending=False,
-        plaid_transaction_id=None,
+        description="NETFLIX.COM",
     )
 
     # 2. Ineligible: Pending transaction for Gym
     for dt in [date(2026, 6, 1), date(2026, 7, 1), date(2026, 8, 1)]:
-        transaction_access.create_manual_transaction(
+        _create_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="Planet Fitness",
             amount=Decimal("20.00"),
             transaction_date=dt,
-            transaction_datetime=None,
+            description="Planet Fitness",
             pending=True,  # pending!
-            plaid_transaction_id=None,
         )
 
     # 3. Ineligible: Transfer transaction
     for dt in [date(2026, 6, 1), date(2026, 7, 1), date(2026, 8, 1)]:
-        tx = transaction_access.create_manual_transaction(
+        tx = _create_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="Savings Transfer",
             amount=Decimal("100.00"),
             transaction_date=dt,
-            transaction_datetime=None,
+            description="Savings Transfer",
             pending=False,
-            plaid_transaction_id=None,
         )
         tx.is_transfer = True
         db_session.add(tx)
@@ -99,16 +108,13 @@ def test_detect_and_sync_orchestration(db_session: Session):
 
     # 4. Ineligible: Future-dated transactions
     for dt in [date(2027, 1, 1), date(2027, 2, 1), date(2027, 3, 1)]:
-        transaction_access.create_manual_transaction(
+        _create_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="Future Sub",
             amount=Decimal("9.99"),
             transaction_date=dt,
-            transaction_datetime=None,
+            description="Future Sub",
             pending=False,
-            plaid_transaction_id=None,
         )
 
     # Run detection
@@ -128,16 +134,12 @@ def test_confirm_and_dismiss_persistence(db_session: Session):
     acc = _create_account(db_session)
 
     for dt in [date(2026, 6, 10), date(2026, 7, 10), date(2026, 8, 10)]:
-        transaction_access.create_manual_transaction(
+        _create_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="Internet Bill",
             amount=Decimal("70.00"),
             transaction_date=dt,
-            transaction_datetime=None,
-            pending=False,
-            plaid_transaction_id=None,
+            description="Internet Bill",
         )
 
     results = recurring_transaction_manager.detect_and_sync_recurring_items(db_session)
@@ -170,16 +172,12 @@ def test_get_recurring_item_detail(db_session: Session):
     acc = _create_account(db_session)
     tx_ids = []
     for dt in [date(2026, 6, 1), date(2026, 7, 1), date(2026, 8, 1)]:
-        tx = transaction_access.create_manual_transaction(
+        tx = _create_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="Music Stream",
             amount=Decimal("9.99"),
             transaction_date=dt,
-            transaction_datetime=None,
-            pending=False,
-            plaid_transaction_id=None,
+            description="Music Stream",
         )
         tx_ids.append(tx.transaction_id)
 
@@ -198,16 +196,12 @@ def test_synchronization_idempotency(db_session: Session):
     """A. Idempotency: run detection twice -> no duplicate RecurringItem rows."""
     acc = _create_account(db_session, name="Idempotency Acc")
     for dt in [date(2026, 6, 1), date(2026, 7, 1), date(2026, 8, 1)]:
-        transaction_access.create_manual_transaction(
+        _create_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="SaaS Subscription",
             amount=Decimal("29.00"),
             transaction_date=dt,
-            transaction_datetime=None,
-            pending=False,
-            plaid_transaction_id=None,
+            description="SaaS Subscription",
         )
 
     # Run 1
@@ -232,16 +226,12 @@ def test_synchronization_stale_detected_removed(db_session: Session):
     acc = _create_account(db_session, name="Stale Detected Acc")
     txs = []
     for dt in [date(2026, 6, 1), date(2026, 7, 1), date(2026, 8, 1)]:
-        t = transaction_access.create_manual_transaction(
+        t = _create_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="Temporary Service",
             amount=Decimal("19.99"),
             transaction_date=dt,
-            transaction_datetime=None,
-            pending=False,
-            plaid_transaction_id=None,
+            description="Temporary Service",
         )
         txs.append(t)
 
@@ -272,16 +262,12 @@ def test_synchronization_cadence_change(db_session: Session):
     txs = []
     # Start as monthly (June 1, July 1, August 1)
     for dt in [date(2026, 6, 1), date(2026, 7, 1), date(2026, 8, 1)]:
-        t = transaction_access.create_manual_transaction(
+        t = _create_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="Cadence Shift Gym",
             amount=Decimal("45.00"),
             transaction_date=dt,
-            transaction_datetime=None,
-            pending=False,
-            plaid_transaction_id=None,
+            description="Cadence Shift Gym",
         )
         txs.append(t)
 
@@ -316,16 +302,12 @@ def test_synchronization_confirmed_preservation(db_session: Session):
     acc = _create_account(db_session, name="Confirmed Preserve Acc")
     txs = []
     for dt in [date(2026, 6, 1), date(2026, 7, 1), date(2026, 8, 1)]:
-        t = transaction_access.create_manual_transaction(
+        t = _create_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="Verified Insurance",
             amount=Decimal("120.00"),
             transaction_date=dt,
-            transaction_datetime=None,
-            pending=False,
-            plaid_transaction_id=None,
+            description="Verified Insurance",
         )
         txs.append(t)
 
@@ -361,16 +343,12 @@ def test_synchronization_dismissed_preservation(db_session: Session):
     """
     acc = _create_account(db_session, name="Dismissed Preserve Acc")
     for dt in [date(2026, 6, 1), date(2026, 7, 1), date(2026, 8, 1)]:
-        transaction_access.create_manual_transaction(
+        _create_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="Dismissed OneOff",
             amount=Decimal("35.00"),
             transaction_date=dt,
-            transaction_datetime=None,
-            pending=False,
-            plaid_transaction_id=None,
+            description="Dismissed OneOff",
         )
 
     res1 = recurring_transaction_manager.detect_and_sync_recurring_items(db_session, account_id=acc.id)

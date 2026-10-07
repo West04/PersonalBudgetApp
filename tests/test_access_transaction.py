@@ -379,60 +379,84 @@ def test_list_transactions_filters_ordering_pagination(db_session):
     assert res_q["total"] == 2
 
 
-# 5.3 create_manual_transaction
-def test_create_manual_transaction_commits_refreshes_and_preserves_defaults(db_session):
+# 5.3 stage_manual_transaction
+def test_stage_manual_transaction_stages_entity_without_commit(db_session):
     account = models.Account(name="Create Acc", type="depository")
     db_session.add(account)
     db_session.commit()
 
     now_dt = datetime(2026, 6, 18, 14, 0, tzinfo=timezone.utc)
-    new_tx = transaction_access.create_manual_transaction(
+    new_tx = transaction_access.stage_manual_transaction(
         db=db_session,
         account_id=account.id,
-        category_id=None,
-        description="Manual Stored",
         amount=Decimal("25.00"),
         transaction_date=date(2026, 6, 18),
+        description="Manual Stored",
+        merchant="Manual Merchant",
+        is_merchant_overridden=True,
+        category_id=None,
+        category_source=None,
         transaction_datetime=now_dt,
         pending=False,
+        is_reviewed=False,
+        is_transfer=False,
         plaid_transaction_id="manual_plaid_tag",
     )
 
-    # Invariants and fields
-    assert new_tx.transaction_id is not None
+    # Invariants and fields before flush: staging alone does not evaluate ORM default
+    assert new_tx.transaction_id is None
     assert new_tx.account_id == account.id
     assert new_tx.category_id is None
     assert new_tx.description == "Manual Stored"
+    assert new_tx.merchant == "Manual Merchant"
+    assert new_tx.is_merchant_overridden is True
     assert new_tx.amount == Decimal("25.00")
     assert new_tx.date == date(2026, 6, 18)
     assert new_tx.datetime == now_dt
     assert new_tx.pending is False
-    assert new_tx.is_transfer is False  # model default
+    assert new_tx.is_reviewed is False
+    assert new_tx.is_transfer is False
     assert new_tx.plaid_transaction_id == "manual_plaid_tag"
 
-    # Confirmed committed in DB
-    db_session.expire_all()
-    reloaded = db_session.query(models.Transaction).filter_by(transaction_id=new_tx.transaction_id).one()
-    assert reloaded.description == "Manual Stored"
+    # Confirmed staged in session but NOT committed
+    assert new_tx in db_session.new
+
+    # Upon flush, SQLAlchemy evaluates declarative default=uuid.uuid4
+    db_session.flush()
+    assert new_tx.transaction_id is not None
 
 
-def test_create_manual_transaction_mock_commit_and_refresh():
-    mock_db = MagicMock()
-    account_id = uuid4()
-    tx = transaction_access.create_manual_transaction(
-        db=mock_db,
-        account_id=account_id,
-        category_id=None,
-        description="Mock Create",
-        amount=Decimal("10.00"),
-        transaction_date=date(2026, 6, 1),
-        transaction_datetime=None,
-        pending=False,
-        plaid_transaction_id=None,
+def test_stage_manual_transaction_with_explicit_transaction_id(db_session):
+    account = models.Account(name="Explicit ID Acc", type="depository")
+    db_session.add(account)
+    db_session.commit()
+
+    custom_id = uuid4()
+    staged_tx = transaction_access.stage_manual_transaction(
+        db=db_session,
+        account_id=account.id,
+        amount=Decimal("19.99"),
+        transaction_date=date(2026, 6, 19),
+        description="Explicit ID Stored",
+        transaction_id=custom_id,
     )
-    mock_db.add.assert_called_once_with(tx)
-    mock_db.commit.assert_called_once()
-    mock_db.refresh.assert_called_once_with(tx)
+    # Staged with explicitly supplied ID immediately
+    assert staged_tx.transaction_id == custom_id
+    assert staged_tx in db_session.new
+    db_session.flush()
+    assert staged_tx.transaction_id == custom_id
+
+
+def test_stage_manual_transaction_zero_cross_accessor_and_no_create_manual_tx():
+    import inspect
+    source = inspect.getsource(transaction_access.stage_manual_transaction)
+    assert "ml_model_access" not in source
+    assert "categorization_rule_access" not in source
+    assert "db.commit" not in source
+    assert "db.refresh" not in source
+
+    # create_manual_transaction must be permanently deleted
+    assert not hasattr(transaction_access, "create_manual_transaction")
 
 
 # 5.4 update_manual_transaction

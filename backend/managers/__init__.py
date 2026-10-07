@@ -17,6 +17,7 @@ from . import csv_import_manager
 from . import account_summary_manager
 from . import account_reconciliation_manager
 from . import recurring_transaction_manager
+from . import manual_transaction_manager
 
 __all__ = [
     "get_budget_summary",
@@ -29,6 +30,7 @@ __all__ = [
     "account_summary_manager",
     "account_reconciliation_manager",
     "recurring_transaction_manager",
+    "manual_transaction_manager",
 ]
 
 

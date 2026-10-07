@@ -36,17 +36,16 @@ def test_list_and_detect_recurring_api(db_session: Session):
 
     # Seed 3 monthly transactions for Netflix
     for dt in [date(2026, 6, 15), date(2026, 7, 15), date(2026, 8, 15)]:
-        transaction_access.create_manual_transaction(
+        transaction_access.stage_manual_transaction(
             db=db_session,
             account_id=acc.id,
-            category_id=None,
-            description="NETFLIX.COM",
             amount=Decimal("15.49"),
             transaction_date=dt,
-            transaction_datetime=None,
-            pending=False,
-            plaid_transaction_id=None,
+            description="NETFLIX.COM",
+            merchant="Netflix",
+            is_merchant_overridden=False,
         )
+    db_session.commit()
 
     # 1. GET /recurring/ triggers initial detection
     res = client.get("/recurring/")

@@ -460,65 +460,48 @@ def list_transactions(
     }
 
 
-def create_manual_transaction(
+def stage_manual_transaction(
     db: Session,
     account_id: UUID,
-    category_id: Optional[UUID],
-    description: str,
     amount: Decimal,
     transaction_date: date,
-    transaction_datetime: Optional[datetime],
-    pending: bool,
-    plaid_transaction_id: Optional[str],
-    is_reviewed: bool = False,
+    description: str,
     merchant: Optional[str] = None,
+    is_merchant_overridden: bool = False,
+    category_id: Optional[UUID] = None,
+    category_source: Optional[str] = None,
+    transaction_datetime: Optional[datetime] = None,
+    pending: bool = False,
+    is_reviewed: bool = False,
+    is_transfer: bool = False,
+    plaid_transaction_id: Optional[str] = None,
+    transaction_id: Optional[UUID] = None,
 ) -> models.Transaction:
     """
-    Creates, commits, and refreshes a new manual Transaction from scalar values.
-    Preserves model defaults for transaction_id (uuid4) and is_transfer (False).
-    If merchant is explicitly provided: sets merchant and is_merchant_overridden = True.
-    If merchant is omitted/None: normalizes merchant from description and sets is_merchant_overridden = False.
-    Owns the standalone CRUD transaction boundary.
+    Instantiates and stages a new manual Transaction in the session.
+    Pure atomic ResourceAccess. Does not flush, commit, refresh, or call other Accessors.
     """
-    from ..domain.merchant_normalization import normalize_merchant
-
-    if merchant is not None and merchant.strip():
-        resolved_merchant = merchant.strip()
-        is_overridden = True
-    else:
-        resolved_merchant = normalize_merchant(description)
-        is_overridden = False
-
-    assigned_category_id = category_id
-    category_source = None
-    if assigned_category_id is not None:
-        category_source = "manual"
-        from . import ml_model_access
-        ml_model_access.increment_training_revision(db)
-    elif resolved_merchant:
-        from . import categorization_rule_access
-        rule = categorization_rule_access.get_rule_by_merchant(db, resolved_merchant)
-        if rule:
-            assigned_category_id = rule.category_id
-            category_source = "rule"
+    model_kwargs = {}
+    if transaction_id is not None:
+        model_kwargs["transaction_id"] = transaction_id
 
     new_txn = models.Transaction(
         account_id=account_id,
-        category_id=assigned_category_id,
+        category_id=category_id,
         category_source=category_source,
         description=description,
-        merchant=resolved_merchant,
-        is_merchant_overridden=is_overridden,
+        merchant=merchant,
+        is_merchant_overridden=is_merchant_overridden,
         amount=amount,
         date=transaction_date,
         datetime=transaction_datetime,
         pending=pending,
         is_reviewed=is_reviewed,
+        is_transfer=is_transfer,
         plaid_transaction_id=plaid_transaction_id,
+        **model_kwargs,
     )
     db.add(new_txn)
-    db.commit()
-    db.refresh(new_txn)
     return new_txn
 
 

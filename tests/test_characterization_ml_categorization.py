@@ -11,7 +11,7 @@ from backend.access import (
     ml_model_access,
     transaction_access,
 )
-from backend.managers import ml_categorization_manager
+from backend.managers import ml_categorization_manager, manual_transaction_manager
 
 
 def _setup_base_data(db_session):
@@ -38,7 +38,7 @@ def test_manual_creation_and_update_provenance(db_session):
     rev_start = initial_meta.current_training_revision
 
     # 1. Manual creation with category sets category_source='manual' and increments revision
-    tx1 = transaction_access.create_manual_transaction(
+    tx1 = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=acc.id,
         category_id=groceries.category_id,
@@ -54,7 +54,7 @@ def test_manual_creation_and_update_provenance(db_session):
     assert meta.current_training_revision == rev_start + 1
 
     # 2. Manual creation without category has category_source=None and does NOT increment revision
-    tx2 = transaction_access.create_manual_transaction(
+    tx2 = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=acc.id,
         category_id=None,
@@ -110,7 +110,7 @@ def test_rule_application_provenance_isolation(db_session):
     rev_start = initial_meta.current_training_revision
 
     # Create transaction matching Starbucks without explicit category
-    tx = transaction_access.create_manual_transaction(
+    tx = manual_transaction_manager.create_transaction(
         db=db_session,
         account_id=acc.id,
         category_id=None,

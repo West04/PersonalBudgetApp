@@ -174,3 +174,30 @@ load rule
 ```
 
 Rule-matching policy used during ingestion must have one authoritative business implementation rather than copies inside ResourceAccess.
+
+## Manual transaction creation
+
+**Trigger:** `POST /transactions/`
+
+**Manager:** `ManualTransactionManager.create_transaction`
+
+```text
+resolve merchant identity:
+  if explicit nonblank merchant: stripped merchant, is_merchant_overridden=True
+  else: normalized merchant via domain normalize_merchant, is_merchant_overridden=False
+-> resolve category and ML revision:
+     if explicit category provided:
+       assign category_id, category_source="manual", increment ML training revision via ml_model_access
+     else if merchant present:
+       lookup rule via categorization_rule_access.get_rule_by_merchant
+       if rule matched: assign rule category_id, category_source="rule", no ML revision bump
+       else: category_id=None, category_source=None, no ML revision bump
+     else:
+       category_id=None, category_source=None, no ML revision bump
+-> stage transaction via transaction_access.stage_manual_transaction (pure db.add, zero cross-accessor dependencies)
+-> commit single transaction boundary (committing Transaction and ML revision increment if staged)
+-> refresh transaction
+-> return transaction to Router for schema serialization
+```
+
+**Architecture boundary:** Router retains HTTP parsing, request validation, and serialization. `ManualTransactionManager` coordinates merchant resolution, categorization precedence, ML revision staging, and transaction boundary ownership. `transaction_access.stage_manual_transaction` remains pure persistence with zero cross-accessor calls and zero commits.
