@@ -58,8 +58,22 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 - Migrated all test callers (unit characterization tests moved to `ManualTransactionManager`, fixture callers updated to `stage_manual_transaction` + commit).
 - Exit criteria met: zero cross-accessor calls from `stage_manual_transaction`; `POST /transactions/` routed to `ManualTransactionManager`; characterization suite (7 unit tests in `test_manager_manual_transaction.py`, 85 targeted tests) and full test suite (981 tests) green.
 
-### Remaining in Slice 2 / Slice 3:
-- Slice 2e: Manual transaction update workflow decoupling (`update_manual_transaction` split/reconciled guards, rule fallback, and ML revision bump; no generic TransactionManager).
+### Slice 2e — Manual transaction update decoupling [COMPLETED]
+- Decoupled manual transaction update workflow from `transaction_access.py` into `ManualTransactionManager.update_transaction`.
+- `ManualTransactionManager.update_transaction` authoritatively coordinates:
+  1. Transaction lookup via `transaction_access.get_transaction_by_id`, returning `None` immediately if missing.
+  2. Split detection via `split_access.transaction_has_splits`.
+  3. Split mutation guards strictly in precedence order: rejecting amount modification, direct category assignment, and transfer conversion (`is_transfer=True`).
+  4. Reconciled financial-field guards: rejecting changes to `amount`, `date`, or `account_id` when `is_reconciled=True`, while permitting unchanged values.
+  5. Merchant override and description normalization preserving existing precedence and timing.
+  6. Category mutation and ML revision bump: explicit category assigns `category_source="manual"` and flushes ML revision increment before subsequent assignments; same category leaves ML revision unchanged; explicit `None` clears category and source without rule fallback.
+  7. Generic field assignments for remaining supplied fields.
+  8. Rule fallback for uncategorized non-split transactions where category was not in payload.
+  9. Owning single atomic commit and refresh boundary.
+- Permanently deleted `transaction_access.update_manual_transaction` with zero `ResourceAccess -> Manager` backward compatibility wrappers.
+- Completely eliminated all remaining imports of `ml_model_access` and `categorization_rule_access` from `transaction_access.py`.
+- Migrated all 18 test call sites across 5 test files to `ManualTransactionManager.update_transaction`.
+- Exit criteria met: zero cross-accessor calls from update workflow in `transaction_access.py`; `PUT /transactions/{transaction_id}` routed to `ManualTransactionManager`; characterization suite (17 tests in `test_manager_manual_transaction.py`, 87 targeted tests) and full test suite green.
 
 ## Slice 3 — Categorization policy authority
 

@@ -21,7 +21,12 @@ import pytest
 
 from backend import models
 from backend.access import category_access, transaction_access
-from backend.managers import account_summary_manager, credit_card_summary_manager, ml_categorization_manager
+from backend.managers import (
+    account_summary_manager,
+    credit_card_summary_manager,
+    manual_transaction_manager,
+    ml_categorization_manager,
+)
 
 
 def _setup_environment(db_session):
@@ -345,7 +350,7 @@ def test_rules_exclusion_and_direct_update_guards(db_session):
 
     # 3. Direct amount modification on split transaction is rejected
     with pytest.raises(ValueError) as exc1:
-        transaction_access.update_manual_transaction(
+        manual_transaction_manager.update_transaction(
             db=db_session,
             transaction_id=tx.transaction_id,
             update_data={"amount": Decimal("120.00")},
@@ -354,7 +359,7 @@ def test_rules_exclusion_and_direct_update_guards(db_session):
 
     # 4. Direct category assignment on split transaction is rejected
     with pytest.raises(ValueError) as exc2:
-        transaction_access.update_manual_transaction(
+        manual_transaction_manager.update_transaction(
             db=db_session,
             transaction_id=tx.transaction_id,
             update_data={"category_id": cat1.category_id},

@@ -70,7 +70,7 @@ def test_manual_creation_and_update_provenance(db_session):
     assert meta.current_training_revision == rev_start + 1
 
     # 3. Manual update changing category sets category_source='manual' and increments revision
-    tx2_updated = transaction_access.update_manual_transaction(
+    tx2_updated = manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=tx2.transaction_id,
         update_data={"category_id": coffee.category_id},
@@ -80,7 +80,7 @@ def test_manual_creation_and_update_provenance(db_session):
     assert meta.current_training_revision == rev_start + 2
 
     # 4. Manual update not touching category does not change revision
-    transaction_access.update_manual_transaction(
+    manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=tx2.transaction_id,
         update_data={"description": "Updated description"},
@@ -89,7 +89,7 @@ def test_manual_creation_and_update_provenance(db_session):
     assert meta.current_training_revision == rev_start + 2
 
     # 5. Manual update clearing category sets category_source=None and does not increment revision
-    tx2_cleared = transaction_access.update_manual_transaction(
+    tx2_cleared = manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=tx2.transaction_id,
         update_data={"category_id": None},

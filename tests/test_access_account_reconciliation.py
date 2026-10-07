@@ -14,6 +14,7 @@ import pytest
 
 from backend import models
 from backend.access import account_access, transaction_access
+from backend.managers import manual_transaction_manager
 
 
 def test_update_account_reconciliation_metadata(db_session):
@@ -207,7 +208,7 @@ def test_set_transaction_cleared_rejects_pending(db_session):
     assert pending_tx.is_cleared is False
 
 
-def test_update_manual_transaction_reconciled_financial_guard(db_session):
+def test_update_transaction_reconciled_financial_guard(db_session):
     account1 = models.Account(name="Checking 1", type="depository")
     account2 = models.Account(name="Checking 2", type="depository")
     group = models.CategoryGroup(name="General")
@@ -234,7 +235,7 @@ def test_update_manual_transaction_reconciled_financial_guard(db_session):
 
     # 1. Prohibited: changing amount
     with pytest.raises(ValueError, match="Cannot modify financial fields"):
-        transaction_access.update_manual_transaction(
+        manual_transaction_manager.update_transaction(
             db=db_session,
             transaction_id=tx.transaction_id,
             update_data={"amount": Decimal("10.00")},
@@ -242,7 +243,7 @@ def test_update_manual_transaction_reconciled_financial_guard(db_session):
 
     # 2. Prohibited: changing date
     with pytest.raises(ValueError, match="Cannot modify financial fields"):
-        transaction_access.update_manual_transaction(
+        manual_transaction_manager.update_transaction(
             db=db_session,
             transaction_id=tx.transaction_id,
             update_data={"date": date(2026, 10, 6)},
@@ -250,14 +251,14 @@ def test_update_manual_transaction_reconciled_financial_guard(db_session):
 
     # 3. Prohibited: changing account_id
     with pytest.raises(ValueError, match="Cannot modify financial fields"):
-        transaction_access.update_manual_transaction(
+        manual_transaction_manager.update_transaction(
             db=db_session,
             transaction_id=tx.transaction_id,
             update_data={"account_id": account2.id},
         )
 
     # 4. Permitted: changing category_id
-    up1 = transaction_access.update_manual_transaction(
+    up1 = manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=tx.transaction_id,
         update_data={"category_id": cat2.category_id},
@@ -265,7 +266,7 @@ def test_update_manual_transaction_reconciled_financial_guard(db_session):
     assert up1.category_id == cat2.category_id
 
     # 5. Permitted: changing description
-    up2 = transaction_access.update_manual_transaction(
+    up2 = manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=tx.transaction_id,
         update_data={"description": "Updated Coffee Note"},
@@ -273,7 +274,7 @@ def test_update_manual_transaction_reconciled_financial_guard(db_session):
     assert up2.description == "Updated Coffee Note"
 
     # 6. Permitted: changing is_reviewed
-    up3 = transaction_access.update_manual_transaction(
+    up3 = manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=tx.transaction_id,
         update_data={"is_reviewed": True},
@@ -281,7 +282,7 @@ def test_update_manual_transaction_reconciled_financial_guard(db_session):
     assert up3.is_reviewed is True
 
     # 7. Permitted: passing same financial values (no mutation)
-    up4 = transaction_access.update_manual_transaction(
+    up4 = manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=tx.transaction_id,
         update_data={"amount": Decimal("5.00"), "date": date(2026, 10, 5), "account_id": account1.id},

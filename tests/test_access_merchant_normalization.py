@@ -10,7 +10,7 @@ Verifies:
 3. manual_transaction_manager.create_transaction:
    - Derives normalized merchant when omitted.
    - Preserves explicit user-provided merchant and marks is_merchant_overridden=True.
-4. update_manual_transaction:
+4. manual_transaction_manager.update_transaction:
    - Setting merchant sets is_merchant_overridden=True.
    - Updating description when not overridden renormalizes merchant.
    - Updating description when overridden preserves existing merchant.
@@ -168,7 +168,7 @@ def test_manual_create_explicit_merchant_marked_overridden(db_session, test_acco
 # 4. Manual Updates & Invariants
 # ---------------------------------------------------------------------------
 
-def test_update_manual_transaction_merchant_sets_override(db_session, test_account):
+def test_update_transaction_merchant_sets_override(db_session, test_account):
     txn = transaction_access.stage_manual_transaction(
         db=db_session,
         account_id=test_account.id,
@@ -183,7 +183,7 @@ def test_update_manual_transaction_merchant_sets_override(db_session, test_accou
     assert txn.is_merchant_overridden is False
 
     # Update merchant
-    updated = transaction_access.update_manual_transaction(
+    updated = manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=txn.transaction_id,
         update_data={"merchant": "Neighborhood Safeway"},
@@ -192,7 +192,7 @@ def test_update_manual_transaction_merchant_sets_override(db_session, test_accou
     assert updated.is_merchant_overridden is True
 
     # Update description: because is_merchant_overridden is True, merchant is PRESERVED!
-    updated2 = transaction_access.update_manual_transaction(
+    updated2 = manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=txn.transaction_id,
         update_data={"description": "SAFEWAY STORE #999"},
@@ -202,7 +202,7 @@ def test_update_manual_transaction_merchant_sets_override(db_session, test_accou
     assert updated2.is_merchant_overridden is True
 
 
-def test_update_manual_transaction_description_renormalizes_when_not_overridden(db_session, test_account):
+def test_update_transaction_description_renormalizes_when_not_overridden(db_session, test_account):
     txn = transaction_access.stage_manual_transaction(
         db=db_session,
         account_id=test_account.id,
@@ -217,7 +217,7 @@ def test_update_manual_transaction_description_renormalizes_when_not_overridden(
     assert txn.is_merchant_overridden is False
 
     # Update description without merchant
-    updated = transaction_access.update_manual_transaction(
+    updated = manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=txn.transaction_id,
         update_data={"description": "TRADER JOES #102"},
@@ -242,7 +242,7 @@ def test_update_merchant_on_reconciled_transaction_permitted(db_session, test_ac
     db_session.commit()
 
     # Updating merchant on reconciled transaction is allowed (not a financial field)
-    updated = transaction_access.update_manual_transaction(
+    updated = manual_transaction_manager.update_transaction(
         db=db_session,
         transaction_id=txn.transaction_id,
         update_data={"merchant": "Netflix Streaming"},

@@ -19,7 +19,7 @@ Direct Router -> ResourceAccess is allowed for genuinely simple CRUD. Routers mu
 | CreditCardSummaryManager | credit-account retrieval + financial calculation | justified; review DTO ceremony |
 | CSVImportManager | format resolution, preview parsing, and dedupe/normalize/categorize/stage/commit import | strongly justified |
 | DashboardSummaryManager | composite dashboard read workflow | justified only while composition changes independently; review screen-driven boundary and Manager-to-Manager edge |
-| ManualTransactionManager | manual transaction create workflow (merchant override resolution, rule fallback vs manual ML revision staging, atomic persistence) | narrowly scoped workflow Manager; Slice 2d implementation |
+| ManualTransactionManager | manual transaction create and update workflows (merchant override resolution, split & reconciled invariant guards, rule fallback vs manual ML revision staging, atomic persistence) | narrowly scoped workflow Manager; Slice 2d and 2e implementation |
 | MLCategorizationManager | training/evaluation/artifact/metadata/inference workflows | strongly justified |
 | PlaidAccountSyncManager | public-token exchange, item creation/resolution, token decode, remote account fetch, upsert, commit | strongly justified |
 | PlaidTransactionSyncManager | item resolution, account refresh, paged sync, event persistence, cursor | strongly justified; transaction semantics reviewed separately |

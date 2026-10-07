@@ -455,85 +455,12 @@ def test_stage_manual_transaction_zero_cross_accessor_and_no_create_manual_tx():
     assert "db.commit" not in source
     assert "db.refresh" not in source
 
-    # create_manual_transaction must be permanently deleted
+    # create_manual_transaction and update_manual_transaction must be permanently deleted
     assert not hasattr(transaction_access, "create_manual_transaction")
+    assert not hasattr(transaction_access, "update_manual_transaction")
 
 
-# 5.4 update_manual_transaction
-def test_update_manual_transaction_mutations_and_preservation(db_session):
-    account = models.Account(name="Update Acc", type="depository")
-    group = models.CategoryGroup(name="Group")
-    db_session.add_all([account, group])
-    db_session.flush()
 
-    cat1 = models.Category(name="Cat 1", group_id=group.category_group_id, type="expense")
-    cat2 = models.Category(name="Cat 2", group_id=group.category_group_id, type="expense")
-    db_session.add_all([cat1, cat2])
-    db_session.commit()
-
-    txn = models.Transaction(
-        account_id=account.id,
-        category_id=cat1.category_id,
-        description="Original Tx",
-        amount=Decimal("50.00"),
-        date=date(2026, 6, 1),
-        is_transfer=False,
-    )
-    db_session.add(txn)
-    db_session.commit()
-
-    # 1. Update category
-    up1 = transaction_access.update_manual_transaction(
-        db=db_session,
-        transaction_id=txn.transaction_id,
-        update_data={"category_id": cat2.category_id},
-    )
-    assert up1 is not None
-    assert up1.category_id == cat2.category_id
-    assert up1.description == "Original Tx"  # preserved
-
-    # 2. Clear category (None)
-    up2 = transaction_access.update_manual_transaction(
-        db=db_session,
-        transaction_id=txn.transaction_id,
-        update_data={"category_id": None},
-    )
-    assert up2 is not None
-    assert up2.category_id is None
-
-    # 3. Update is_transfer and description
-    up3 = transaction_access.update_manual_transaction(
-        db=db_session,
-        transaction_id=txn.transaction_id,
-        update_data={"is_transfer": True, "description": "New Tx Desc"},
-    )
-    assert up3 is not None
-    assert up3.is_transfer is True
-    assert up3.description == "New Tx Desc"
-
-    # 4. Missing transaction -> None
-    up_missing = transaction_access.update_manual_transaction(
-        db=db_session,
-        transaction_id=uuid4(),
-        update_data={"description": "Ghost"},
-    )
-    assert up_missing is None
-
-
-def test_update_manual_transaction_mock_commit_and_refresh():
-    mock_db = MagicMock()
-    mock_tx = MagicMock(spec=models.Transaction)
-    mock_db.query.return_value.options.return_value.filter.return_value.first.return_value = mock_tx
-
-    res = transaction_access.update_manual_transaction(
-        db=mock_db,
-        transaction_id=uuid4(),
-        update_data={"description": "Updated"},
-    )
-    assert res == mock_tx
-    mock_db.add.assert_called_once_with(mock_tx)
-    mock_db.commit.assert_called_once()
-    mock_db.refresh.assert_called_once_with(mock_tx)
 
 
 # 5.5 delete_manual_transaction

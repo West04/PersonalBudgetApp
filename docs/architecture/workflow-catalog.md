@@ -201,3 +201,42 @@ resolve merchant identity:
 ```
 
 **Architecture boundary:** Router retains HTTP parsing, request validation, and serialization. `ManualTransactionManager` coordinates merchant resolution, categorization precedence, ML revision staging, and transaction boundary ownership. `transaction_access.stage_manual_transaction` remains pure persistence with zero cross-accessor calls and zero commits.
+
+## Manual transaction update
+
+**Trigger:** `PUT /transactions/{transaction_id}`
+
+**Manager:** `ManualTransactionManager.update_transaction`
+
+```text
+load transaction via transaction_access.get_transaction_by_id
+-> if missing: return None immediately (Presentation maps to 404)
+-> check split allocations via split_access.transaction_has_splits
+-> if split, evaluate split guards strictly in order:
+     if amount changed: raise ValueError("Cannot modify amount of a split transaction...")
+     if category_id present in payload: raise ValueError("Cannot directly assign a category to a split transaction...")
+     if is_transfer is True: raise ValueError("Cannot mark a split transaction as a transfer.")
+-> if reconciled, evaluate financial guards:
+     prohibit changes to amount, date, or account_id (supplying identical existing value permitted)
+-> resolve merchant and description:
+     if merchant provided: stripped merchant, is_merchant_overridden=True (or reset to False if blank/None)
+     elif description provided and not overridden: renormalize merchant
+-> resolve category mutation and ML revision:
+     if category_id in payload:
+       if new category != old category:
+         if new category is not None:
+           assign category_id, category_source="manual", increment ML revision via ml_model_access (flushed to session)
+         else:
+           clear category_id and category_source
+-> apply generic field assignments for remaining payload fields
+-> if uncategorized, non-split, category not in payload, and merchant present:
+     lookup rule via categorization_rule_access.get_rule_by_merchant
+     if matched: assign rule category_id, category_source="rule" (no ML revision bump)
+-> stage transaction via db.add
+-> commit single transaction boundary (committing Transaction and ML revision increment if staged)
+-> refresh transaction
+-> return transaction to Router for schema serialization
+```
+
+**Architecture boundary:** Router retains HTTP parameter parsing, request validation, and status code mapping (ValueError -> 400, None -> 404). `ManualTransactionManager` coordinates split guards, reconciliation guards, merchant resolution, category resolution, rule fallback, and transaction boundary ownership. `transaction_access` contains zero cross-accessor calls and zero business guard logic.
+

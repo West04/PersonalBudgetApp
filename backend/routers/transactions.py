@@ -195,7 +195,7 @@ def update_transaction(
     """
     update_data = payload.model_dump(exclude_unset=True)
     try:
-        updated = transaction_access.update_manual_transaction(
+        updated = manual_transaction_manager.update_transaction(
             db=db,
             transaction_id=transaction_id,
             update_data=update_data,
