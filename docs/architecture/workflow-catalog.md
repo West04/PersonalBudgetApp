@@ -106,6 +106,26 @@ verify destination account
 
 **Architecture boundary:** Router retains HTTP multipart upload handling, invokes `CSVImportManager.preview_csv_import`, and maps domain exceptions (`CSVImportAccountNotFoundError`, `CSVImportUnknownFormatError`, `CSVImportFormatNotFoundError`) to HTTP responses (404, 400). All parsing logic, loader resolution, and row error aggregation live inside `CSVImportManager`.
 
+## CSV upload inspection
+
+**Trigger:** `POST /upload/inspect`
+
+**Manager:** `CSVImportManager.inspect_csv_upload`
+
+```text
+read raw uploaded bytes from multipart payload
+-> decode raw bytes (utf-8-sig)
+-> validate non-empty content
+-> parse CSV headers and up to 3 bounded sample rows (io.StringIO + csv.reader)
+-> retrieve custom formats via csv_format_access.list_custom_formats
+-> convert to match definitions via csv_format_access.csv_format_to_match_definition
+-> combine candidates: BUILTIN_FORMAT_MATCHES + custom_candidates
+-> detect matching format candidates via pure domain detect_csv_format
+-> return schemas.CSVInspectResponse without database mutations
+```
+
+**Architecture boundary:** Router retains multipart HTTP stream reading (`UploadFile`), invokes `CSVImportManager.inspect_csv_upload`, and maps application exceptions (`CSVInspectError`) to HTTP 422 Unprocessable Entity. All byte decoding, CSV parsing, candidate collation, and domain detection engine execution live inside `CSVImportManager`. Inspection performs zero database writes, requires no account, and queries no account persistence.
+
 ## Account reconciliation
 
 **Trigger:** `GET /accounts/{id}/reconciliation`, `POST /accounts/{id}/reconciliation/complete`

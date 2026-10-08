@@ -17,7 +17,7 @@ Direct Router -> ResourceAccess is allowed for genuinely simple CRUD. Routers mu
 | BudgetSummaryManager | category/budget/actual retrieval + budget Engine | strong reference Manager |
 | CategorizationRuleManager | retroactive rule preview/apply | lightweight but has batch workflow/transaction semantics |
 | CreditCardSummaryManager | credit-account retrieval + financial calculation | justified; review DTO ceremony |
-| CSVImportManager | format resolution, preview parsing, and dedupe/normalize/categorize/stage/commit import | strongly justified |
+| CSVImportManager | upload inspection & format detection, loader resolution, preview parsing, and dedupe/normalize/categorize/stage/commit import | strongly justified; Slices 4 and 4b implementation |
 | DashboardSummaryManager | composite dashboard read workflow | justified only while composition changes independently; review screen-driven boundary and Manager-to-Manager edge |
 | ManualTransactionManager | manual transaction create and update workflows (merchant override resolution, split & reconciled invariant guards, rule fallback vs manual ML revision staging, atomic persistence) | narrowly scoped workflow Manager; Slice 2d and 2e implementation |
 | MLCategorizationManager | training/evaluation/artifact/metadata/inference workflows | strongly justified |

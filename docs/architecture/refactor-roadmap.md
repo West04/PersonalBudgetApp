@@ -95,6 +95,19 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 - Application exceptions (`CSVImportAccountNotFoundError`, `CSVImportUnknownFormatError`, `CSVImportFormatNotFoundError`, `CSVImportParseError`) mapped in Router to existing HTTP status codes (400, 404, 422);
 - Characterization suite (109 tests across preview, confirm, format resolution, and categorization) and full test suite (971 tests) green.
 
+### Slice 4b — Move CSV Inspection Workflow out of Presentation [COMPLETED]
+- Decoupled CSV inspection and format auto-detection from `backend/routers/upload.py::inspect_csv` into `CSVImportManager.inspect_csv_upload`.
+- `CSVImportManager.inspect_csv_upload` authoritatively coordinates:
+  1. Raw byte decoding via `utf-8-sig` (preserving BOM stripping and raising plain application exception `CSVInspectError` on `UnicodeDecodeError`).
+  2. Emptiness and whitespace validation, raising `CSVInspectError("CSV file is empty or contains no header row")`.
+  3. Header and sample row parsing via `io.StringIO` and `csv.reader`, validating non-empty headers and collecting up to 3 bounded sample rows positionally without dictionary key-collision loss or padding.
+  4. Candidate assembly: combining `BUILTIN_FORMAT_MATCHES` (`USAA`, `Discover`) followed by persisted custom formats from `csv_format_access.list_custom_formats(db)` converted via `csv_format_access.csv_format_to_match_definition`.
+  5. Format detection via pure domain `detect_csv_format(headers=headers, formats=candidates)`.
+  6. Direct construction and return of `schemas.CSVInspectResponse` without duplicate DTO ceremony.
+- Presentation boundary in `backend/routers/upload.py` pruned of `csv`, `io`, `BUILTIN_FORMAT_MATCHES`, and `detect_csv_format`. Router retains only multipart stream reading (`_read_upload`), delegation to `inspect_csv_upload`, and mapping `CSVInspectError` to HTTP 422 Unprocessable Entity.
+- Preserved zero-account, zero-loader-resolution, and zero-database-mutation invariants.
+- Exit criteria met: zero CSV parsing or format detection logic in `backend/routers/upload.py`; characterization suite (35 tests in `test_manager_csv_import.py`, 21 tests in `test_integration_csv_inspect.py`, 133 focused CSV tests) and full test suite (1,005 tests) green.
+
 ## Slice 5 — Remove Presentation coupling from Managers
 
 **Problem:** some Managers raise `HTTPException` or return Pydantic transport schemas.

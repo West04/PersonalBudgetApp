@@ -14,10 +14,12 @@ from backend.managers.csv_import_manager import (
     CSVImportParseError,
     CSVImportSummary,
     CSVImportUnknownFormatError,
+    CSVInspectError,
     CSVPreviewRow,
     CSVPreviewSummary,
     _resolve_statement_loader,
     confirm_csv_import,
+    inspect_csv_upload,
     preview_csv_import,
 )
 from sqlalchemy import text
@@ -663,3 +665,183 @@ def test_manager_confirm_custom_format(db_session):
     assert txns[0].amount == Decimal("45.50")
     assert txns[1].description == "Salary"
     assert txns[1].amount == Decimal("-2000.00")
+
+
+# ---------------------------------------------------------------------------
+# CSV Inspection Workflow
+# ---------------------------------------------------------------------------
+
+def test_manager_inspect_detects_usaa(db_session):
+    """Verify inspect_csv_upload detects USAA format from exact headers."""
+    csv_bytes = b"Date,Description,Category,Amount,Status\n2026-06-01,GROCERY,Food,-54.20,posted\n"
+    res = inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+    assert res.status == "detected"
+    assert res.detected_format is not None
+    assert res.detected_format.identifier == "usaa"
+    assert res.detected_format.name == "USAA"
+    assert len(res.matches) == 1
+    assert res.matches[0].identifier == "usaa"
+    assert res.headers == ["Date", "Description", "Category", "Amount", "Status"]
+    assert len(res.sample_rows) == 1
+    assert res.sample_rows[0] == ["2026-06-01", "GROCERY", "Food", "-54.20", "posted"]
+
+
+def test_manager_inspect_detects_discover(db_session):
+    """Verify inspect_csv_upload detects Discover format from exact headers."""
+    csv_bytes = b"Trans. Date,Description,Amount,Category\n06/01/2026,PURCHASE,45.00,Merchandise\n"
+    res = inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+    assert res.status == "detected"
+    assert res.detected_format is not None
+    assert res.detected_format.identifier == "discover"
+    assert res.detected_format.name == "Discover"
+    assert len(res.matches) == 1
+
+
+def test_manager_inspect_detects_custom_format(db_session):
+    """Verify inspect_csv_upload detects a persisted custom format."""
+    custom = csv_format_access.create_custom_format(
+        db=db_session,
+        name="Credit Union Checking",
+        date_column="Posting Date",
+        description_column="Memo",
+        amount_column="Value",
+        date_format="%m/%d/%Y",
+        amount_sign_convention="positive_is_inflow",
+    )
+    csv_bytes = b"Posting Date,Memo,Value\n09/01/2026,Coffee,6.25\n"
+    res = inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+    assert res.status == "detected"
+    assert res.detected_format is not None
+    assert res.detected_format.identifier == str(custom.id)
+    assert res.detected_format.name == "Credit Union Checking"
+    assert len(res.matches) == 1
+
+
+def test_manager_inspect_unknown_format_returns_samples(db_session):
+    """Verify unrecognized headers return status='unknown' with sample rows."""
+    csv_bytes = b"When,Merchant,Value\n2026-09-01,Coffee Shop,4.50\n2026-09-02,Bookstore,25.00\n"
+    res = inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+    assert res.status == "unknown"
+    assert res.detected_format is None
+    assert res.matches == []
+    assert res.headers == ["When", "Merchant", "Value"]
+    assert len(res.sample_rows) == 2
+    assert res.sample_rows[0] == ["2026-09-01", "Coffee Shop", "4.50"]
+    assert res.sample_rows[1] == ["2026-09-02", "Bookstore", "25.00"]
+
+
+def test_manager_inspect_ambiguous_format(db_session):
+    """Verify headers matching multiple formats return status='ambiguous'."""
+    custom = csv_format_access.create_custom_format(
+        db=db_session,
+        name="Subset USAA Custom",
+        date_column="Date",
+        description_column="Description",
+        amount_column="Amount",
+        date_format="%Y-%m-%d",
+        amount_sign_convention="positive_is_outflow",
+    )
+    csv_bytes = b"Date,Description,Category,Amount,Status\n2026-06-01,STORE,Food,-10.00,posted\n"
+    res = inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+    assert res.status == "ambiguous"
+    assert res.detected_format is None
+    match_ids = [m.identifier for m in res.matches]
+    assert "usaa" in match_ids
+    assert str(custom.id) in match_ids
+    # USAA (built-in) precedes custom format in candidate sequence
+    assert match_ids.index("usaa") < match_ids.index(str(custom.id))
+
+
+def test_manager_inspect_invalid_utf8_raises():
+    """Verify invalid UTF-8 bytes raise CSVInspectError with exact detail prefix."""
+    db_mock = MagicMock()
+    invalid_bytes = b"\xff\xfe\x00\x00Date,Amount\n2026-01-01,10\n"
+    with pytest.raises(CSVInspectError) as exc_info:
+        inspect_csv_upload(db=db_mock, raw_bytes=invalid_bytes)
+    assert "Unable to decode CSV file as UTF-8:" in str(exc_info.value)
+
+
+def test_manager_inspect_empty_file_raises():
+    """Verify empty bytes raise CSVInspectError with exact detail."""
+    db_mock = MagicMock()
+    with pytest.raises(CSVInspectError, match="CSV file is empty or contains no header row"):
+        inspect_csv_upload(db=db_mock, raw_bytes=b"")
+
+
+def test_manager_inspect_whitespace_file_raises():
+    """Verify whitespace-only bytes raise CSVInspectError with exact detail."""
+    db_mock = MagicMock()
+    with pytest.raises(CSVInspectError, match="CSV file is empty or contains no header row"):
+        inspect_csv_upload(db=db_mock, raw_bytes=b"   \n\n\t  \n")
+
+
+def test_manager_inspect_no_valid_headers_raises():
+    """Verify CSV with empty headers raises CSVInspectError with exact detail."""
+    db_mock = MagicMock()
+    with pytest.raises(CSVInspectError, match="CSV file contains no valid headers"):
+        inspect_csv_upload(db=db_mock, raw_bytes=b",,\n1,2,3\n")
+
+
+def test_manager_inspect_sample_rows_capped_at_three(db_session):
+    """Verify sample rows are strictly bounded to at most 3 rows."""
+    csv_bytes = (
+        b"When,Merchant,Value\n"
+        b"2026-09-01,R1,1\n"
+        b"2026-09-02,R2,2\n"
+        b"2026-09-03,R3,3\n"
+        b"2026-09-04,R4,4\n"
+        b"2026-09-05,R5,5\n"
+    )
+    res = inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+    assert len(res.sample_rows) == 3
+    assert res.sample_rows[0] == ["2026-09-01", "R1", "1"]
+    assert res.sample_rows[1] == ["2026-09-02", "R2", "2"]
+    assert res.sample_rows[2] == ["2026-09-03", "R3", "3"]
+
+
+def test_manager_inspect_blank_rows_skipped_in_samples(db_session):
+    """Verify blank rows are ignored when capturing sample rows."""
+    csv_bytes = (
+        b"When,Merchant,Value\n"
+        b"  ,  ,  \n"
+        b"2026-09-01,R1,1\n"
+        b"\n"
+        b"2026-09-02,R2,2\n"
+    )
+    res = inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+    assert len(res.sample_rows) == 2
+    assert res.sample_rows[0] == ["2026-09-01", "R1", "1"]
+    assert res.sample_rows[1] == ["2026-09-02", "R2", "2"]
+
+
+def test_manager_inspect_duplicate_headers_preserves_positional_values(db_session):
+    """Verify duplicate column names retain all cells positionally."""
+    csv_bytes = b"Amount,Amount,Description\n10.00,20.00,Coffee\n"
+    res = inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+    assert res.headers == ["Amount", "Amount", "Description"]
+    assert res.sample_rows == [["10.00", "20.00", "Coffee"]]
+
+
+def test_manager_inspect_ragged_rows_preserved(db_session):
+    """Verify short and long ragged rows are preserved exactly."""
+    csv_bytes = b"A,B,C\n1,2\n1,2,3,4\n"
+    res = inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+    assert res.headers == ["A", "B", "C"]
+    assert res.sample_rows == [["1", "2"], ["1", "2", "3", "4"]]
+
+
+def test_manager_inspect_zero_database_mutations(db_session):
+    """Verify inspect_csv_upload performs zero database mutations."""
+    csv_bytes = b"Date,Description,Category,Amount,Status\n2026-06-01,STORE,Food,-10.00,posted\n"
+    inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+    assert db_session.query(models.Transaction).count() == 0
+    assert db_session.query(models.CSVFormat).count() == 0
+
+
+def test_manager_inspect_does_not_query_accounts(db_session):
+    """Verify inspect_csv_upload does not query account_access."""
+    csv_bytes = b"Date,Description,Category,Amount,Status\n2026-06-01,STORE,Food,-10.00,posted\n"
+    with patch("backend.access.account_access.get_account_by_id") as mock_get_account:
+        res = inspect_csv_upload(db=db_session, raw_bytes=csv_bytes)
+        assert res.status == "detected"
+        mock_get_account.assert_not_called()

@@ -19,8 +19,16 @@ from typing import Optional
 from uuid import UUID
 from sqlalchemy.orm import Session
 
+from .. import schemas
 from ..access import account_access, csv_format_access, transaction_access, categorization_rule_access
-from ..bank_statement_loader import BankStatementLoader, LOADER_REGISTRY, MappedStatementLoader, get_loader
+from ..bank_statement_loader import (
+    BUILTIN_FORMAT_MATCHES,
+    BankStatementLoader,
+    LOADER_REGISTRY,
+    MappedStatementLoader,
+    detect_csv_format,
+    get_loader,
+)
 from ..domain.categorization_rules import match_merchant_rule
 from ..domain.merchant_normalization import normalize_merchant
 
@@ -67,6 +75,11 @@ class CSVImportFormatNotFoundError(Exception):
 
 class CSVImportParseError(Exception):
     """Raised when the statement loader fails to parse the CSV bytes."""
+    pass
+
+
+class CSVInspectError(Exception):
+    """Raised when CSV inspection fails due to decode, empty file, or header validation errors."""
     pass
 
 
@@ -251,4 +264,81 @@ def confirm_csv_import(
         imported=imported,
         skipped=skipped,
         errors=tuple(errors),
+    )
+
+
+def inspect_csv_upload(
+    db: Session,
+    raw_bytes: bytes,
+) -> schemas.CSVInspectResponse:
+    """
+    Coordinates the CSV inspection workflow without importing or requiring an account:
+    1. Decodes raw bytes using utf-8-sig.
+    2. Validates non-empty file content.
+    3. Parses CSV headers and up to 3 bounded sample rows of raw source values.
+    4. Loads persisted custom formats via csv_format_access and converts to match definitions.
+    5. Combines built-in format candidates with custom format candidates.
+    6. Detects matching format candidates via pure domain detect_csv_format.
+    7. Assembles and returns schemas.CSVInspectResponse without database mutations.
+    """
+    try:
+        text = raw_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise CSVInspectError(f"Unable to decode CSV file as UTF-8: {exc}") from exc
+
+    if not text.strip():
+        raise CSVInspectError("CSV file is empty or contains no header row")
+
+    stream = io.StringIO(text)
+    reader = csv.reader(stream)
+    try:
+        raw_headers = next(reader, None)
+    except Exception as exc:
+        raise CSVInspectError(f"Malformed CSV header row: {exc}") from exc
+
+    if raw_headers is None or not any(h.strip() for h in raw_headers if h is not None):
+        raise CSVInspectError("CSV file contains no valid headers")
+
+    headers = [str(h) for h in raw_headers]
+
+    # Collect bounded sample (up to 3 rows) of raw source values as positional lists
+    sample_rows: list[list[str]] = []
+    for raw_row in reader:
+        if not raw_row or not any(c.strip() for c in raw_row):
+            continue
+        sample_rows.append([str(c) for c in raw_row])
+        if len(sample_rows) >= 3:
+            break
+
+    # Build candidates: built-in matches followed by persisted custom formats
+    custom_formats = csv_format_access.list_custom_formats(db)
+    custom_candidates = [
+        csv_format_access.csv_format_to_match_definition(cf)
+        for cf in custom_formats
+    ]
+    candidates = list(BUILTIN_FORMAT_MATCHES) + custom_candidates
+
+    detection_result = detect_csv_format(headers=headers, formats=candidates)
+
+    detected_format_read = None
+    if detection_result.detected_format:
+        detected_format_read = schemas.CSVFormatMatchRead(
+            identifier=detection_result.detected_format.identifier,
+            name=detection_result.detected_format.name,
+        )
+
+    matches_read = [
+        schemas.CSVFormatMatchRead(
+            identifier=m.identifier,
+            name=m.name,
+        )
+        for m in detection_result.matches
+    ]
+
+    return schemas.CSVInspectResponse(
+        headers=headers,
+        sample_rows=sample_rows,
+        status=detection_result.status,
+        detected_format=detected_format_read,
+        matches=matches_read,
     )
