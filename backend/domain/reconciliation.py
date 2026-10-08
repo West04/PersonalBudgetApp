@@ -40,46 +40,90 @@ def detect_transfer_candidates(
     outflows: Sequence[ReconciliationTransaction],
 ) -> list[MatchedTransferCandidate]:
     """
-    Finds likely transfer pairs across different accounts:
-    a negative transaction (inflow) matched to a same-magnitude positive transaction (outflow)
-    on a different account within 2 days (MAX_TRANSFER_DAYS_DIFFERENCE),
-    where neither transaction is already marked as a transfer.
+    Finds likely transfer pairs across different accounts using deterministic
+    closest-first greedy suggestion matching.
+
+    Eligibility:
+    - Inflow is strictly negative (amount < 0) and not marked as transfer.
+    - Outflow is strictly positive (amount > 0) and not marked as transfer.
+    - Exact absolute amount equality (|inflow.amount| == |outflow.amount|).
+    - Different accounts (inflow.account_id != outflow.account_id).
+    - Absolute calendar date difference <= MAX_TRANSFER_DAYS_DIFFERENCE (2 days).
+
+    Selection & Ranking:
+    Eligible candidate pairs are evaluated and ranked deterministically by:
+    1. Absolute date distance ascending (0-day > 1-day > 2-day).
+    2. Inflow date ascending.
+    3. Outflow date ascending.
+    4. Canonical string representation of inflow transaction_id ascending.
+    5. Canonical string representation of outflow transaction_id ascending.
+
+    Walks the ranked candidate pairs, greedily selecting pairs where neither
+    inflow nor outflow has already been selected (single-use constraint).
     """
     inflow_list = [t for t in inflows if not t.is_transfer and t.amount < ZERO]
     outflow_list = [t for t in outflows if not t.is_transfer and t.amount > ZERO]
 
-    # Index outflows by absolute amount for lookup
-    outflow_by_amount: dict[Decimal, list[ReconciliationTransaction]] = {}
+    # Index outflows by exact absolute amount
+    outflows_by_amount: dict[Decimal, list[ReconciliationTransaction]] = {}
     for t in outflow_list:
-        key = abs(Decimal(str(t.amount)))
-        outflow_by_amount.setdefault(key, []).append(t)
+        outflows_by_amount.setdefault(abs(Decimal(str(t.amount))), []).append(t)
+
+    # Index inflows by exact absolute amount
+    inflows_by_amount: dict[Decimal, list[ReconciliationTransaction]] = {}
+    for t in inflow_list:
+        inflows_by_amount.setdefault(abs(Decimal(str(t.amount))), []).append(t)
+
+    eligible_pairs: list[
+        tuple[int, date, date, str, str, ReconciliationTransaction, ReconciliationTransaction]
+    ] = []
+
+    for amount, group_inflows in inflows_by_amount.items():
+        group_outflows = outflows_by_amount.get(amount)
+        if not group_outflows:
+            continue
+
+        for inf in group_inflows:
+            for outf in group_outflows:
+                # Must belong to a different account
+                if inf.account_id == outf.account_id:
+                    continue
+
+                date_diff = abs((outf.date - inf.date).days)
+                if date_diff <= MAX_TRANSFER_DAYS_DIFFERENCE:
+                    eligible_pairs.append((
+                        date_diff,
+                        inf.date,
+                        outf.date,
+                        str(inf.transaction_id),
+                        str(outf.transaction_id),
+                        inf,
+                        outf,
+                    ))
+
+    # Deterministic ranking tuple:
+    # 1. date distance ascending (0-day > 1-day > 2-day)
+    # 2. inflow date ascending
+    # 3. outflow date ascending
+    # 4. inflow transaction_id ascending
+    # 5. outflow transaction_id ascending
+    eligible_pairs.sort(key=lambda p: (p[0], p[1], p[2], p[3], p[4]))
 
     candidates: list[MatchedTransferCandidate] = []
-    seen_outflow_ids: set[UUID] = set()
+    used_inflow_ids: set[UUID] = set()
+    used_outflow_ids: set[UUID] = set()
 
-    for inflow_txn in inflow_list:
-        match_amount = abs(Decimal(str(inflow_txn.amount)))
-        possible_outflows = outflow_by_amount.get(match_amount, [])
+    for _, _, _, _, _, inf, outf in eligible_pairs:
+        if inf.transaction_id in used_inflow_ids or outf.transaction_id in used_outflow_ids:
+            continue
 
-        for outflow_txn in possible_outflows:
-            # Must belong to a different account
-            if outflow_txn.account_id == inflow_txn.account_id:
-                continue
-
-            # Must not have been matched to a prior inflow
-            if outflow_txn.transaction_id in seen_outflow_ids:
-                continue
-
-            # Date proximity check
-            date_diff = abs((outflow_txn.date - inflow_txn.date).days)
-            if date_diff <= MAX_TRANSFER_DAYS_DIFFERENCE:
-                seen_outflow_ids.add(outflow_txn.transaction_id)
-                candidates.append(
-                    MatchedTransferCandidate(
-                        inflow=inflow_txn,
-                        outflow=outflow_txn,
-                    )
-                )
-                break  # Exactly one match per inflow transaction
+        used_inflow_ids.add(inf.transaction_id)
+        used_outflow_ids.add(outf.transaction_id)
+        candidates.append(
+            MatchedTransferCandidate(
+                inflow=inf,
+                outflow=outf,
+            )
+        )
 
     return candidates

@@ -361,10 +361,10 @@ Backend can cascade the deletion.
 - [ ] Decide whether payments should include negative transfers
 - [ ] Decide whether future-dated transactions should affect current `balance_owed`
 
-## Transfer matching
+## Transfer matching (Resolved)
 
-- [ ] Decide whether greedy/order-dependent matching is acceptable
-- [ ] Decide whether closest-date preference is desired
+- [x] Decide whether greedy/order-dependent matching is acceptable (Decided: No; eliminated input-order dependence)
+- [x] Decide whether closest-date preference is desired (Decided: Yes; deterministic closest-first greedy matching implemented in `detect_transfer_candidates`)
 
 ## Budget Summary transfer semantics
 

@@ -560,10 +560,11 @@ def test_backward_compatibility_credit_cards_transfer_routes(client, db_session)
     assert db_in.is_transfer is True
 
 
-def test_greedy_matching_heuristic_preserved(client, db_session):
+def test_closest_first_matching_heuristic_enforced(client, db_session):
     """
-    Verifies that the characterized greedy, order-dependent matching heuristic
-    in detect_transfer_candidates is preserved without silent policy modification.
+    Verifies that transfer candidate matching enforces closest-date preference:
+    between a 2-day distant candidate and a 0-day (same day) candidate,
+    the 0-day candidate is strictly selected.
     """
     acct1 = models.Account(name="Acc 1", type="depository")
     acct2 = models.Account(name="Acc 2", type="credit")
@@ -601,9 +602,9 @@ def test_greedy_matching_heuristic_preserved(client, db_session):
     assert resp.status_code == 200
     candidates = resp.json()
     assert len(candidates) == 1
-    # Existing algorithm matches the first matching outflow in retrieval order without closest-date preference
+    # Closest-first policy strictly matches the 0-day candidate
     matched_outflow_id = candidates[0]["outflow_side"]["transaction_id"]
-    assert matched_outflow_id in (str(tx_out_far.transaction_id), str(tx_out_close.transaction_id))
+    assert matched_outflow_id == str(tx_out_close.transaction_id)
 
 
 # ---------------------------------------------------------------------------

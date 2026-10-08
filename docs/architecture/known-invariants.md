@@ -53,6 +53,14 @@ Structural refactors must preserve these behaviors unless the task explicitly au
 - Empty string `""` is the canonical representation when no description text exists.
 - SQL `NULL` is prohibited at the database, ORM, and schema layers.
 
+## Transfer matching invariant
+
+- Transfer candidate matching is deterministic closest-first greedy matching (`detect_transfer_candidates`).
+- Eligibility: exact opposite amount, different accounts, $\pm 2$ calendar days, not already transfer, no splits.
+- Selection: smallest date distance first (0-day > 1-day > 2-day); stable dates and transaction IDs break ties; each transaction appears in at most one suggestion.
+- Input and database ordering do not affect results.
+- Matching is suggestion-only until user confirmation via `POST /credit-cards/mark-transfers`.
+
 ## Known defects that must not be silently fixed
 
 - None currently active (Transaction description nullability defect resolved via `migrate_transaction_description_integrity`).
@@ -60,3 +68,4 @@ Structural refactors must preserve these behaviors unless the task explicitly au
 ## Transaction behavior
 
 Do not change commit granularity merely because code is being moved unless the current refactor explicitly targets transaction semantics. In particular, Plaid transaction sync's current per-event/final commit structure is a known behavior requiring a separate correctness decision.
+

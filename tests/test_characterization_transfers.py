@@ -964,3 +964,52 @@ def test_mark_transfers_commit_semantics_and_single_commit(client, db_session):
         assert spy_commit_nonexistent.call_count == 1
 
 
+def test_transfer_candidates_endpoint_closest_date_preference(client, db_session):
+    """
+    Integration regression:
+    Through GET /credit-cards/transfer-candidates, verify that when presented with
+    an ambiguous choice between a 2-day distant candidate and a 0-day (same day) candidate,
+    the endpoint strictly returns the same-day candidate.
+    """
+    chk = models.Account(name="Integration Checking", type="depository", current_balance=Decimal("2000.00"), currency="USD")
+    card = models.Account(name="Integration Card", type="credit", current_balance=Decimal("-500.00"), currency="USD")
+    db_session.add_all([chk, card])
+    db_session.flush()
+
+    # Inflow: on June 15 for -100
+    tx_in = models.Transaction(
+        account_id=card.id,
+        amount=Decimal("-100.00"),
+        date=date(2026, 6, 15),
+        description="Payment Received",
+        is_transfer=False,
+    )
+    # Outflow 1: on June 13 (2 days away)
+    tx_out_far = models.Transaction(
+        account_id=chk.id,
+        amount=Decimal("100.00"),
+        date=date(2026, 6, 13),
+        description="Transfer Out Far",
+        is_transfer=False,
+    )
+    # Outflow 2: on June 15 (0 days away - same day)
+    tx_out_close = models.Transaction(
+        account_id=chk.id,
+        amount=Decimal("100.00"),
+        date=date(2026, 6, 15),
+        description="Transfer Out Close",
+        is_transfer=False,
+    )
+    db_session.add_all([tx_in, tx_out_far, tx_out_close])
+    db_session.commit()
+
+    resp = client.get("/credit-cards/transfer-candidates")
+    assert resp.status_code == 200
+    candidates = resp.json()
+
+    assert len(candidates) == 1
+    # Strictly the 0-day candidate wins; does not accept tx_out_far
+    assert candidates[0]["outflow_side"]["transaction_id"] == str(tx_out_close.transaction_id)
+    assert candidates[0]["outflow_side"]["description"] == "Transfer Out Close"
+
+

@@ -224,12 +224,14 @@ Greedy matching result depends on that sequence
 
 ### Non-Negotiable Structural Invariants:
 - **No SQL `ORDER BY`** in candidate queries.
-- **No Python sorting** in Accessors, Manager, or Router.
-- **No ID-based tie-breakers**.
-- **No chronological sorting**.
-- **No closest-date preference**.
+- **No Python sorting** in Accessors, Manager, or Router (Engine owns matching policy).
+- Matching policy is owned strictly by the pure Reconciliation Engine (`backend/domain/reconciliation.py`).
 
-The architecture documentation does not claim a specific existing database order. Closest-date tie-breaking remains an **unresolved product/domain decision** that must not be introduced silently during structural refactoring.
+Transfer candidate matching is deterministic closest-first greedy matching:
+- **Eligibility**: exact opposite amount, different accounts, $\pm 2$ calendar days, not already transfer, no splits.
+- **Selection**: smallest date distance first (`0` > `1` > `2`); stable dates and transaction IDs break ties; each transaction appears in at most one suggestion.
+- **Order-invariance**: Input and database ordering do not affect results.
+- **Suggestion-only**: Matching is suggestion-only until explicit user confirmation via `POST /credit-cards/mark-transfers`.
 
 ---
 
@@ -406,14 +408,13 @@ The structural refactor must preserve this exact public contract without attempt
 
 ## 13. Preserved Defects and Unresolved Behaviors
 
-The following domain and implementation characteristics are deliberately preserved unchanged during Slice 4:
-1. **Unspecified candidate ordering:** No `ORDER BY` added to queries.
-2. **Greedy first-match pairing:** Engine pairs first qualifying outflow without closest-date preference.
-3. **No closest-date tie-breaking:** Unresolved product decision (Checkpoint #7).
-4. **2-day matching threshold:** Fixed constant `MAX_TRANSFER_DAYS_DIFFERENCE = 2`.
-5. **Single-use outflows:** Outflows are claimed once and cannot match multiple inflows.
-6. **Transaction description nullability:** Resolved defect (database enforces NOT NULL, schema requires non-null string).
-7. **Category-group cascade behavior:** Known defect (backend permits deletion of non-empty groups).
+The following domain and implementation characteristics are preserved or resolved:
+1. **Unspecified query ordering:** No `ORDER BY` in candidate persistence queries; Engine owns deterministic ranking.
+2. **Deterministic closest-first greedy matching:** Engine ranks eligible pairs by date distance, dates, and IDs; closest date strictly wins. (Resolved Checkpoint #7).
+3. **2-day matching threshold:** Fixed constant `MAX_TRANSFER_DAYS_DIFFERENCE = 2`.
+4. **Single-use pairing:** Inflows and outflows are claimed at most once.
+5. **Transaction description nullability:** Resolved defect (database enforces NOT NULL, schema requires non-null string).
+6. **Category-group cascade behavior:** Known defect (backend permits deletion of non-empty groups).
 
 ---
 

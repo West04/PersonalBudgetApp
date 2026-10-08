@@ -82,9 +82,10 @@ The following behaviors and invariants were discovered during characterization t
 - **Current Behavior:** All-time sum currently evaluates transactions regardless of whether `date` is in the future.
 - **Status:** Treated as an **Unresolved Domain Decision**. Behavior is preserved as characterized.
 
-### 5. Transfer Matching Greedy / Order-Dependent (Unresolved Domain Decision)
-- **Current Behavior:** `detect_transfer_candidates` pairs transactions greedily in input list order without closest-date tie-breaking or persistent counterpart foreign keys.
-- **Status:** Treated as an **Unresolved Domain Decision**. Behavior is preserved as characterized.
+### 5. Transfer Matching Deterministic Closest-First Policy (Resolved Domain Decision)
+- **Previous Behavior:** `detect_transfer_candidates` paired transactions greedily in input list order without closest-date tie-breaking or stable ordering.
+- **Resolution:** Implemented deterministic closest-first greedy suggestion matching in `detect_transfer_candidates`. Eligible candidate pairs are ranked by smallest date distance first (`0` > `1` > `2`), followed by stable dates and transaction IDs breaking ties. Closest date distance strictly wins, input/database ordering dependence is eliminated, and each transaction appears in at most one suggestion.
+- **Status:** **Resolved Domain Decision**.
 
 ### 6. Insecure Credential Storage (Deferred Security Debt)
 - **Current Behavior:** `backend/security.py` uses base64 string encoding instead of authenticated symmetric encryption (Fernet/KMS). Plaid access tokens require cryptographic key migration in a dedicated security slice.

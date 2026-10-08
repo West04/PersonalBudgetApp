@@ -183,9 +183,9 @@ These are documented decisions intentionally kept separate from architectural re
 - `balance_owed` includes transfers, while `charges_this_month` excludes transfers. Future-dated transactions are currently evaluated in `balance_owed`. Negative balance owed represents credit/overpayment balance.
 
 ### Transfer matching heuristic
-- **Classification:** Unresolved domain decision
-- **Status:** Preserved characterized behavior
-- `detect_transfer_candidates` pairs transactions greedily in database retrieval sequence (tolerance $\le 2$ days) without closest-date tie-breaking or persistent counterpart foreign key.
+- **Classification:** Resolved domain decision
+- **Status:** Completed
+- Transfer candidate matching is deterministic closest-first greedy suggestion matching in `detect_transfer_candidates`. Eligible candidate pairs are ranked by smallest date distance first (`0` > `1` > `2`), with stable dates and transaction IDs breaking ties. Input/database ordering does not affect results. Matching is suggestion-only until user confirmation.
 
 ### Budget Summary transfer exclusion
 - **Classification:** Unresolved domain decision
