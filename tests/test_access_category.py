@@ -81,6 +81,18 @@ def test_category_group_crud_lifecycle(db_session):
     assert category_access.delete_category_group(db_session, uuid4()) is None
 
 
+def test_delete_category_group_with_categories_raises_value_error(db_session):
+    group = category_access.create_category_group(db_session, name="Group With Child")
+    category_access.create_category(db_session, name="Child Cat", group_id=group.category_group_id)
+
+    with pytest.raises(ValueError, match="Cannot delete category group containing categories"):
+        category_access.delete_category_group(db_session, group.category_group_id)
+
+    # Verify group and category remain in database
+    assert category_access.get_category_group_by_id(db_session, group.category_group_id) is not None
+    assert len(category_access.list_categories(db_session, group_id=group.category_group_id)) == 1
+
+
 def test_reorder_category_groups_persistence(db_session):
     g1 = category_access.create_category_group(db_session, name="G1", sort_order=10)
     g2 = category_access.create_category_group(db_session, name="G2", sort_order=20)

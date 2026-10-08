@@ -75,11 +75,20 @@ def update_category_group(
 
 def delete_category_group(db: Session, group_id: UUID) -> Optional[models.CategoryGroup]:
     """
-    Deletes a CategoryGroup. Cascading deletes child categories per database/ORM relationship.
+    Deletes a CategoryGroup. Blocks deletion if the group contains child categories.
     """
     db_group = get_category_group_by_id(db, group_id)
     if not db_group:
         return None
+
+    has_categories = (
+        db.query(models.Category)
+        .filter(models.Category.group_id == group_id)
+        .first()
+        is not None
+    )
+    if has_categories:
+        raise ValueError("Cannot delete category group containing categories. Move or delete categories first.")
 
     db.delete(db_group)
     db.commit()

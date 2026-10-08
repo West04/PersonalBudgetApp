@@ -63,10 +63,10 @@ The following behaviors and invariants were discovered during characterization t
 - **Consequence:** Creating a transaction with `description: None` via `POST /transactions/` yields `422 Unprocessable Entity`. If a transaction with `description = None` exists in the database, serializing it via `TransactionRead` yields an HTTP `500 Internal Server Error`.
 - **Status:** Treated as a **Known Defect**. Production behavior is preserved without modification during initial refactoring; pinned via explicit characterization test.
 
-### 2. Backend Category-Group Deletion Allows Cascade Deletion (Known Defect)
-- **Current Behavior:** In `backend/models.py`, `Category.group_id` specifies `ForeignKey("category_groups.category_group_id", ondelete="CASCADE")` and `CategoryGroup.categories` specifies `cascade="all, delete-orphan"`. The route `DELETE /category-groups/{group_id}` (`backend/routers/categories.py`) deletes the group, triggering cascading deletion of all member categories.
-- **Consequence:** Although the frontend UI (`frontend/app/pages/categories.vue`) explicitly blocks deleting non-empty category groups to protect user data, the backend API permits cascade deletion without restriction.
-- **Status:** Treated as a **Known Defect**. Production behavior is preserved without modification during initial refactoring; pinned via explicit characterization test.
+### 2. Backend Category-Group Deletion Blocks Non-Empty Groups (Resolved Defect)
+- **Previous Behavior:** The route `DELETE /category-groups/{group_id}` (`backend/routers/categories.py`) permitted deleting category groups with child categories, triggering cascading deletion of child categories, nullifying transactions and budgets, and deleting categorization rules (or crashing on split transactions).
+- **Resolution:** Backend enforces that a category group may be deleted only when it contains zero categories. If child categories exist, `category_access.delete_category_group` raises `ValueError`, which `routers/categories.py` maps to `HTTP 400 Bad Request` with detail `"Cannot delete category group containing categories. Move or delete categories first."`, preserving all category, transaction, budget, rule, and split data without mutation.
+- **Status:** **Resolved Defect**. Aligned backend contract with existing frontend pre-delete guard.
 
 ### 3. Credit Card `balance_owed` Includes Transfers While `charges_this_month` Excludes Them (Unresolved Domain/Product Decision)
 - **Current Behavior:** In `backend/domain/credit_cards.py`, `balance_owed` is computed as `starting_balance + sum(all-time transaction amounts)`, which includes transactions flagged with `is_transfer == True`. Concurrently, `charges_this_month` sums only positive transactions where `is_transfer == False`, explicitly excluding transfers.

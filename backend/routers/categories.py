@@ -91,10 +91,16 @@ def delete_category_group(
     """
     Delete a category group.
     """
-    deleted = category_access.delete_category_group(
-        db=db,
-        group_id=group_id,
-    )
+    try:
+        deleted = category_access.delete_category_group(
+            db=db,
+            group_id=group_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc)
+        )
     if deleted is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

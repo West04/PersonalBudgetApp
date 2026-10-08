@@ -33,10 +33,13 @@ Preserve until a product decision changes it:
 - CSV duplicate detection currently uses exact `(account_id, date, amount, description)` equality.
 - Preview and confirm behavior may be relocated but must remain behaviorally equivalent unless separately approved.
 
+## Category and group behavior
+
+- Category groups cannot be deleted while they contain categories (must be empty; returns HTTP 400 with detail "Cannot delete category group containing categories. Move or delete categories first.").
+
 ## Known defects that must not be silently fixed
 
 - Transaction `description` DB nullability conflicts with the API schema's non-null string expectation.
-- Backend category-group deletion can cascade even though the frontend blocks deletion of non-empty groups.
 - Plaid token storage uses the current insecure placeholder/base64-style mechanism. Real encryption is a separate migration.
 
 ## Transaction behavior

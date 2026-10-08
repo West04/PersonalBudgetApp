@@ -195,13 +195,14 @@ def test_delete_missing_category_group_404(client: TestClient):
     assert response.json()["detail"] == "Category Group not found"
 
 
-def test_delete_non_empty_category_group_backend_cascade_and_relationships(client: TestClient, db_session):
+def test_delete_non_empty_category_group_rejected_and_all_data_preserved(client: TestClient, db_session):
     """
-    Characterizes existing backend cascade behavior:
-    - Non-empty group deletion succeeds with 204.
-    - Child categories are deleted.
-    - Associated transactions have category_id set to NULL.
-    - Associated budgets have category_id set to NULL.
+    Contract: Non-empty category-group deletion is rejected:
+    - Non-empty group deletion fails with 400 Bad Request.
+    - Error detail explains categories must be moved or deleted first.
+    - Category group and child categories remain in DB.
+    - Associated transactions retain original category_id (not nullified).
+    - Associated budgets retain original category_id (not nullified).
     """
     group = models.CategoryGroup(name="Populated Group", sort_order=1)
     db_session.add(group)
@@ -236,22 +237,82 @@ def test_delete_non_empty_category_group_backend_cascade_and_relationships(clien
     budget_id = budget.budget_id
 
     response = client.delete(f"/category-groups/{group_id}")
-    assert response.status_code == 204
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cannot delete category group containing categories. Move or delete categories first."
 
     db_session.expire_all()
-    # Group and category deleted
-    assert db_session.query(models.CategoryGroup).filter_by(category_group_id=group_id).first() is None
-    assert db_session.query(models.Category).filter_by(category_id=cat_id).first() is None
+    # Group and category preserved
+    assert db_session.query(models.CategoryGroup).filter_by(category_group_id=group_id).first() is not None
+    preserved_cat = db_session.query(models.Category).filter_by(category_id=cat_id).first()
+    assert preserved_cat is not None
+    assert preserved_cat.group_id == group_id
 
-    # Transaction preserved with category_id set to NULL
+    # Transaction preserved with category_id unchanged
     db_tx = db_session.query(models.Transaction).filter_by(transaction_id=tx_id).first()
     assert db_tx is not None
-    assert db_tx.category_id is None
+    assert db_tx.category_id == cat_id
 
-    # Budget preserved with category_id set to NULL
+    # Budget preserved with category_id unchanged
     db_b = db_session.query(models.Budget).filter_by(budget_id=budget_id).first()
     assert db_b is not None
-    assert db_b.category_id is None
+    assert db_b.category_id == cat_id
+
+
+def test_delete_category_group_with_rules_and_splits_rejected_400(client: TestClient, db_session):
+    """
+    Regression test:
+    When a category group has child categories referenced by categorization rules
+    and transaction splits (which previously caused silent rule deletion or unhandled 500 RestrictViolation),
+    the endpoint cleanly returns 400 Bad Request and leaves all data completely unmutated.
+    """
+    group = models.CategoryGroup(name="Complex Ref Group", sort_order=2)
+    db_session.add(group)
+    db_session.flush()
+
+    cat = models.Category(name="Complex Ref Cat", group_id=group.category_group_id, type="expense")
+    db_session.add(cat)
+    db_session.flush()
+
+    rule = models.CategorizationRule(merchant="Target", category_id=cat.category_id)
+    db_session.add(rule)
+
+    account = models.Account(name="Split Checking", type="depository")
+    db_session.add(account)
+    db_session.flush()
+
+    tx = models.Transaction(
+        account_id=account.id,
+        description="Target Store Split",
+        amount=Decimal("100.00"),
+        date=date(2026, 6, 2),
+    )
+    db_session.add(tx)
+    db_session.flush()
+
+    split = models.TransactionSplit(
+        transaction_id=tx.transaction_id,
+        category_id=cat.category_id,
+        amount=Decimal("100.00"),
+    )
+    db_session.add(split)
+    db_session.commit()
+
+    group_id = group.category_group_id
+    cat_id = cat.category_id
+    rule_id = rule.id
+    split_id = split.id
+
+    # Endpoint returns clean 400 without 500 IntegrityError
+    response = client.delete(f"/category-groups/{group_id}")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cannot delete category group containing categories. Move or delete categories first."
+
+    db_session.expire_all()
+    # Verify complete data preservation
+    assert db_session.query(models.CategoryGroup).filter_by(category_group_id=group_id).first() is not None
+    assert db_session.query(models.Category).filter_by(category_id=cat_id).first() is not None
+    assert db_session.query(models.CategorizationRule).filter_by(id=rule_id).first() is not None
+    assert db_session.query(models.TransactionSplit).filter_by(id=split_id).first() is not None
 
 
 def test_reorder_category_groups_normal(client: TestClient, db_session):

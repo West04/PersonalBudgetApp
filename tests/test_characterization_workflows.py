@@ -254,14 +254,13 @@ def test_transaction_description_nullability_mismatch_characterization(client, d
         client.get(f"/transactions/?account_id={account.id}")
 
 
-def test_backend_category_group_cascade_deletion_characterization(client, db_session):
+def test_backend_category_group_deletion_blocks_non_empty_groups(client, db_session):
     """
-    Characterize Known Defect #2:
-    Backend category-group deletion allows cascade deletion even though the frontend prohibits it:
-    - In DB/backend, Category.group_id has ForeignKey ondelete="CASCADE" and CategoryGroup.categories has delete-orphan cascade.
-    - Calling DELETE /category-groups/{group_id} deletes the group, child categories, and budgets.
+    Verify resolved contract (formerly Known Defect #2):
+    Backend category-group deletion rejects deleting non-empty groups with HTTP 400.
+    All data is preserved: category group, child category, and budget remain unchanged.
     """
-    group = models.CategoryGroup(name="Cascade Target Group", sort_order=99)
+    group = models.CategoryGroup(name="Protected Target Group", sort_order=99)
     db_session.add(group)
     db_session.flush()
 
@@ -277,19 +276,22 @@ def test_backend_category_group_cascade_deletion_characterization(client, db_ses
     cat_id = cat.category_id
     budget_id = budget.budget_id
 
-    # Backend allows deletion of non-empty category group
+    # Backend rejects deletion of non-empty category group
     resp = client.delete(f"/category-groups/{group_id}")
-    assert resp.status_code == 204
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Cannot delete category group containing categories. Move or delete categories first."
 
     # Expire session so identity map re-queries DB
     db_session.expire_all()
 
-    # Confirm group and category are deleted via cascade; budget category_id is nulled out
-    assert db_session.query(models.CategoryGroup).filter_by(category_group_id=group_id).first() is None
-    assert db_session.query(models.Category).filter_by(category_id=cat_id).first() is None
-    orphaned_budget = db_session.query(models.Budget).filter_by(budget_id=budget_id).first()
-    assert orphaned_budget is not None
-    assert orphaned_budget.category_id is None
+    # Confirm group, category, and budget are completely preserved
+    assert db_session.query(models.CategoryGroup).filter_by(category_group_id=group_id).first() is not None
+    preserved_cat = db_session.query(models.Category).filter_by(category_id=cat_id).first()
+    assert preserved_cat is not None
+    assert preserved_cat.group_id == group_id
+    preserved_budget = db_session.query(models.Budget).filter_by(budget_id=budget_id).first()
+    assert preserved_budget is not None
+    assert preserved_budget.category_id == cat_id
 
 
 
