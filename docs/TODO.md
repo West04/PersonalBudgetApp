@@ -168,9 +168,9 @@ Future enhancements to be evaluated based on real-world personal budgeting usage
 These are documented decisions intentionally kept separate from architectural refactoring:
 
 ### Transaction description nullability
-- **Classification:** Known defect
-- **Status:** Preserved pending migration slice
-- `models.Transaction.description` is nullable in PostgreSQL (`Text`, nullable=True), while Pydantic schemas enforce non-null `str`. Requires a dedicated characterization and migration slice.
+- **Classification:** Resolved defect
+- **Status:** Completed
+- `models.Transaction.description` is non-null in PostgreSQL (`Text`, nullable=False) and schemas enforce non-null `str`. Fixed via `migrate_transaction_description_integrity`, `TransactionUpdate` validator, and Plaid ingestion normalization. Canonical representation for missing narrative is `""`.
 
 ### CategoryGroup deletion cascade inconsistency
 - **Classification:** Known defect / behavior inconsistency

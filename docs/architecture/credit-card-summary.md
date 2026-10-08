@@ -202,7 +202,7 @@ The refactoring slice must preserve all characterized existing behaviors exactly
 ### 6.2. Persistence Field Handling
 - `account.starting_balance` is passed directly to the Engine (which normalizes it to Decimal).
 - `account.current_balance` is **not used** by the credit card summary workflow.
-- `transaction.description` is passed through directly from persistence to schema without a fallback (the known database-nullable vs schema-required mismatch is preserved).
+- `transaction.description` is passed through directly from persistence to schema (enforced as non-null string in persistence and schema).
 - `transaction.category_id` passes through as `UUID` or `None`.
 - `transaction.amount`, `date`, and `is_transfer` are passed through directly.
 

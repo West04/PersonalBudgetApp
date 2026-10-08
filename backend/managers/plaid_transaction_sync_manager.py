@@ -104,8 +104,11 @@ def _process_upsert_event(
         if isinstance(cps, list) and len(cps) > 0 and isinstance(cps[0], dict):
             provider_merchant = cps[0].get("name")
 
+    raw_desc = tx_data.get("name")
+    tx_description = raw_desc if raw_desc is not None else ""
+
     normalized_merchant = normalize_merchant(
-        raw_description=tx_data["name"],
+        raw_description=tx_description,
         provider_merchant=provider_merchant,
     )
 
@@ -153,7 +156,7 @@ def _process_upsert_event(
             db=db,
             plaid_transaction_id=tx_data["transaction_id"],
             account_id=account.id,
-            description=tx_data["name"],
+            description=tx_description,
             amount=amount_for_budget,
             transaction_date=tx_date,
             transaction_datetime=tx_datetime,

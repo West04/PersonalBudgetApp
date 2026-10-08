@@ -153,6 +153,13 @@ class TransactionUpdate(BaseModel):
     is_transfer: Optional[bool] = None
     is_reviewed: Optional[bool] = None
 
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            raise ValueError("description cannot be null")
+        return v
+
 
 class TransactionClearedUpdate(BaseModel):
     is_cleared: bool

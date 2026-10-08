@@ -80,6 +80,7 @@ def test_manager_get_budget_summary_coordination(db_session):
         category_id=cat_salary.category_id,
         amount=Decimal("-4800.00"),
         date=date(2026, 6, 5),
+        description="Salary",
     )
     # Expense outflow: +1500.00
     tx_rent = models.Transaction(
@@ -87,6 +88,7 @@ def test_manager_get_budget_summary_coordination(db_session):
         category_id=cat_rent.category_id,
         amount=Decimal("1500.00"),
         date=date(2026, 6, 1),
+        description="Rent",
     )
     db_session.add_all([tx_income, tx_rent])
     db_session.commit()

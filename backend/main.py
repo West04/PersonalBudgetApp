@@ -13,6 +13,7 @@ from .database import (
     migrate_recurring_state,
     migrate_split_state,
     migrate_budget_category_integrity,
+    migrate_transaction_description_integrity,
     migrate_plaid_token_encryption,
 )
 from . import models
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI):
     migrate_recurring_state(engine)
     migrate_split_state(engine)
     migrate_budget_category_integrity(engine)
+    migrate_transaction_description_integrity(engine)
     migrate_plaid_token_encryption(engine)
     
     # Initialize default data

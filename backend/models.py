@@ -78,7 +78,7 @@ class Transaction(Base):
     account_id = Column(UUID, ForeignKey("accounts.id"), nullable=False)
     category_id = Column(UUID, ForeignKey("categories.category_id", ondelete="SET NULL"), nullable=True, index=True)
 
-    description = Column(Text)
+    description = Column(Text, nullable=False)
     merchant = Column(String, nullable=True)
     is_merchant_overridden = Column(Boolean, default=False, nullable=False, server_default="false")
     amount = Column(DECIMAL(10, 2), nullable=False)  # Positive = outflow, Negative = inflow

@@ -141,8 +141,8 @@ def test_transfer_confirmation(client, db_session):
     db_session.add_all([account1, account2])
     db_session.flush()
 
-    t1 = models.Transaction(account_id=account1.id, amount=Decimal("200.00"), date=date(2026, 6, 1), is_transfer=False)
-    t2 = models.Transaction(account_id=account2.id, amount=Decimal("-200.00"), date=date(2026, 6, 1), is_transfer=False)
+    t1 = models.Transaction(account_id=account1.id, amount=Decimal("200.00"), date=date(2026, 6, 1), description="Transfer Out", is_transfer=False)
+    t2 = models.Transaction(account_id=account2.id, amount=Decimal("-200.00"), date=date(2026, 6, 1), description="Transfer In", is_transfer=False)
     db_session.add_all([t1, t2])
     db_session.commit()
 
@@ -204,20 +204,19 @@ def test_category_and_group_reordering(client, db_session):
     assert c2.sort_order == 2
 
 
-def test_transaction_description_nullability_mismatch_characterization(client, db_session):
+def test_transaction_description_contract_enforces_not_null(client, db_session):
     """
-    Characterize Known Defect #1:
-    Transaction.description database/schema nullability mismatch:
-    - DB column 'description' is nullable (Column(Text) without nullable=False).
-    - Pydantic schemas (TransactionCreate, TransactionRead) require 'description: str'.
-    - POST /transactions/ with description=None is rejected with HTTP 422.
-    - If a row with description=None exists in DB, querying GET /transactions/
-      fails with ResponseValidationError (HTTP 500 equivalent) on TransactionRead.
+    Verify resolved contract (formerly Known Defect #1):
+    Transaction.description database/schema integrity:
+    - API creation rejects null description with HTTP 422.
+    - Database prohibits inserting description=None with IntegrityError.
+    - Creating and reading transactions with empty string '' succeeds with HTTP 201/200.
+    - API reads always serialize description as string.
     """
-    from fastapi.exceptions import ResponseValidationError
+    from sqlalchemy.exc import IntegrityError
 
     account = models.Account(
-        name="Mismatch Checking",
+        name="Contract Checking",
         type="depository",
         subtype="checking",
         current_balance=Decimal("1000.00"),
@@ -238,7 +237,7 @@ def test_transaction_description_nullability_mismatch_characterization(client, d
     resp = client.post("/transactions/", json=payload_null_desc)
     assert resp.status_code == 422
 
-    # 2. Database allows inserting description=None
+    # 2. Database prohibits inserting description=None
     tx_null = models.Transaction(
         account_id=account.id,
         category_id=None,
@@ -247,11 +246,29 @@ def test_transaction_description_nullability_mismatch_characterization(client, d
         date=date(2026, 6, 15),
     )
     db_session.add(tx_null)
-    db_session.commit()
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
 
-    # 3. But reading via TransactionRead raises ResponseValidationError (HTTP 500) due to schema mismatch
-    with pytest.raises(ResponseValidationError):
-        client.get(f"/transactions/?account_id={account.id}")
+    # 3. Empty string is accepted on creation and serialized cleanly on read
+    payload_empty_desc = {
+        "account_id": str(account.id),
+        "category_id": None,
+        "description": "",
+        "amount": "25.00",
+        "date": "2026-06-15",
+    }
+    resp_empty = client.post("/transactions/", json=payload_empty_desc)
+    assert resp_empty.status_code == 201
+    created_tx = resp_empty.json()
+    assert created_tx["description"] == ""
+
+    # 4. Reading via TransactionRead succeeds without ResponseValidationError
+    read_resp = client.get(f"/transactions/?account_id={account.id}")
+    assert read_resp.status_code == 200
+    items = read_resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["description"] == ""
 
 
 def test_backend_category_group_deletion_blocks_non_empty_groups(client, db_session):

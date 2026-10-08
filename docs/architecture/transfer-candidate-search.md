@@ -412,7 +412,7 @@ The following domain and implementation characteristics are deliberately preserv
 3. **No closest-date tie-breaking:** Unresolved product decision (Checkpoint #7).
 4. **2-day matching threshold:** Fixed constant `MAX_TRANSFER_DAYS_DIFFERENCE = 2`.
 5. **Single-use outflows:** Outflows are claimed once and cannot match multiple inflows.
-6. **Transaction description nullability mismatch:** Known defect (DB allows NULL, schema requires non-null string).
+6. **Transaction description nullability:** Resolved defect (database enforces NOT NULL, schema requires non-null string).
 7. **Category-group cascade behavior:** Known defect (backend permits deletion of non-empty groups).
 
 ---

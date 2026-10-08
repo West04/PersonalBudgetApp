@@ -85,14 +85,14 @@ def test_transaction_access_get_actuals_by_category(db_session):
     db_session.flush()
 
     # June transactions for cat1: 40.00 + 60.00 = 100.00
-    tx1 = models.Transaction(account_id=account.id, category_id=cat1.category_id, amount=Decimal("40.00"), date=date(2026, 6, 5))
-    tx2 = models.Transaction(account_id=account.id, category_id=cat1.category_id, amount=Decimal("60.00"), date=date(2026, 6, 15))
+    tx1 = models.Transaction(account_id=account.id, category_id=cat1.category_id, amount=Decimal("40.00"), date=date(2026, 6, 5), description="Dining 1")
+    tx2 = models.Transaction(account_id=account.id, category_id=cat1.category_id, amount=Decimal("60.00"), date=date(2026, 6, 15), description="Dining 2")
     # June transaction for cat2: 25.00
-    tx3 = models.Transaction(account_id=account.id, category_id=cat2.category_id, amount=Decimal("25.00"), date=date(2026, 6, 20))
+    tx3 = models.Transaction(account_id=account.id, category_id=cat2.category_id, amount=Decimal("25.00"), date=date(2026, 6, 20), description="Transport 1")
     # May transaction (out of date range): 80.00
-    tx_past = models.Transaction(account_id=account.id, category_id=cat1.category_id, amount=Decimal("80.00"), date=date(2026, 5, 28))
+    tx_past = models.Transaction(account_id=account.id, category_id=cat1.category_id, amount=Decimal("80.00"), date=date(2026, 5, 28), description="Past Dining")
     # Uncategorized transaction in June (category_id is None): 15.00 (must be ignored)
-    tx_uncat = models.Transaction(account_id=account.id, category_id=None, amount=Decimal("15.00"), date=date(2026, 6, 10))
+    tx_uncat = models.Transaction(account_id=account.id, category_id=None, amount=Decimal("15.00"), date=date(2026, 6, 10), description="Uncat")
 
     db_session.add_all([tx1, tx2, tx3, tx_past, tx_uncat])
     db_session.commit()

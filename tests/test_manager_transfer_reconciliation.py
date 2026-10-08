@@ -213,13 +213,13 @@ def test_manager_transfer_reconciliation_resolves_accounts_only_for_matches(db_s
     db_session.flush()
 
     # Matched pair (amount 100.00)
-    tx_match_out = models.Transaction(account_id=acct_chk.id, amount=Decimal("100.00"), date=date(2026, 6, 1), is_transfer=False)
-    tx_match_in = models.Transaction(account_id=acct_cc.id, amount=Decimal("-100.00"), date=date(2026, 6, 1), is_transfer=False)
+    tx_match_out = models.Transaction(account_id=acct_chk.id, amount=Decimal("100.00"), date=date(2026, 6, 1), description="Transfer Out", is_transfer=False)
+    tx_match_in = models.Transaction(account_id=acct_cc.id, amount=Decimal("-100.00"), date=date(2026, 6, 1), description="Transfer In", is_transfer=False)
 
     # Unmatched candidate inflow (no matching outflow)
-    tx_unmatched_in = models.Transaction(account_id=acct_cc.id, amount=Decimal("-999.00"), date=date(2026, 6, 1), is_transfer=False)
+    tx_unmatched_in = models.Transaction(account_id=acct_cc.id, amount=Decimal("-999.00"), date=date(2026, 6, 1), description="Unmatched In", is_transfer=False)
     # Unmatched candidate outflow (no matching inflow)
-    tx_unmatched_out = models.Transaction(account_id=acct_chk.id, amount=Decimal("777.00"), date=date(2026, 6, 1), is_transfer=False)
+    tx_unmatched_out = models.Transaction(account_id=acct_chk.id, amount=Decimal("777.00"), date=date(2026, 6, 1), description="Unmatched Out", is_transfer=False)
 
     db_session.add_all([tx_match_out, tx_match_in, tx_unmatched_in, tx_unmatched_out])
     db_session.commit()
@@ -260,8 +260,8 @@ def test_manager_transfer_reconciliation_missing_account_relationship_raises(db_
     db_session.add_all([acct_chk, acct_cc])
     db_session.flush()
 
-    tx_match_out = models.Transaction(account_id=acct_chk.id, amount=Decimal("100.00"), date=date(2026, 6, 1), is_transfer=False)
-    tx_match_in = models.Transaction(account_id=acct_cc.id, amount=Decimal("-100.00"), date=date(2026, 6, 1), is_transfer=False)
+    tx_match_out = models.Transaction(account_id=acct_chk.id, amount=Decimal("100.00"), date=date(2026, 6, 1), description="Transfer Out", is_transfer=False)
+    tx_match_in = models.Transaction(account_id=acct_cc.id, amount=Decimal("-100.00"), date=date(2026, 6, 1), description="Transfer In", is_transfer=False)
     db_session.add_all([tx_match_out, tx_match_in])
     db_session.commit()
 

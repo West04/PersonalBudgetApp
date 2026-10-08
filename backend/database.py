@@ -506,6 +506,44 @@ def migrate_budget_category_integrity(engine) -> bool:
     return applied
 
 
+def migrate_transaction_description_integrity(engine) -> bool:
+    """
+    Applies one-time idempotent schema and backfill migration for Transaction description integrity:
+    1. If 'transactions' table does not exist: returns False.
+    2. Backfills legacy rows where description IS NULL to ''.
+    3. Enforces transactions.description NOT NULL if currently nullable.
+    Returns True if schema was modified or rows backfilled, False on clean second run.
+    Uses atomic transaction with engine.begin() as conn.
+    """
+    applied = False
+    with engine.begin() as conn:
+        table_exists = conn.execute(
+            text("SELECT 1 FROM information_schema.tables WHERE table_name = 'transactions';")
+        ).scalar()
+        if not table_exists:
+            return False
+
+        # 1. Backfill legacy NULL rows to empty string
+        backfilled_count = conn.execute(
+            text("UPDATE transactions SET description = '' WHERE description IS NULL;")
+        ).rowcount
+        if backfilled_count and backfilled_count > 0:
+            applied = True
+
+        # 2. Check and enforce NOT NULL
+        is_nullable = conn.execute(
+            text(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_name = 'transactions' AND column_name = 'description';"
+            )
+        ).scalar()
+        if is_nullable == "YES":
+            conn.execute(text("ALTER TABLE transactions ALTER COLUMN description SET NOT NULL;"))
+            applied = True
+
+    return applied
+
+
 def migrate_plaid_token_encryption(engine) -> bool:
     """
     Applies one-time idempotent migration for Plaid access-token authenticated encryption:

@@ -32,11 +32,13 @@ def setup_test_database():
         migrate_ml_state,
         migrate_split_state,
         migrate_budget_category_integrity,
+        migrate_transaction_description_integrity,
     )
     migrate_categorization_rules(engine)
     migrate_ml_state(engine)
     migrate_split_state(engine)
     migrate_budget_category_integrity(engine)
+    migrate_transaction_description_integrity(engine)
     yield
     # Tables can remain in test DB for next run or inspectability
 

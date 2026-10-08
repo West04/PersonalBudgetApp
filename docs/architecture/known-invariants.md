@@ -47,9 +47,15 @@ Structural refactors must preserve these behaviors unless the task explicitly au
 - Legacy Base64 storage is prohibited after migration.
 - `PLAID_TOKEN_ENCRYPTION_KEY` is required whenever stored Plaid items exist.
 
+## Transaction description invariant
+
+- `Transaction.description` is always a non-null string (`TEXT NOT NULL`).
+- Empty string `""` is the canonical representation when no description text exists.
+- SQL `NULL` is prohibited at the database, ORM, and schema layers.
+
 ## Known defects that must not be silently fixed
 
-- Transaction `description` DB nullability conflicts with the API schema's non-null string expectation.
+- None currently active (Transaction description nullability defect resolved via `migrate_transaction_description_integrity`).
 
 ## Transaction behavior
 

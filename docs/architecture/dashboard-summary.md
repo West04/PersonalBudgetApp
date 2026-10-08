@@ -231,7 +231,7 @@ To prevent overengineering and functional decomposition masquerading as VBD, thi
 ## 7. Preserved Invariants & Known Exclusions
 
 The following known defects and unresolved domain decisions remain explicitly excluded from this refactoring slice:
-- **`Transaction.description` Nullability Defect:** Database allows `None`; schema expects `str`. Preserved without silent modification.
+- **`Transaction.description` Nullability:** Resolved; database enforces `NOT NULL` and schema requires non-null string.
 - **Category Group Cascade-Delete Defect:** Backend permits cascading group deletion. Preserved as characterized.
 - **Credit-Card Transfer Semantics:** Preserved as characterized in the credit-card module.
 - **Future-Dated Credit-Card Balance Semantics:** Preserved as characterized.

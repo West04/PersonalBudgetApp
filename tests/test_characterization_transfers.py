@@ -205,14 +205,14 @@ def test_transfer_candidates_no_qualifying_candidates(client, db_session):
     db_session.flush()
 
     # Already marked
-    t1 = models.Transaction(account_id=acct1.id, amount=Decimal("50.00"), date=date(2026, 6, 1), is_transfer=True)
-    t2 = models.Transaction(account_id=acct2.id, amount=Decimal("-50.00"), date=date(2026, 6, 1), is_transfer=True)
+    t1 = models.Transaction(account_id=acct1.id, amount=Decimal("50.00"), date=date(2026, 6, 1), description="Marked Out", is_transfer=True)
+    t2 = models.Transaction(account_id=acct2.id, amount=Decimal("-50.00"), date=date(2026, 6, 1), description="Marked In", is_transfer=True)
     # Outside 2-day window
-    t3 = models.Transaction(account_id=acct1.id, amount=Decimal("75.00"), date=date(2026, 6, 1), is_transfer=False)
-    t4 = models.Transaction(account_id=acct2.id, amount=Decimal("-75.00"), date=date(2026, 6, 5), is_transfer=False)
+    t3 = models.Transaction(account_id=acct1.id, amount=Decimal("75.00"), date=date(2026, 6, 1), description="Window Out", is_transfer=False)
+    t4 = models.Transaction(account_id=acct2.id, amount=Decimal("-75.00"), date=date(2026, 6, 5), description="Window In", is_transfer=False)
     # Same account
-    t5 = models.Transaction(account_id=acct1.id, amount=Decimal("30.00"), date=date(2026, 6, 10), is_transfer=False)
-    t6 = models.Transaction(account_id=acct1.id, amount=Decimal("-30.00"), date=date(2026, 6, 10), is_transfer=False)
+    t5 = models.Transaction(account_id=acct1.id, amount=Decimal("30.00"), date=date(2026, 6, 10), description="Same Out", is_transfer=False)
+    t6 = models.Transaction(account_id=acct1.id, amount=Decimal("-30.00"), date=date(2026, 6, 10), description="Same In", is_transfer=False)
 
     db_session.add_all([t1, t2, t3, t4, t5, t6])
     db_session.commit()
@@ -543,10 +543,10 @@ def test_mark_transfers_normal_success_cardinalities(client, db_session):
     db_session.add(acct)
     db_session.flush()
 
-    t1 = models.Transaction(account_id=acct.id, amount=Decimal("10.00"), date=date(2026, 6, 1), is_transfer=False)
-    t2 = models.Transaction(account_id=acct.id, amount=Decimal("20.00"), date=date(2026, 6, 2), is_transfer=False)
-    t3 = models.Transaction(account_id=acct.id, amount=Decimal("30.00"), date=date(2026, 6, 3), is_transfer=False)
-    t4 = models.Transaction(account_id=acct.id, amount=Decimal("40.00"), date=date(2026, 6, 4), is_transfer=False)
+    t1 = models.Transaction(account_id=acct.id, amount=Decimal("10.00"), date=date(2026, 6, 1), description="Tx 1", is_transfer=False)
+    t2 = models.Transaction(account_id=acct.id, amount=Decimal("20.00"), date=date(2026, 6, 2), description="Tx 2", is_transfer=False)
+    t3 = models.Transaction(account_id=acct.id, amount=Decimal("30.00"), date=date(2026, 6, 3), description="Tx 3", is_transfer=False)
+    t4 = models.Transaction(account_id=acct.id, amount=Decimal("40.00"), date=date(2026, 6, 4), description="Tx 4", is_transfer=False)
     db_session.add_all([t1, t2, t3, t4])
     db_session.commit()
 
@@ -600,7 +600,7 @@ def test_mark_transfers_empty_list(client, db_session):
     db_session.add(acct)
     db_session.flush()
 
-    t = models.Transaction(account_id=acct.id, amount=Decimal("10.00"), date=date(2026, 6, 1), is_transfer=False)
+    t = models.Transaction(account_id=acct.id, amount=Decimal("10.00"), date=date(2026, 6, 1), description="Transfer Tx", is_transfer=False)
     db_session.add(t)
     db_session.commit()
 
@@ -678,7 +678,7 @@ def test_mark_transfers_mixed_existing_and_nonexistent_ids(client, db_session):
     db_session.add(acct)
     db_session.flush()
 
-    t_real = models.Transaction(account_id=acct.id, amount=Decimal("50.00"), date=date(2026, 6, 1), is_transfer=False)
+    t_real = models.Transaction(account_id=acct.id, amount=Decimal("50.00"), date=date(2026, 6, 1), description="Real Transfer Tx", is_transfer=False)
     db_session.add(t_real)
     db_session.commit()
 
@@ -705,7 +705,7 @@ def test_mark_transfers_duplicate_ids_in_payload(client, db_session):
     db_session.add(acct)
     db_session.flush()
 
-    t = models.Transaction(account_id=acct.id, amount=Decimal("75.00"), date=date(2026, 6, 1), is_transfer=False)
+    t = models.Transaction(account_id=acct.id, amount=Decimal("75.00"), date=date(2026, 6, 1), description="Dup Transfer Tx", is_transfer=False)
     db_session.add(t)
     db_session.commit()
 
@@ -728,8 +728,8 @@ def test_mark_transfers_idempotence_and_mixed_already_marked(client, db_session)
     db_session.add(acct)
     db_session.flush()
 
-    t_already = models.Transaction(account_id=acct.id, amount=Decimal("100.00"), date=date(2026, 6, 1), is_transfer=True)
-    t_unmarked = models.Transaction(account_id=acct.id, amount=Decimal("200.00"), date=date(2026, 6, 2), is_transfer=False)
+    t_already = models.Transaction(account_id=acct.id, amount=Decimal("100.00"), date=date(2026, 6, 1), description="Already Marked", is_transfer=True)
+    t_unmarked = models.Transaction(account_id=acct.id, amount=Decimal("200.00"), date=date(2026, 6, 2), description="Unmarked", is_transfer=False)
     db_session.add_all([t_already, t_unmarked])
     db_session.commit()
 
@@ -762,8 +762,8 @@ def test_mark_transfers_does_not_validate_account_separation(client, db_session)
     db_session.add(acct)
     db_session.flush()
 
-    t1 = models.Transaction(account_id=acct.id, amount=Decimal("50.00"), date=date(2026, 6, 1), is_transfer=False)
-    t2 = models.Transaction(account_id=acct.id, amount=Decimal("-50.00"), date=date(2026, 6, 1), is_transfer=False)
+    t1 = models.Transaction(account_id=acct.id, amount=Decimal("50.00"), date=date(2026, 6, 1), description="Same Account Out", is_transfer=False)
+    t2 = models.Transaction(account_id=acct.id, amount=Decimal("-50.00"), date=date(2026, 6, 1), description="Same Account In", is_transfer=False)
     db_session.add_all([t1, t2])
     db_session.commit()
 
@@ -794,9 +794,9 @@ def test_mark_transfers_does_not_validate_amount_or_sign(client, db_session):
     db_session.add_all([acct1, acct2])
     db_session.flush()
 
-    t_pos1 = models.Transaction(account_id=acct1.id, amount=Decimal("100.00"), date=date(2026, 6, 1), is_transfer=False)
-    t_pos2 = models.Transaction(account_id=acct2.id, amount=Decimal("50.00"), date=date(2026, 6, 1), is_transfer=False)
-    t_zero = models.Transaction(account_id=acct1.id, amount=Decimal("0.00"), date=date(2026, 6, 1), is_transfer=False)
+    t_pos1 = models.Transaction(account_id=acct1.id, amount=Decimal("100.00"), date=date(2026, 6, 1), description="Pos 1", is_transfer=False)
+    t_pos2 = models.Transaction(account_id=acct2.id, amount=Decimal("50.00"), date=date(2026, 6, 1), description="Pos 2", is_transfer=False)
+    t_zero = models.Transaction(account_id=acct1.id, amount=Decimal("0.00"), date=date(2026, 6, 1), description="Zero", is_transfer=False)
     db_session.add_all([t_pos1, t_pos2, t_zero])
     db_session.commit()
 
@@ -825,8 +825,8 @@ def test_mark_transfers_does_not_validate_date_proximity(client, db_session):
     db_session.add_all([acct1, acct2])
     db_session.flush()
 
-    t_early = models.Transaction(account_id=acct1.id, amount=Decimal("100.00"), date=date(2026, 1, 1), is_transfer=False)
-    t_late = models.Transaction(account_id=acct2.id, amount=Decimal("-100.00"), date=date(2026, 6, 1), is_transfer=False)
+    t_early = models.Transaction(account_id=acct1.id, amount=Decimal("100.00"), date=date(2026, 1, 1), description="Early Tx", is_transfer=False)
+    t_late = models.Transaction(account_id=acct2.id, amount=Decimal("-100.00"), date=date(2026, 6, 1), description="Late Tx", is_transfer=False)
     db_session.add_all([t_early, t_late])
     db_session.commit()
 
@@ -925,7 +925,7 @@ def test_mark_transfers_downstream_budget_summary_actuals_unaffected(client, db_
     db_session.add_all([cat, acc])
     db_session.flush()
 
-    tx = models.Transaction(account_id=acc.id, category_id=cat.category_id, amount=Decimal("45.00"), date=date(2026, 6, 12), is_transfer=False)
+    tx = models.Transaction(account_id=acc.id, category_id=cat.category_id, amount=Decimal("45.00"), date=date(2026, 6, 12), description="Gas Purchase", is_transfer=False)
     db_session.add(tx)
     db_session.commit()
 

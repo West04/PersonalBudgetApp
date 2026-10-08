@@ -337,11 +337,11 @@ This is not required for CSV-first use.
 
 Handle these only when they materially affect usage.
 
-## Transaction description nullability
+## Transaction description nullability (Resolved)
 
-- [ ] Decide whether API should allow `description = null`
-- [ ] Or enforce non-null descriptions in persistence
-- [ ] Add migration/characterization coverage before changing behavior
+- [x] Decide whether API should allow `description = null` (Decided: No, SQL NULL prohibited)
+- [x] Enforce non-null descriptions in persistence (`migrate_transaction_description_integrity` and `Text, nullable=False`)
+- [x] Add migration/characterization coverage before changing behavior (`test_migration_transaction_description_integrity.py`, `test_transaction_description_contract.py`)
 
 ## CategoryGroup deletion inconsistency
 

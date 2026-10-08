@@ -58,10 +58,15 @@ Key harness components:
 
 The following behaviors and invariants were discovered during characterization testing and code auditing:
 
-### 1. `Transaction.description` Database/Schema Nullability Mismatch (Known Defect)
-- **Current Behavior:** The SQLAlchemy model `Transaction.description` (`backend/models.py`) is defined as `Column(Text)` which is nullable in the database. In contrast, Pydantic schemas (`TransactionCreate`, `TransactionRead`, etc. in `backend/schemas.py`) define `description: str` as required / non-nullable.
-- **Consequence:** Creating a transaction with `description: None` via `POST /transactions/` yields `422 Unprocessable Entity`. If a transaction with `description = None` exists in the database, serializing it via `TransactionRead` yields an HTTP `500 Internal Server Error`.
-- **Status:** Treated as a **Known Defect**. Production behavior is preserved without modification during initial refactoring; pinned via explicit characterization test.
+### 1. `Transaction.description` Database/Schema Nullability Mismatch (Resolved Defect)
+- **Previous Behavior:** The SQLAlchemy model `Transaction.description` (`backend/models.py`) was defined as `Column(Text)` which was nullable in PostgreSQL, while Pydantic schemas (`TransactionCreate`, `TransactionRead`, etc. in `backend/schemas.py`) defined `description: str` as required / non-nullable. Creating a transaction with `description: None` via `POST /transactions/` yielded 422, but direct ORM/SQL inserts could store `NULL` and cause `ResponseValidationError` (HTTP 500) on read endpoints.
+- **Resolution:**
+  1. Backfilled legacy NULL rows to empty string `""` and enforced PostgreSQL `NOT NULL` on `transactions.description` via startup migration `migrate_transaction_description_integrity`.
+  2. Updated SQLAlchemy model to `description = Column(Text, nullable=False)`.
+  3. Added Pydantic `@field_validator("description")` to `TransactionUpdate` to reject explicit `null` with HTTP 422 while preserving omission and empty string `""`.
+  4. Plaid synchronization normalizes provider `None` names to `""` at the staging boundary.
+  5. The authoritative invariant is enforced: `Transaction.description` is always a non-null string; empty string `""` is the canonical representation when no description text exists; SQL `NULL` is prohibited.
+- **Status:** **Resolved Defect**.
 
 ### 2. Backend Category-Group Deletion Blocks Non-Empty Groups (Resolved Defect)
 - **Previous Behavior:** The route `DELETE /category-groups/{group_id}` (`backend/routers/categories.py`) permitted deleting category groups with child categories, triggering cascading deletion of child categories, nullifying transactions and budgets, and deleting categorization rules (or crashing on split transactions).
