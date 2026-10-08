@@ -240,9 +240,11 @@ def test_manual_transaction_update_datetime_behavior(client, db_session):
 # ---------------------------------------------------------------------------
 
 def _setup_plaid_test(db_session, plaid_item_id="item_sync_matrix"):
+    from backend.security import encrypt_token
+
     item = models.PlaidItem(
         plaid_item_id=plaid_item_id,
-        plaid_access_token_encrypted="encrypted_tok",
+        plaid_access_token_encrypted=encrypt_token("access-token-matrix"),
         transactions_cursor=None,
     )
     account = models.Account(

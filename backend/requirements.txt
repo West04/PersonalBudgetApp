@@ -8,3 +8,4 @@ pydantic
 requests
 python-multipart
 scikit-learn
+cryptography

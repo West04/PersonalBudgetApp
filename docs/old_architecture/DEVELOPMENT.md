@@ -29,6 +29,10 @@ POSTGRES_DATABASE=budget_app
 PLAID_CLIENT_ID=your_plaid_client_id
 PLAID_SECRET=your_plaid_secret
 PLAID_ENVIRONMENT=Sandbox     # Sandbox | Development | Production
+
+# Plaid Token Authenticated Encryption Key (Required whenever stored Plaid items exist)
+# Generate with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+PLAID_TOKEN_ENCRYPTION_KEY=your_fernet_key
 ```
 
 > [!NOTE]

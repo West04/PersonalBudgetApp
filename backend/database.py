@@ -506,6 +506,86 @@ def migrate_budget_category_integrity(engine) -> bool:
     return applied
 
 
+def migrate_plaid_token_encryption(engine) -> bool:
+    """
+    Applies one-time idempotent migration for Plaid access-token authenticated encryption:
+    - Atomically classifies all plaid_items rows under a single transaction.
+    - Zero rows: returns False without requiring encryption key.
+    - Nonzero rows: requires valid PLAID_TOKEN_ENCRYPTION_KEY and validates all enc:v1: rows.
+    - Unsupported 'enc:*' versions abort without modification.
+    - Legacy Base64 tokens are strictly decoded, converted to 'enc:v1:<Fernet token>', and updated.
+    - If any row is malformed or conversion fails, rolls back completely.
+    - Idempotent: already-migrated enc:v1: rows are preserved byte-for-byte; returns False on subsequent runs.
+    """
+    from .security import encrypt_token, decrypt_token, _decode_legacy_token, _get_fernet
+
+    with engine.begin() as conn:
+        table_exists = conn.execute(
+            text("SELECT 1 FROM information_schema.tables WHERE table_name = 'plaid_items';")
+        ).scalar()
+        if not table_exists:
+            return False
+
+        rows = conn.execute(
+            text("SELECT id, plaid_item_id, plaid_access_token_encrypted FROM plaid_items;")
+        ).fetchall()
+
+        if not rows:
+            return False
+
+        # Require and validate encryption key when any Plaid items exist
+        _get_fernet()
+
+        updates = []
+        for row in rows:
+            item_id, plaid_item_id, stored_val = row[0], row[1], row[2]
+
+            if stored_val.startswith("enc:v1:"):
+                # Validate current encrypted format by decrypting; leave row unchanged
+                try:
+                    decrypt_token(stored_val)
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"Startup validation failed: PlaidItem id={item_id} "
+                        f"(plaid_item_id={plaid_item_id}) cannot be decrypted with configured key."
+                    ) from exc
+                continue
+
+            if stored_val.startswith("enc:"):
+                # Unsupported encrypted version (e.g., future enc:v2: without support)
+                raise RuntimeError(
+                    f"Startup validation failed: PlaidItem id={item_id} "
+                    f"(plaid_item_id={plaid_item_id}) has unsupported encrypted format."
+                )
+
+            # Legacy Base64 candidate (no enc: prefix)
+            try:
+                plaintext = _decode_legacy_token(stored_val)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Migration failed: PlaidItem id={item_id} "
+                    f"(plaid_item_id={plaid_item_id}) contains malformed legacy token data. "
+                    f"Entire migration rolled back."
+                ) from exc
+
+            new_encrypted = encrypt_token(plaintext)
+            updates.append((item_id, new_encrypted))
+
+        if not updates:
+            return False
+
+        for item_id, new_encrypted in updates:
+            conn.execute(
+                text(
+                    "UPDATE plaid_items SET plaid_access_token_encrypted = :new_val "
+                    "WHERE id = :item_id;"
+                ),
+                {"new_val": new_encrypted, "item_id": item_id},
+            )
+
+        return True
+
+
 def get_db():
     db = SessionLocal()
     try:

@@ -21,7 +21,11 @@ from backend.managers.plaid_account_sync_manager import (
 )
 
 
-def _make_mock_item(item_id=None, plaid_item_id="item_plaid_123", encrypted_token="ZW5jcnlwdGVk"):
+def _make_mock_item(item_id=None, plaid_item_id="item_plaid_123", encrypted_token=None):
+    from backend.security import encrypt_token
+
+    if encrypted_token is None:
+        encrypted_token = encrypt_token("token")
     mock_item = MagicMock()
     mock_item.id = item_id or uuid4()
     mock_item.plaid_item_id = plaid_item_id

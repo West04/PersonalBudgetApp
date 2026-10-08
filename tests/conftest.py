@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 # CRITICAL: Force test database environment before importing any backend modules
 os.environ["POSTGRES_DATABASE"] = "budget_app_test"
+os.environ.setdefault("PLAID_TOKEN_ENCRYPTION_KEY", "bZ2eZ7L_G4r4yQ7F2U_8sK3yT6xV1wA5bC9dE3fG7hI=")
 
 from backend.database import engine, SessionLocal, get_db, DATABASE_URL
 from backend import models

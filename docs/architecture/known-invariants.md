@@ -42,10 +42,16 @@ Preserve until a product decision changes it:
   - Monthly budgets are cascade-deleted (`Category.budgets` specifies `cascade="all, delete", passive_deletes=True`, `Budget.category_id` is `NOT NULL` with FK `ON DELETE CASCADE`).
   - Categorization rules are cascade-deleted (`cascade="all, delete-orphan"`, FK `ON DELETE CASCADE`).
 
+## Plaid token security invariants
+
+- Plaid access tokens are stored using authenticated encryption.
+- Stored current format is `enc:v1:<Fernet ciphertext>`.
+- Legacy Base64 storage is prohibited after migration.
+- `PLAID_TOKEN_ENCRYPTION_KEY` is required whenever stored Plaid items exist.
+
 ## Known defects that must not be silently fixed
 
 - Transaction `description` DB nullability conflicts with the API schema's non-null string expectation.
-- Plaid token storage uses the current insecure placeholder/base64-style mechanism. Real encryption is a separate migration.
 
 ## Transaction behavior
 

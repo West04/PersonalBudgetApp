@@ -34,9 +34,13 @@ from backend.managers.plaid_transaction_sync_manager import (
 def _make_dummy_item(
     item_id=None,
     plaid_item_id="item_dummy",
-    encrypted_token="dGVzdF90b2tlbg==",
+    encrypted_token=None,
     cursor=None,
 ):
+    from backend.security import encrypt_token
+
+    if encrypted_token is None:
+        encrypted_token = encrypt_token("test_token")
     item = MagicMock(spec=models.PlaidItem)
     item.id = item_id or uuid4()
     item.plaid_item_id = plaid_item_id

@@ -118,15 +118,15 @@ def test_sync_accounts_item_id_takes_precedence_over_plaid_item_id(client, db_se
 # 3 & 4. Real Token Decryption vs. Unhandled Decrypt Exception
 # ---------------------------------------------------------------------------
 
-def test_sync_accounts_real_malformed_token_returns_empty_string_and_invokes_plaid(client, db_session):
+def test_sync_accounts_real_malformed_token_raises_decryption_error_500(client, db_session):
     """
-    Characterize REAL decrypt_token behavior with malformed stored token:
-    - decrypt_token catches the decode error internally and returns ""
-    - sync_accounts does NOT raise HTTP 500 "Error decrypting access token"
-    - Instead, AccountsGetRequest is constructed with access_token="" and Plaid API is invoked
-    - Plaid API then returns its own error (e.g. 400 INVALID_ACCESS_TOKEN)
+    Characterize strict authenticated encryption decrypt_token behavior with malformed stored token:
+    - decrypt_token raises ValueError / InvalidToken on malformed / unversioned token
+    - sync_accounts catches the error and raises PlaidAccountSyncDecryptionError
+    - Router returns HTTP 500 "Error decrypting access token"
+    - AccountsGetRequest is NOT invoked and Plaid API is never called
     """
-    # Create item with corrupted non-base64 token
+    # Create item with corrupted non-enc:v1: token
     item = models.PlaidItem(
         plaid_item_id="item_corrupt_token",
         plaid_access_token_encrypted="!!!NOT_VALID_BASE64_PADDING!!!",
@@ -134,20 +134,12 @@ def test_sync_accounts_real_malformed_token_returns_empty_string_and_invokes_pla
     db_session.add(item)
     db_session.commit()
 
-    # When Plaid receives an empty token, it raises an ApiException
-    api_exc = ApiException(status=400, reason="Bad Request")
-    api_exc.body = '{"error_code": "INVALID_ACCESS_TOKEN", "error_message": "Provided access token is empty"}'
-
-    with patch("backend.access.plaid_access.client.accounts_get", side_effect=api_exc) as mock_get:
+    with patch("backend.access.plaid_access.client.accounts_get") as mock_get:
         resp = client.post("/plaid/sync_accounts", json={"item_id": str(item.id)})
 
-    # Verifies Plaid API WAS invoked with empty string access_token
-    mock_get.assert_called_once()
-    assert mock_get.call_args[0][0].access_token == ""
-
-    # Resulting HTTP status and body comes from Plaid ApiException, NOT router decrypt catch
-    assert resp.status_code == 400
-    assert resp.json() == {"detail": '{"error_code": "INVALID_ACCESS_TOKEN", "error_message": "Provided access token is empty"}'}
+    mock_get.assert_not_called()
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": "Error decrypting access token"}
 
 
 def test_sync_accounts_unhandled_decrypt_exception_500(client, db_session):
