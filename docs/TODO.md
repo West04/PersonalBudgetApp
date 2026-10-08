@@ -1,9 +1,9 @@
 # Budget App — Canonical Product & Modernization TODO
 
-**Last Updated:** October 6, 2026  
+**Last Updated:** October 8, 2026  
 **Status:** Active Canonical TODO  
-**Current HEAD:** `b41c3d5` (`feat: add split transaction allocations`)  
-**Test Suite Baseline:** 946 passed, 28 warnings (38.50s)  
+**Current HEAD:** `c010817` (`make transfer matching deterministic`)  
+**Test Suite Baseline:** 1,074 passed, 33 warnings (45.56s)  
 **Purpose:** Single source of truth replacing previous split TODO files. Tracks completed milestones, acceptance results, deferred product/UX decisions, and upcoming engineering phases.
 
 ---
@@ -173,14 +173,14 @@ These are documented decisions intentionally kept separate from architectural re
 - `models.Transaction.description` is non-null in PostgreSQL (`Text`, nullable=False) and schemas enforce non-null `str`. Fixed via `migrate_transaction_description_integrity`, `TransactionUpdate` validator, and Plaid ingestion normalization. Canonical representation for missing narrative is `""`.
 
 ### CategoryGroup deletion cascade inconsistency
-- **Classification:** Known defect / behavior inconsistency
-- **Status:** Preserved pending product decision
-- Backend allows cascading deletion of category groups in database, while frontend blocks deleting non-empty groups in UI.
+- **Classification:** Resolved defect
+- **Status:** Completed
+- Backend `delete_category_group` rejects deleting non-empty category groups with HTTP 400 Bad Request (`ValueError`), matching the frontend guard. All child categories, transactions, budgets, rules, and splits are preserved without mutation.
 
 ### Credit-card transfer & future-date semantics
-- **Classification:** Unresolved domain decision
-- **Status:** Preserved characterized behavior
-- `balance_owed` includes transfers, while `charges_this_month` excludes transfers. Future-dated transactions are currently evaluated in `balance_owed`. Negative balance owed represents credit/overpayment balance.
+- **Classification:** Resolved domain decision
+- **Status:** Completed
+- Point-in-time `balance_owed` is calculated up to the effective cutoff date (`starting_balance + sum(tx.amount for tx in transactions if tx.date < cutoff_exclusive)`). Includes purchases, refunds, and transfers (payments reduce debt), strictly excluding future-dated transactions beyond cutoff. `charges_this_month` reflects gross positive non-transfer charges. `payments_this_month` includes negative transfer payments only.
 
 ### Transfer matching heuristic
 - **Classification:** Resolved domain decision
@@ -199,12 +199,11 @@ These are documented decisions intentionally kept separate from architectural re
 
 ---
 
-# Stored Plaid Token Security Migration (Deferred Security Debt)
+# Stored Plaid Token Security Migration (Completed Security Hardening)
 
-- **Classification:** Deferred security migration
-- **Status:** Preserved placeholder implementation
-- `backend/security.py` currently uses base64 encoding as an obfuscation placeholder for access tokens (`ENCRYPTION_KEY` dummy).
-- Production deployment requires migrating to authenticated symmetric encryption (e.g., cryptography `Fernet` or AWS/GCP KMS envelope encryption).
+- **Classification:** Resolved security migration
+- **Status:** Completed
+- Migrated from Base64 placeholder to authenticated symmetric encryption (`enc:v1:` Fernet) via `migrate_plaid_token_encryption`. Runtime decryption is strict and requires `enc:v1:`; legacy Base64 is prohibited at runtime.
 
 ---
 

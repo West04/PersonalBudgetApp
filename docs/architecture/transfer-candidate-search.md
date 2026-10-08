@@ -414,7 +414,7 @@ The following domain and implementation characteristics are preserved or resolve
 3. **2-day matching threshold:** Fixed constant `MAX_TRANSFER_DAYS_DIFFERENCE = 2`.
 4. **Single-use pairing:** Inflows and outflows are claimed at most once.
 5. **Transaction description nullability:** Resolved defect (database enforces NOT NULL, schema requires non-null string).
-6. **Category-group cascade behavior:** Known defect (backend permits deletion of non-empty groups).
+6. **Category-group deletion behavior:** Resolved defect (deleting a non-empty category group is rejected with HTTP 400).
 
 ---
 

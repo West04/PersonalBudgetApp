@@ -59,13 +59,26 @@ Managers may receive SQLAlchemy Session and may own commit/rollback for meaningf
 
 Standalone simple CRUD Accessors may retain atomic commits.
 
-## Current known defects to leave alone unless explicitly requested
+## Current project state
 
-- transaction description DB/API nullability mismatch
-- category-group deletion cascade inconsistency
-- Plaid token security migration
-- unresolved credit-card transfer/future-date semantics
-- transfer matcher greedy/order-dependent behavior
+The VBD modernization program is complete.
+
+Established boundaries:
+- Presentation -> Manager -> Engine / Accessor -> Resource.
+- Simple CRUD may remain Presentation -> Accessor -> Resource.
+- Managers may receive SQLAlchemy Session.
+- Engines remain pure and infrastructure-free.
+
+Resolved hardening decisions:
+- Transaction.description is TEXT NOT NULL; "" represents missing description text.
+- Non-empty category-group deletion is rejected.
+- Category deletion preserves transactions as uncategorized, cascades budgets/rules, and split references block deletion.
+- Plaid access tokens use authenticated enc:v1: Fernet encryption.
+- Credit-card metrics use point-in-time balance, gross non-transfer charges, and transfer-only payments.
+- Transfer matching uses deterministic closest-first greedy suggestion matching.
+
+Do not propose additional architecture merely because another abstraction is possible.
+New structural work requires observed volatility or an explicit roadmap requirement.
 
 ## Required completion report
 

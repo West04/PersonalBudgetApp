@@ -44,13 +44,12 @@ backend/
 ├── database.py               # DB session management & idempotent migration helpers
 ├── initial_data.py           # Default categories initialization
 ├── bank_statement_loader.py  # BankStatementLoader ABC (USAA, Discover, Mapped)
-├── security.py               # Token encryption placeholder (base64)
+├── security.py               # Authenticated token encryption (enc:v1: Fernet)
 ├── routers/                  # 11 API endpoints (accounts, budgets, categories,
 │                             # credit_cards, ml, plaid, recurring, rules, summaries, transactions, upload)
 ├── managers/                 # 13 workflow orchestration managers
 ├── domain/                   # 11 pure business calculation engines
-├── access/                   # 12 concrete resource access modules
-└── crud/                     # Legacy data access layer
+└── access/                   # 12 concrete resource access modules
 
 frontend/
 ├── app/
@@ -299,18 +298,20 @@ Then:
 8. run the VBD review skill;
 9. stop after the requested slice.
 
-### Current priority order
+### Operating Posture & Maintenance Rules
 
-Unless the task explicitly chooses another evidenced slice:
-1. Plaid public-token exchange Presentation/legacy boundary.
-2. ResourceAccess-to-ResourceAccess coupling centered on `transaction_access.py`.
-3. Authoritative categorization policy outside ResourceAccess.
-4. CSV/upload Presentation orchestration.
-5. FastAPI/Pydantic coupling in Managers.
-6. Manager topology review.
-7. Redundant DTO cleanup.
+Modernization/hardening program complete.
 
-Do not bundle these together.
+Do not initiate further structural refactoring without:
+1. an observed defect,
+2. an explicit new requirement, or
+3. a planned feature.
+
+For maintenance work, preserve existing VBD boundaries and documented invariants:
+- Presentation -> Manager -> Engine / Accessor -> Resource.
+- Simple CRUD may remain Presentation -> Accessor -> Resource.
+- Managers may receive SQLAlchemy Session.
+- Engines remain pure and infrastructure-free.
 
 ### Documentation discipline
 

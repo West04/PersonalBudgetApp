@@ -5,7 +5,7 @@
 Prior to architectural decomposition and throughout Phases 1–12, comprehensive characterization harnesses and automated regression suites were established to protect core accounting rules and behavior. The regression harness is implemented using **`pytest`**, SQLite in-memory fixtures for rapid regression checking, and direct domain test fixtures:
 - Core business invariants (zero-based budgeting, depository ledger balance, credit card debt, account reconciliation, merchant normalization, categorization rules, ML category suggestions, recurring transaction clustering, and split transaction allocations) are protected by automated tests in `tests/`.
 - All major workflows have corresponding unit, manager, and characterization tests verifying HTTP status codes, schema contracts, and boundary conditions.
-- The automated regression suite currently passes **946 tests** (with 28 warnings in ~31.9 seconds) via:
+- The automated regression suite currently passes **1,074 tests** (with 33 warnings in ~45.5 seconds) via:
   ```bash
   python3 -m pytest
   ```
@@ -73,25 +73,25 @@ The following behaviors and invariants were discovered during characterization t
 - **Resolution:** Backend enforces that a category group may be deleted only when it contains zero categories. If child categories exist, `category_access.delete_category_group` raises `ValueError`, which `routers/categories.py` maps to `HTTP 400 Bad Request` with detail `"Cannot delete category group containing categories. Move or delete categories first."`, preserving all category, transaction, budget, rule, and split data without mutation.
 - **Status:** **Resolved Defect**. Aligned backend contract with existing frontend pre-delete guard.
 
-### 3. Credit Card `balance_owed` Includes Transfers While `charges_this_month` Excludes Them (Unresolved Domain/Product Decision)
-- **Current Behavior:** In `backend/domain/credit_cards.py`, `balance_owed` is computed as `starting_balance + sum(all-time transaction amounts)`, which includes transactions flagged with `is_transfer == True`. Concurrently, `charges_this_month` sums only positive transactions where `is_transfer == False`, explicitly excluding transfers.
-- **Consequence:** Transfers affect the total outstanding debt balance on the card, but are excluded from the current month's spending charges metric.
-- **Status:** Treated as an **Unresolved Domain/Product Decision**. Behavior is preserved as characterized.
+### 3. Credit Card Metric Semantics & Point-in-Time Cutoff (Resolved Domain Decision)
+- **Previous Behavior:** In earlier implementations, all historical transactions were summed without a point-in-time cutoff, and transfer payment inclusions had potential ambiguity across metrics.
+- **Resolution:** Established authoritative point-in-time credit card semantics:
+  1. `balance_owed`: Point-in-time liability up to effective cutoff date (`starting_balance + sum(tx.amount for tx in transactions if tx.date < cutoff_exclusive)`). Includes purchases, refunds, and transfers (payments reduce liability). Future-dated activity beyond effective cutoff is strictly excluded.
+  2. `charges_this_month`: Gross positive non-transfer charges (`period_start <= tx.date < cutoff_exclusive`, `amount > 0`, `is_transfer == False`). Refunds do not reduce this gross metric.
+  3. `payments_this_month`: Absolute sum of negative transfer payments only (`period_start <= tx.date < cutoff_exclusive`, `amount < 0`, `is_transfer == True`).
+- **Status:** **Resolved Domain Decision**.
 
-### 4. Credit Card `balance_owed` Includes Future-Dated Transactions (Unresolved Domain Decision)
-- **Current Behavior:** All-time sum currently evaluates transactions regardless of whether `date` is in the future.
-- **Status:** Treated as an **Unresolved Domain Decision**. Behavior is preserved as characterized.
-
-### 5. Transfer Matching Deterministic Closest-First Policy (Resolved Domain Decision)
+### 4. Transfer Matching Deterministic Closest-First Policy (Resolved Domain Decision)
 - **Previous Behavior:** `detect_transfer_candidates` paired transactions greedily in input list order without closest-date tie-breaking or stable ordering.
 - **Resolution:** Implemented deterministic closest-first greedy suggestion matching in `detect_transfer_candidates`. Eligible candidate pairs are ranked by smallest date distance first (`0` > `1` > `2`), followed by stable dates and transaction IDs breaking ties. Closest date distance strictly wins, input/database ordering dependence is eliminated, and each transaction appears in at most one suggestion.
 - **Status:** **Resolved Domain Decision**.
 
-### 6. Insecure Credential Storage (Deferred Security Debt)
-- **Current Behavior:** `backend/security.py` uses base64 string encoding instead of authenticated symmetric encryption (Fernet/KMS). Plaid access tokens require cryptographic key migration in a dedicated security slice.
-- **Status:** Treated as **Deferred Security Debt**. Behavior is preserved as characterized.
+### 5. Stored Plaid Token Authenticated Encryption (Resolved Security Item)
+- **Previous Behavior:** `backend/security.py` used Base64 encoding as an obfuscation placeholder for access tokens.
+- **Resolution:** Implemented authenticated symmetric encryption with cryptography `Fernet` returning `enc:v1:<ciphertext>`. Migrated legacy stored tokens via startup migration `migrate_plaid_token_encryption`. Runtime decryption strictly enforces `enc:v1:`, and legacy Base64 is prohibited at runtime.
+- **Status:** **Resolved Security Item**.
 
-### 7. Deferred Reconciled Plaid Corrections Workflow (Unresolved Follow-Up)
+### 6. Deferred Reconciled Plaid Corrections Workflow (Unresolved Follow-Up)
 - **Current Behavior:** Material provider corrections to already-reconciled transactions are blocked from mutating reconciled financial history, recording discrepancies in `plaid_reconciliation_conflict_amount` and `plaid_reconciliation_conflict_at`. An administrative workflow to reopen or resolve provider conflicts is deferred.
 - **Status:** Treated as an **Unresolved Domain Decision / Follow-Up**. Behavior is preserved as characterized.
 

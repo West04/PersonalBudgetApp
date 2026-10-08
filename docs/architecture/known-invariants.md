@@ -19,10 +19,8 @@ Structural refactors must preserve these behaviors unless the task explicitly au
 - `payments_this_month`: Negative transfer payments only (`period_start <= tx.date < cutoff_exclusive`, `amount < 0`, `is_transfer == True`). Merchant refunds, statement credits, and other negative non-transfer transactions are excluded.
 
 
-## Transfer/reconciliation behavior
+## Reconciliation behavior
 
-- Transfer matching is currently greedy/order-dependent.
-- The current matcher does not necessarily prefer the closest date.
 - Account reconciliation preserves its current balanced-state and cleared-transaction semantics.
 
 ## CSV/import behavior
@@ -55,15 +53,27 @@ Structural refactors must preserve these behaviors unless the task explicitly au
 
 ## Transfer matching invariant
 
-- Transfer candidate matching is deterministic closest-first greedy matching (`detect_transfer_candidates`).
-- Eligibility: exact opposite amount, different accounts, $\pm 2$ calendar days, not already transfer, no splits.
-- Selection: smallest date distance first (0-day > 1-day > 2-day); stable dates and transaction IDs break ties; each transaction appears in at most one suggestion.
-- Input and database ordering do not affect results.
-- Matching is suggestion-only until user confirmation via `POST /credit-cards/mark-transfers`.
+Transfer candidate matching is deterministic closest-first greedy suggestion matching (`detect_transfer_candidates`).
+
+Eligibility:
+- exact opposite absolute amount;
+- different accounts;
+- within ±2 calendar days;
+- neither already marked transfer;
+- split transactions excluded upstream.
+
+Selection:
+- closest date first (0-day > 1-day > 2-day);
+- deterministic date and transaction UUID tie-breaking;
+- each transaction appears in at most one suggestion;
+- input/database ordering cannot affect results.
+
+Persistence:
+- suggestion-only until explicit user confirmation via `POST /credit-cards/mark-transfers` or `POST /transactions/mark-transfers`.
 
 ## Known defects that must not be silently fixed
 
-- None currently active (Transaction description nullability defect resolved via `migrate_transaction_description_integrity`).
+- None currently active. All previously identified defects and domain ambiguities have been resolved.
 
 ## Transaction behavior
 

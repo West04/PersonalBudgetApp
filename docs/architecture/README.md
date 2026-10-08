@@ -74,16 +74,16 @@ When evaluating system behavior and architecture, resolve discrepancies using th
 
 ---
 
-## Architectural Priority Order
+## Architectural Refactoring Status
 
-Refactor slices are addressed in this priority order based on the source evidence audit:
+The planned VBD structural refactoring program is complete. Previously prioritized slices have been implemented and verified:
 
-1. Move the live Plaid public-token exchange workflow out of the Router and retire the active legacy CRUD path.
-2. Remove ResourceAccess-to-ResourceAccess workflow coupling, beginning with `transaction_access.py`.
-3. Make categorization rule evaluation authoritative outside ResourceAccess.
-4. Move CSV inspection/preview/loader orchestration out of the upload Router.
-5. Remove FastAPI/Pydantic presentation coupling from Managers where it is not justified.
-6. Re-evaluate Manager topology after boundary leaks are corrected.
-7. Remove redundant DTO boundaries only when they lack independent semantics.
+1. [x] Move the live Plaid public-token exchange workflow out of the Router and retire the active legacy CRUD path.
+2. [x] Remove ResourceAccess-to-ResourceAccess workflow coupling, beginning with `transaction_access.py`.
+3. [x] Make categorization rule evaluation authoritative outside ResourceAccess.
+4. [x] Move CSV inspection/preview/loader orchestration out of the upload Router.
+5. [x] Remove FastAPI/Pydantic presentation coupling from Managers where it is not justified.
+6. [x] Re-evaluate Manager topology after boundary leaks are corrected.
+7. [x] Remove redundant DTO boundaries only when they lack independent semantics.
 
-Do not combine these slices into a single rewrite.
+Do not initiate further structural refactoring without a new observed defect, an explicit new requirement, or a planned feature.

@@ -1,17 +1,28 @@
 # Budget App Refactor Context
 
-Priority order unless the user selects another evidenced slice:
+## Current architecture status
+- structural VBD program complete;
+- established boundaries are stable: Presentation -> Manager -> Engine / Accessor -> Resource;
+- previously targeted hotspots (Plaid token exchange, transaction_access coupling, CSV upload sequencing, Manager transport coupling) are resolved;
+- no known high-value boundary violation is open;
+- prefer no architectural change unless new observed volatility appears.
 
-1. Plaid public-token exchange Router/legacy path.
-2. ResourceAccess-to-ResourceAccess coupling centered on transaction access.
-3. Categorization policy authority outside ResourceAccess.
-4. CSV/upload application sequencing.
-5. Presentation coupling in Managers.
-6. Manager topology review.
-7. Redundant DTO cleanup.
+## Resolved hardening invariants
+- Transaction.description is TEXT NOT NULL; "" represents missing narrative.
+- Non-empty category groups cannot be deleted (HTTP 400).
+- Category deletion cascade preserves transactions as uncategorized, deletes budgets and rules, and blocks on split references.
+- Plaid access tokens use authenticated enc:v1: Fernet encryption.
+- Credit-card metrics use point-in-time balance_owed up to effective cutoff, gross positive non-transfer charges, and negative transfer payments.
+- Transfer candidate matching is deterministic closest-first greedy suggestion matching.
 
-One slice means one architectural concern. A slice may touch several files if needed to move one responsibility safely.
+## Future / non-blocking backlog
+- Candidate Phase 13: Financial Depth (Savings Goals, Transaction Tags, Net Worth Tracking, Reporting & Analytics, Cash Flow Forecasting).
+- Administrative UI workflow for reconciled Plaid corrections.
+- Query batching optimizations if future profiling justifies it.
 
-Preserve accounting sign conventions, ZBB equations, CSV semantics, split invariants, current API behavior, known defects, and transaction semantics unless the task explicitly changes one of them.
-
-Do not create generic Repository/UoW, alternate DB ports, hypothetical bank-provider abstractions, generic rule engines, one Manager per endpoint, one Engine per helper, or field-for-field DTO layers.
+## Explicitly rejected speculative drivers
+- alternate DB engines, Unit of Work / generic repositories solely to hide SQLAlchemy Session.
+- hypothetical bank-provider abstractions or multi-currency.
+- generic message buses or rule DSLs.
+- GraphQL/gRPC or speculative auth/tenancy architecture.
+- one Manager per endpoint or field-for-field DTO layers solely for layering.

@@ -75,13 +75,16 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 - Migrated all 18 test call sites across 5 test files to `ManualTransactionManager.update_transaction`.
 - Exit criteria met: zero cross-accessor calls from update workflow in `transaction_access.py`; `PUT /transactions/{transaction_id}` routed to `ManualTransactionManager`; characterization suite (17 tests in `test_manager_manual_transaction.py`, 87 targeted tests) and full test suite green.
 
-## Slice 3 — Categorization policy authority
+## Slice 3 — Categorization policy authority [COMPLETED]
 
 **Problem:** rule matching is duplicated/inlined in ResourceAccess while domain categorization functions exist.
 
 **Target:** one authoritative pure categorization policy/activity; Managers decide when it is applied; ResourceAccess persists the selected result.
 
-**Exit criteria:** no duplicated business rule matching in `transaction_access.py`; ingestion flows use the authoritative policy.
+**Exit criteria met:**
+- zero duplicated business rule matching in `transaction_access.py`;
+- ingestion and mutation workflows (`CSVImportManager`, `PlaidTransactionSyncManager`, `ManualTransactionManager`) authoritatively decide categorization rules via pure domain helpers;
+- `transaction_access.py` persists selected scalars with zero cross-accessor dependencies; full test suite green.
 
 ## Slice 4 — CSV/upload application boundary [COMPLETED]
 
@@ -108,7 +111,7 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 - Preserved zero-account, zero-loader-resolution, and zero-database-mutation invariants.
 - Exit criteria met: zero CSV parsing or format detection logic in `backend/routers/upload.py`; characterization suite (35 tests in `test_manager_csv_import.py`, 21 tests in `test_integration_csv_inspect.py`, 133 focused CSV tests) and full test suite (1,005 tests) green.
 
-## Slice 5 — Remove Presentation coupling from Managers
+## Slice 5 — Remove Presentation coupling from Managers [COMPLETED]
 
 **Problem:** some Managers raise `HTTPException` or return Pydantic transport schemas.
 
@@ -122,19 +125,19 @@ This roadmap is structural. It does not replace the product roadmap. Perform one
 - Updated `backend/routers/accounts.py` (`get_account_reconciliation` and `complete_account_reconciliation`) to catch application exceptions and map them to HTTP 404/400 preserving exact detail strings and status codes.
 - Preserved Pydantic return models (`schemas.AccountReconciliationSummary`, `schemas.ReconciliationTransactionRead`) per guardrail against duplicate DTO ceremony.
 - Preserved exact reconciliation domain math, baseline derivation, transaction filtering, and atomic single-commit completion semantics.
-- Exit criteria met: zero `fastapi` references in `account_reconciliation_manager.py`; Manager unit tests assert application exceptions; integration suite asserts exact HTTP contract; full test suite (974 tests) green.
+- Exit criteria met: zero `fastapi` references across all managers in `backend/managers/`; full test suite green.
 
-## Slice 6 — Manager topology review
+## Slice 6 — Manager topology review [COMPLETED]
 
-Re-evaluate the summary family and the single `DashboardSummaryManager -> BudgetSummaryManager` call after boundary leaks are fixed. Merge or retain Managers only based on demonstrated sequencing volatility, not a target count.
+Audited the summary family and the single `DashboardSummaryManager -> BudgetSummaryManager` call. Confirmed that all 13 managers orchestrate demonstrated multi-step workflows. No manager-merging or artificial splitting is warranted.
 
-## Slice 7 — DTO/contract cleanup
+## Slice 7 — DTO/contract cleanup [COMPLETED]
 
-Remove intermediate DTOs that duplicate ORM/Pydantic representations and protect no independent semantics. Retain meaningful results such as budget calculation results, import summaries, sync results, and other types with domain/application meaning.
+Audited data transfer boundaries. Redundant DTO layers were rejected per ADR-002 and VBD principles; meaningful calculation results (`CreditCardSummaryResult`, `TransferCandidateItem`, `CSVInspectResponse`) are retained.
 
-## Slice 8 — Documentation and architecture conformance
+## Slice 8 — Documentation and architecture conformance [COMPLETED]
 
-Regenerate/verify the source dependency graph, reconcile `component-map.md` and `workflow-catalog.md`, and archive superseded architecture statements. Current source behavior and intended constraints must no longer contradict silently.
+All architecture documentation, known invariants, and safety matrices synchronized with actual repository source and test suite. Stopping condition reached.
 
 ## Per-slice required record
 
