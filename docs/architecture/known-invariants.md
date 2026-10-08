@@ -36,6 +36,11 @@ Preserve until a product decision changes it:
 ## Category and group behavior
 
 - Category groups cannot be deleted while they contain categories (must be empty; returns HTTP 400 with detail "Cannot delete category group containing categories. Move or delete categories first.").
+- Category deletion semantics (`DELETE /categories/{category_id}`):
+  - Split references block deletion (`HTTP 400`, detail: `"Cannot delete category referenced by split allocations. Reassign or remove splits first."`, zero database mutation).
+  - Transactions survive as uncategorized (`category_id` set to `NULL`, `category_source` preserved).
+  - Monthly budgets are cascade-deleted (`Category.budgets` specifies `cascade="all, delete", passive_deletes=True`, `Budget.category_id` is `NOT NULL` with FK `ON DELETE CASCADE`).
+  - Categorization rules are cascade-deleted (`cascade="all, delete-orphan"`, FK `ON DELETE CASCADE`).
 
 ## Known defects that must not be silently fixed
 

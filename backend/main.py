@@ -12,6 +12,7 @@ from .database import (
     migrate_ml_state,
     migrate_recurring_state,
     migrate_split_state,
+    migrate_budget_category_integrity,
 )
 from . import models
 from .routers import categories, budgets, transactions, plaid, summaries, accounts, upload, credit_cards, rules, ml, recurring
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
     migrate_ml_state(engine)
     migrate_recurring_state(engine)
     migrate_split_state(engine)
+    migrate_budget_category_integrity(engine)
     
     # Initialize default data
     db = SessionLocal()

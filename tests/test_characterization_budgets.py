@@ -504,23 +504,24 @@ def test_delete_budget_leaves_parent_category_intact(client: TestClient, db_sess
     assert db_cat is not None
 
 
-def test_delete_category_nullifies_budget_category_id(db_session):
+def test_delete_category_cascades_and_deletes_budgets(db_session):
     """
-    Because Category.budgets relationship does not specify passive_deletes=True
-    or cascade delete-orphan, and Budget.category_id is nullable, deleting a
-    Category causes SQLAlchemy to set Budget.category_id to NULL.
+    Category.budgets relationship specifies cascade='all, delete' and passive_deletes=True,
+    and Budget.category_id has ondelete='CASCADE' and is NOT NULL.
+    Deleting a Category cascade-deletes its dependent Budget rows.
     """
     cat = _create_category(db_session, "Cascade Cat")
     b = models.Budget(budget_month=date(2026, 6, 1), planned_amount=Decimal("100.00"), category_id=cat.category_id)
     db_session.add(b)
     db_session.commit()
 
+    budget_id = b.budget_id
+
     db_session.delete(cat)
     db_session.commit()
 
     db_session.expire_all()
-    db_b = db_session.query(models.Budget).filter_by(budget_id=b.budget_id).first()
-    assert db_b is not None
-    assert db_b.category_id is None
+    db_b = db_session.query(models.Budget).filter_by(budget_id=budget_id).first()
+    assert db_b is None
 
 

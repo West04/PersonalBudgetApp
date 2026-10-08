@@ -157,3 +157,17 @@ def test_budget_access_create_invalid_fk_triggers_integrity_error(db_session):
     with pytest.raises(IntegrityError):
         budget_access.create_budget(db_session, date(2026, 6, 1), Decimal("100.00"), uuid4())
     db_session.rollback()
+
+
+def test_budget_access_create_null_category_triggers_integrity_error(db_session):
+    """Verifies that the database enforces NOT NULL constraint on Budget.category_id."""
+    with pytest.raises(IntegrityError):
+        b = models.Budget(
+            budget_month=date(2026, 6, 1),
+            planned_amount=Decimal("100.00"),
+            category_id=None,
+        )
+        db_session.add(b)
+        db_session.commit()
+    db_session.rollback()
+

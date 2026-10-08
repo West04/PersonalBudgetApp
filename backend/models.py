@@ -57,7 +57,12 @@ class Category(Base):
 
     group = relationship("CategoryGroup", back_populates="categories")
     transactions = relationship("Transaction", back_populates="category")
-    budgets = relationship("Budget", back_populates="category")
+    budgets = relationship(
+        "Budget",
+        back_populates="category",
+        cascade="all, delete",
+        passive_deletes=True,
+    )
     categorization_rules = relationship("CategorizationRule", back_populates="category", cascade="all, delete-orphan")
 
     __table_args__ = (UniqueConstraint("group_id", "name", name="uq_category_group_name"),)
@@ -112,7 +117,11 @@ class Budget(Base):
     budget_id = Column(UUID, primary_key=True, default=uuid.uuid4)
     budget_month = Column(DATE, nullable=False)
     planned_amount = Column(DECIMAL(10, 2), nullable=False)
-    category_id = Column(UUID, ForeignKey("categories.category_id", ondelete="CASCADE"))
+    category_id = Column(
+        UUID,
+        ForeignKey("categories.category_id", ondelete="CASCADE"),
+        nullable=False,
+    )
 
     __table_args__ = (UniqueConstraint("budget_month", "category_id", name="_budget_month_category_uc"),)
 

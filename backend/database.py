@@ -465,6 +465,47 @@ def migrate_split_state(engine) -> bool:
     return applied
 
 
+def migrate_budget_category_integrity(engine) -> bool:
+    """
+    Applies one-time idempotent schema and cleanup migration for Budget Category integrity:
+    1. Deletes orphaned budget rows where category_id IS NULL (produced by prior defect).
+    2. Changes budgets.category_id column to NOT NULL if currently nullable.
+    Returns True if schema was modified or orphan rows purged, False otherwise.
+    """
+    applied = False
+    with engine.connect() as conn:
+        table_exists = conn.execute(
+            text(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_name = 'budgets';"
+            )
+        ).scalar()
+        if not table_exists:
+            return False
+
+        # 1. Purge orphan budget rows with category_id IS NULL
+        deleted_count = conn.execute(
+            text("DELETE FROM budgets WHERE category_id IS NULL;")
+        ).rowcount
+        if deleted_count and deleted_count > 0:
+            applied = True
+
+        # 2. Alter column to NOT NULL if currently nullable
+        is_nullable = conn.execute(
+            text(
+                "SELECT is_nullable FROM information_schema.columns "
+                "WHERE table_name = 'budgets' AND column_name = 'category_id';"
+            )
+        ).scalar()
+        if is_nullable == "YES":
+            conn.execute(text("ALTER TABLE budgets ALTER COLUMN category_id SET NOT NULL;"))
+            applied = True
+
+        if applied:
+            conn.commit()
+    return applied
+
+
 def get_db():
     db = SessionLocal()
     try:

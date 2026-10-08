@@ -185,8 +185,10 @@ def update_category(
 
 def delete_category(db: Session, category_id: UUID) -> Optional[models.Category]:
     """
-    Deletes a Category. Transactions and budgets survive with category_id = NULL.
-    Blocks deletion if referenced by any split allocations to protect split accounting invariants.
+    Deletes a Category.
+    - Transactions survive with category_id = NULL (uncategorized).
+    - Dependent budgets and categorization rules are cascade-deleted.
+    - Blocks deletion if referenced by any split allocations to protect split accounting invariants.
     """
     db_category = get_category_by_id(db, category_id)
     if not db_category:

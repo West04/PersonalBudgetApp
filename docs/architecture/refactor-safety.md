@@ -92,3 +92,8 @@ The following behaviors and invariants were discovered during characterization t
 ### 8. Resolved Defect: Frontend Timezone Date Offset on Month End
 - **Previous Behavior:** In `frontend/app/pages/transactions.vue`, `end_date` computation using local midnight converted to UTC shifted the date back by one calendar day in positive UTC offset timezones, truncating end-of-month transactions.
 - **Resolution:** Resolved in commit `f1e2f92` using `Date.UTC(...)` across frontend date range calculations.
+
+### 9. Resolved Defect: Category Deletion Budget Cascade and Non-Null Integrity
+- **Previous Behavior:** When deleting a category, SQLAlchemy ORM nullified `Budget.category_id` before deletion because `Category.budgets` omitted `cascade="all, delete", passive_deletes=True` and `Budget.category_id` was nullable. This bypassed database `ON DELETE CASCADE`, leaving orphaned budget rows with `category_id = NULL` that caused `GET /budget/` and `GET /budget/{id}` to crash with `fastapi.exceptions.ResponseValidationError` (HTTP 500).
+- **Resolution:** Configured `Category.budgets` relationship with `cascade="all, delete", passive_deletes=True`, set `Budget.category_id` to `nullable=False`, added idempotent migration `migrate_budget_category_integrity` to purge orphaned rows and enforce PostgreSQL `NOT NULL`, and verified downstream API and budget summary integrity.
+

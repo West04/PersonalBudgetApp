@@ -26,10 +26,16 @@ def setup_test_database():
         conn.execute(text("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_reconciled_date DATE;"))
         conn.execute(text("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_reconciled_balance DECIMAL(12, 2);"))
         conn.commit()
-    from backend.database import migrate_categorization_rules, migrate_ml_state, migrate_split_state
+    from backend.database import (
+        migrate_categorization_rules,
+        migrate_ml_state,
+        migrate_split_state,
+        migrate_budget_category_integrity,
+    )
     migrate_categorization_rules(engine)
     migrate_ml_state(engine)
     migrate_split_state(engine)
+    migrate_budget_category_integrity(engine)
     yield
     # Tables can remain in test DB for next run or inspectability
 

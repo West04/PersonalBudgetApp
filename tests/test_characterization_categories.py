@@ -526,7 +526,7 @@ def test_delete_category_success_and_referential_effects(client: TestClient, db_
     - Returns 204
     - Category deleted from DB
     - Transaction.category_id set to NULL
-    - Budget.category_id set to NULL
+    - Budget row cascade-deleted
     """
     group = models.CategoryGroup(name="Del Group")
     db_session.add(group)
@@ -571,8 +571,7 @@ def test_delete_category_success_and_referential_effects(client: TestClient, db_
     assert db_tx.category_id is None
 
     db_b = db_session.query(models.Budget).filter_by(budget_id=budget_id).first()
-    assert db_b is not None
-    assert db_b.category_id is None
+    assert db_b is None
 
 
 def test_delete_category_missing_404(client: TestClient):
