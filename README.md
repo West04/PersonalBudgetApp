@@ -1,4 +1,4 @@
-# Personal Budget App 💰
+# Personal Budget App
 
 A full-stack, zero-based personal budgeting web application built with **FastAPI**, **Nuxt 4**, **Vue 3**, **SQLAlchemy**, and **PostgreSQL**.
 
@@ -6,7 +6,7 @@ Inspired by EveryDollar and YNAB, this application gives every dollar a job. It 
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
 - **Zero-Based Budgeting:** Balance your monthly budget so that $\text{Income Planned} - \text{Expenses Planned} = 0$ ("Every dollar has a job!").
 - **Unified Categories & Budget Planner:** Reorder categories and groups using drag-and-drop (`vuedraggable`), inspect planned vs. actual numbers, and edit monthly budgets inline.
@@ -25,7 +25,7 @@ Inspired by EveryDollar and YNAB, this application gives every dollar a job. It 
 
 ---
 
-## 🏗️ Architecture & Tech Stack
+## Architecture & Tech Stack
 
 ```mermaid
 flowchart LR
@@ -50,7 +50,7 @@ flowchart LR
 
 ---
 
-## 🚀 Quick Start (Docker Compose)
+## Quick Start (Docker Compose)
 
 The fastest way to launch the entire stack is with Docker Compose:
 
@@ -106,7 +106,7 @@ npm run dev
 
 ---
 
-## 🧪 Testing & Data Seeding
+## Testing & Data Seeding
 
 Run the automated backend test suite:
 ```bash
@@ -135,7 +135,7 @@ python3 tests/seed_comprehensive.py --clean
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 ├── backend/
