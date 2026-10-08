@@ -12,14 +12,12 @@ Structural refactors must preserve these behaviors unless the task explicitly au
 - Split allocations must sum exactly to the parent transaction amount.
 - Split lines must obey current sign and non-zero rules.
 
-## Current credit-card behavior
+## Credit-card accounting contract (resolved)
 
-Preserve until a product decision changes it:
+- `balance_owed`: Point-in-time liability (`starting_balance + sum(tx.amount for tx in transactions if tx.date < cutoff_exclusive)`). Includes purchases, merchant refunds, and transfers (card payment transfers reduce balance; positive transfers increase balance). Strictly excludes future-dated activity beyond effective cutoff.
+- `charges_this_month`: Gross positive non-transfer charges (`period_start <= tx.date < cutoff_exclusive`, `amount > 0`, `is_transfer == False`). Merchant refunds do not reduce this metric. Card payments and transfers out are excluded.
+- `payments_this_month`: Negative transfer payments only (`period_start <= tx.date < cutoff_exclusive`, `amount < 0`, `is_transfer == True`). Merchant refunds, statement credits, and other negative non-transfer transactions are excluded.
 
-- `balance_owed` includes current established transfer behavior.
-- `charges_this_month` excludes transfers.
-- `payments_this_month` currently includes negative transfers.
-- `balance_owed` currently includes future-dated transactions.
 
 ## Transfer/reconciliation behavior
 

@@ -65,11 +65,11 @@ def test_positive_charge_transactions():
 
 
 def test_negative_payment_transactions():
-    """Verify negative payment transactions reduce balance_owed and report positive payments_this_month."""
+    """Verify negative payment transfer transactions reduce balance_owed and report positive payments_this_month."""
     tx = CreditCardTransaction(
         amount=Decimal("-80.00"),
         date=date(2026, 6, 20),
-        is_transfer=False,
+        is_transfer=True,
     )
 
     state = calculate_credit_card_state(
@@ -93,7 +93,7 @@ def test_historical_transactions_affect_balance_owed():
     tx_past_payment = CreditCardTransaction(
         amount=Decimal("-50.00"),
         date=date(2026, 5, 25),
-        is_transfer=False,
+        is_transfer=True,
     )
 
     state = calculate_credit_card_state(
@@ -108,8 +108,8 @@ def test_historical_transactions_affect_balance_owed():
     assert state.payments_this_month == Decimal("0.00")
 
 
-def test_future_transactions_affect_balance_owed():
-    """Verify transactions after current month affect all-time balance_owed but not current-month metrics."""
+def test_future_transactions_excluded_from_historical_balance_and_metrics():
+    """Verify transactions after selected month cutoff do NOT affect balance_owed or monthly metrics."""
     tx_future = CreditCardTransaction(
         amount=Decimal("300.00"),
         date=date(2026, 7, 5),
@@ -121,8 +121,9 @@ def test_future_transactions_affect_balance_owed():
         transactions=[tx_future],
         period_start=PERIOD_START,
         period_end=PERIOD_END,
+        cutoff_exclusive=PERIOD_END,
     )
-    assert state.balance_owed == Decimal("800.00")
+    assert state.balance_owed == Decimal("500.00")
     assert state.charges_this_month == Decimal("0.00")
     assert state.payments_this_month == Decimal("0.00")
 
@@ -137,7 +138,7 @@ def test_current_month_transactions_affect_monthly_metrics():
     tx_payment = CreditCardTransaction(
         amount=Decimal("-150.00"),
         date=date(2026, 6, 20),
-        is_transfer=False,
+        is_transfer=True,
     )
 
     state = calculate_credit_card_state(
@@ -153,8 +154,7 @@ def test_current_month_transactions_affect_monthly_metrics():
 
 def test_transfer_transaction_included_in_balance_owed():
     """
-    Verify preserved unresolved behavior:
-    Transfer transactions (is_transfer=True) ARE included in all-time balance_owed calculation.
+    Verify transfer transactions (is_transfer=True) are included in balance_owed calculation.
     """
     tx_transfer = CreditCardTransaction(
         amount=Decimal("75.00"),
@@ -173,8 +173,7 @@ def test_transfer_transaction_included_in_balance_owed():
 
 def test_transfer_transaction_excluded_from_charges_this_month():
     """
-    Verify preserved unresolved behavior:
-    Transfer transactions (is_transfer=True) with positive amount ARE EXCLUDED from charges_this_month.
+    Verify transfer transactions (is_transfer=True) with positive amount are excluded from charges_this_month.
     """
     tx_normal_charge = CreditCardTransaction(
         amount=Decimal("100.00"),
@@ -201,8 +200,7 @@ def test_transfer_transaction_excluded_from_charges_this_month():
 
 def test_transfer_payment_included_in_payments_this_month():
     """
-    Verify preserved unresolved behavior:
-    Negative payments with is_transfer=True ARE included in payments_this_month.
+    Verify negative payments with is_transfer=True are included in payments_this_month.
     """
     tx_transfer_payment = CreditCardTransaction(
         amount=Decimal("-250.00"),
@@ -235,7 +233,7 @@ def test_decimal_precision_and_sign_behavior():
     tx3 = CreditCardTransaction(
         amount=Decimal("-0.30"),
         date=date(2026, 6, 3),
-        is_transfer=False,
+        is_transfer=True,
     )
 
     state = calculate_credit_card_state(
@@ -247,3 +245,222 @@ def test_decimal_precision_and_sign_behavior():
     assert state.balance_owed == Decimal("0.00")
     assert state.charges_this_month == Decimal("0.30")
     assert state.payments_this_month == Decimal("0.30")
+
+
+# --- Explicit New Domain Specification Tests ---
+
+def test_merchant_refund_reduces_balance_not_payments_nor_charges():
+    """
+    Regression scenario 1 (Refund):
+    +100 purchase (non-transfer)
+    -25 refund (non-transfer)
+    Expected: balance = 75, charges = 100, payments = 0.
+    Refund reduces liability but is neither a charge nor a cardholder payment.
+    """
+    tx_purchase = CreditCardTransaction(
+        amount=Decimal("100.00"),
+        date=date(2026, 6, 5),
+        is_transfer=False,
+    )
+    tx_refund = CreditCardTransaction(
+        amount=Decimal("-25.00"),
+        date=date(2026, 6, 12),
+        is_transfer=False,
+    )
+
+    state = calculate_credit_card_state(
+        starting_balance=Decimal("0.00"),
+        transactions=[tx_purchase, tx_refund],
+        period_start=PERIOD_START,
+        period_end=PERIOD_END,
+    )
+    assert state.balance_owed == Decimal("75.00")
+    assert state.charges_this_month == Decimal("100.00")
+    assert state.payments_this_month == Decimal("0.00")
+
+
+def test_card_payment_reduces_balance_and_counts_as_payment():
+    """
+    Regression scenario 2 (Payment):
+    +100 purchase (non-transfer)
+    -100 transfer payment (is_transfer=True)
+    Expected: balance = 0, charges = 100, payments = 100.
+    """
+    tx_purchase = CreditCardTransaction(
+        amount=Decimal("100.00"),
+        date=date(2026, 6, 5),
+        is_transfer=False,
+    )
+    tx_payment = CreditCardTransaction(
+        amount=Decimal("-100.00"),
+        date=date(2026, 6, 20),
+        is_transfer=True,
+    )
+
+    state = calculate_credit_card_state(
+        starting_balance=Decimal("0.00"),
+        transactions=[tx_purchase, tx_payment],
+        period_start=PERIOD_START,
+        period_end=PERIOD_END,
+    )
+    assert state.balance_owed == Decimal("0.00")
+    assert state.charges_this_month == Decimal("100.00")
+    assert state.payments_this_month == Decimal("100.00")
+
+
+def test_refund_and_payment_together():
+    """
+    Regression scenario 3 (Refund + Payment):
+    +100 purchase (non-transfer)
+    -25 refund (non-transfer)
+    -50 transfer payment (is_transfer=True)
+    Expected: balance = 25, charges = 100, payments = 50.
+    """
+    tx_purchase = CreditCardTransaction(
+        amount=Decimal("100.00"),
+        date=date(2026, 6, 5),
+        is_transfer=False,
+    )
+    tx_refund = CreditCardTransaction(
+        amount=Decimal("-25.00"),
+        date=date(2026, 6, 12),
+        is_transfer=False,
+    )
+    tx_payment = CreditCardTransaction(
+        amount=Decimal("-50.00"),
+        date=date(2026, 6, 22),
+        is_transfer=True,
+    )
+
+    state = calculate_credit_card_state(
+        starting_balance=Decimal("0.00"),
+        transactions=[tx_purchase, tx_refund, tx_payment],
+        period_start=PERIOD_START,
+        period_end=PERIOD_END,
+    )
+    assert state.balance_owed == Decimal("25.00")
+    assert state.charges_this_month == Decimal("100.00")
+    assert state.payments_this_month == Decimal("50.00")
+
+
+def test_future_current_month_purchase_excluded_until_date_reached():
+    """
+    Regression scenario 4 (Future current-month purchase):
+    Assume today is June 7 (cutoff_exclusive = June 8).
+    June 2 purchase +100
+    June 20 purchase +60
+    Expected: balance = 100, charges = 100, payments = 0.
+    Future transaction must affect none of balance, charges, or payments until reached.
+    """
+    tx_past = CreditCardTransaction(
+        amount=Decimal("100.00"),
+        date=date(2026, 6, 2),
+        is_transfer=False,
+    )
+    tx_future = CreditCardTransaction(
+        amount=Decimal("60.00"),
+        date=date(2026, 6, 20),
+        is_transfer=False,
+    )
+
+    state = calculate_credit_card_state(
+        starting_balance=Decimal("0.00"),
+        transactions=[tx_past, tx_future],
+        period_start=PERIOD_START,
+        period_end=PERIOD_END,
+        cutoff_exclusive=date(2026, 6, 8),
+    )
+    assert state.balance_owed == Decimal("100.00")
+    assert state.charges_this_month == Decimal("100.00")
+    assert state.payments_this_month == Decimal("0.00")
+
+
+def test_future_current_month_payment_excluded_until_date_reached():
+    """
+    Regression scenario 5 (Future payment):
+    June 2 purchase +100
+    June 20 payment -50 (transfer)
+    When cutoff is June 8:
+    Future payment must not prematurely reduce balance or increase Paid This Month.
+    """
+    tx_past = CreditCardTransaction(
+        amount=Decimal("100.00"),
+        date=date(2026, 6, 2),
+        is_transfer=False,
+    )
+    tx_future_pay = CreditCardTransaction(
+        amount=Decimal("-50.00"),
+        date=date(2026, 6, 20),
+        is_transfer=True,
+    )
+
+    state = calculate_credit_card_state(
+        starting_balance=Decimal("0.00"),
+        transactions=[tx_past, tx_future_pay],
+        period_start=PERIOD_START,
+        period_end=PERIOD_END,
+        cutoff_exclusive=date(2026, 6, 8),
+    )
+    assert state.balance_owed == Decimal("100.00")
+    assert state.charges_this_month == Decimal("100.00")
+    assert state.payments_this_month == Decimal("0.00")
+
+
+def test_historical_month_isolation_from_later_activity():
+    """
+    Regression scenario 6 (Historical month isolation):
+    Sep 15 purchase +200
+    Sep 25 payment -150 (transfer)
+    Oct 05 purchase +300
+    When viewing September (cutoff = Oct 1):
+    Later-month transactions must not contaminate prior month's Balance Owed.
+    """
+    tx_sep_charge = CreditCardTransaction(
+        amount=Decimal("200.00"),
+        date=date(2026, 9, 15),
+        is_transfer=False,
+    )
+    tx_sep_pay = CreditCardTransaction(
+        amount=Decimal("-150.00"),
+        date=date(2026, 9, 25),
+        is_transfer=True,
+    )
+    tx_oct_charge = CreditCardTransaction(
+        amount=Decimal("300.00"),
+        date=date(2026, 10, 5),
+        is_transfer=False,
+    )
+
+    state = calculate_credit_card_state(
+        starting_balance=Decimal("0.00"),
+        transactions=[tx_sep_charge, tx_sep_pay, tx_oct_charge],
+        period_start=date(2026, 9, 1),
+        period_end=date(2026, 10, 1),
+        cutoff_exclusive=date(2026, 10, 1),
+    )
+    assert state.balance_owed == Decimal("50.00")
+    assert state.charges_this_month == Decimal("200.00")
+    assert state.payments_this_month == Decimal("150.00")
+
+
+def test_transfer_out_increases_balance_not_charges_nor_payments():
+    """
+    Regression scenario 7 (Transfer out):
+    Positive transfer: amount > 0, is_transfer = True.
+    Must increase balance, not increase charges, not increase payments.
+    """
+    tx_transfer_out = CreditCardTransaction(
+        amount=Decimal("200.00"),
+        date=date(2026, 6, 10),
+        is_transfer=True,
+    )
+
+    state = calculate_credit_card_state(
+        starting_balance=Decimal("100.00"),
+        transactions=[tx_transfer_out],
+        period_start=PERIOD_START,
+        period_end=PERIOD_END,
+    )
+    assert state.balance_owed == Decimal("300.00")
+    assert state.charges_this_month == Decimal("0.00")
+    assert state.payments_this_month == Decimal("0.00")

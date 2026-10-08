@@ -80,13 +80,13 @@ def test_manager_get_credit_card_summary_composition_and_isolation(db_session):
         is_transfer=False,
     )
     # June (current month):
-    # - June 25: payment -100.00 (no category)
+    # - June 25: payment -100.00 (transfer payment)
     t_june_late = models.Transaction(
         account_id=card_a.id,
         amount=Decimal("-100.00"),
         date=date(2026, 6, 25),
         description="Payment",
-        is_transfer=False,
+        is_transfer=True,
         category_id=None,
     )
     # - June 15: transfer +40.00
@@ -106,7 +106,7 @@ def test_manager_get_credit_card_summary_composition_and_isolation(db_session):
         is_transfer=False,
         category_id=cat.category_id,
     )
-    # July (future): +200.00 (affects balance_owed, excluded from display)
+    # July (future): +200.00 (excluded from June point-in-time balance_owed)
     t_future = models.Transaction(
         account_id=card_a.id,
         amount=Decimal("200.00"),
@@ -145,12 +145,12 @@ def test_manager_get_credit_card_summary_composition_and_isolation(db_session):
 
     # 4. Financial calculations for Alpha Visa:
     # Starting balance: 500.00
-    # Net all-time: 50 (May) + (-100 + 40 + 150) (June) + 200 (July) = 340.00
-    # balance_owed: 500 + 340 = 840.00
+    # Net past + June: 50 (May) + (-100 + 40 + 150) (June) = 140.00 (July 200 excluded)
+    # balance_owed: 500 + 140 = 640.00
     # charges_this_month: 150.00 (transfer 40.00 excluded)
     # payments_this_month: 100.00
     assert c0.state.starting_balance == Decimal("500.00")
-    assert c0.state.balance_owed == Decimal("840.00")
+    assert c0.state.balance_owed == Decimal("640.00")
     assert c0.state.charges_this_month == Decimal("150.00")
     assert c0.state.payments_this_month == Decimal("100.00")
 
@@ -216,6 +216,7 @@ def test_manager_delegates_to_credit_card_engine(db_session):
         assert call_kwargs["starting_balance"] == Decimal("150.00")
         assert call_kwargs["period_start"] == date(2026, 6, 1)
         assert call_kwargs["period_end"] == date(2026, 7, 1)
+        assert call_kwargs["cutoff_exclusive"] == date(2026, 7, 1)
 
         domain_txns = call_kwargs["transactions"]
         assert len(domain_txns) == 1
@@ -224,6 +225,36 @@ def test_manager_delegates_to_credit_card_engine(db_session):
         assert domain_txns[0].amount == Decimal("25.00")
         assert domain_txns[0].date == date(2026, 6, 10)
         assert domain_txns[0].is_transfer is False
+
+
+def test_manager_passes_explicit_as_of_date_cutoff(db_session):
+    """
+    Verify get_credit_card_summary computes cutoff_exclusive using explicit as_of_date:
+    When viewing June 2026 on June 15, cutoff_exclusive is June 16.
+    """
+    card = models.Account(
+        name="Cutoff Card",
+        type="credit",
+        is_active=True,
+        starting_balance=Decimal("0.00"),
+    )
+    db_session.add(card)
+    db_session.commit()
+
+    with patch(
+        "backend.managers.credit_card_summary_manager.calculate_credit_card_state",
+        wraps=calculate_credit_card_state,
+    ) as spy_engine:
+        result = get_credit_card_summary(
+            db_session,
+            budget_month=date(2026, 6, 1),
+            as_of_date=date(2026, 6, 15),
+        )
+
+        spy_engine.assert_called_once()
+        call_kwargs = spy_engine.call_args.kwargs
+        assert call_kwargs["cutoff_exclusive"] == date(2026, 6, 16)
+
 
 
 def test_manager_get_credit_card_summary_zero_transactions(db_session):

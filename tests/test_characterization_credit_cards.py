@@ -64,7 +64,7 @@ def test_credit_card_summary_and_balance_owed(client, db_session):
         amount=Decimal("-100.00"),
         date=date(2026, 5, 20),
         description="May Payment",
-        is_transfer=False
+        is_transfer=True
     )
 
     # 2. Current month (June 2026):
@@ -84,21 +84,21 @@ def test_credit_card_summary_and_balance_owed(client, db_session):
         description="Gas",
         is_transfer=False
     )
-    # Payment 1: -250.00
+    # Payment 1: -250.00 (transfer payment)
     tx_june_pay1 = models.Transaction(
         account_id=card.id,
         amount=Decimal("-250.00"),
         date=date(2026, 6, 18),
         description="June Payment",
-        is_transfer=False
+        is_transfer=True
     )
-    # Payment 2: -50.00
+    # Payment 2: -50.00 (transfer payment)
     tx_june_pay2 = models.Transaction(
         account_id=card.id,
         amount=Decimal("-50.00"),
         date=date(2026, 6, 25),
         description="June Extra Payment",
-        is_transfer=False
+        is_transfer=True
     )
     # Transfer transaction: +75.00 with is_transfer = True (e.g. balance transfer or fee transfer)
     tx_june_transfer = models.Transaction(
@@ -110,7 +110,7 @@ def test_credit_card_summary_and_balance_owed(client, db_session):
     )
 
     # 3. Future month (July 2026):
-    # Future charge: +300.00 (Affects all-time balance_owed, but NOT June charges)
+    # Future charge: +300.00 (Excluded from June point-in-time balance_owed)
     tx_july_charge = models.Transaction(
         account_id=card.id,
         amount=Decimal("300.00"),
@@ -140,13 +140,13 @@ def test_credit_card_summary_and_balance_owed(client, db_session):
     assert Decimal(str(card_summary["starting_balance"])) == Decimal("500.00")
 
     # Math verification:
-    # All-time transactions net:
+    # Point-in-time transactions net through June cutoff (July excluded):
     # May: +150 - 100 = +50
     # June: +220 + 80 - 250 - 50 + 75 = +75
-    # July: +300
-    # Total net all-time = 50 + 75 + 300 = +425.00
-    # balance_owed = starting_balance (500) + all_time_net (425) = 925.00
-    assert Decimal(str(card_summary["balance_owed"])) == Decimal("925.00")
+    # Total net through June = 50 + 75 = +125.00
+    # balance_owed = starting_balance (500) + net (125) = 625.00
+    assert Decimal(str(card_summary["balance_owed"])) == Decimal("625.00")
+
 
     # June Charges: non-transfer positive transactions in June
     # 220.00 + 80.00 = 300.00 (tx_june_transfer of 75.00 is excluded because is_transfer=True)
@@ -222,8 +222,9 @@ def test_multiple_active_credit_cards_and_isolation(client, db_session):
         amount=Decimal("-40.00"),
         date=date(2026, 6, 20),
         description="Alpha Payment",
-        is_transfer=False
+        is_transfer=True
     )
+
 
     # Transactions for Zeta Card:
     # 1 charge of 120.00

@@ -28,7 +28,8 @@ from ..domain.credit_cards import (
     CreditCardTransaction,
     calculate_credit_card_state,
 )
-from ..domain.dates import determine_month_range
+from ..domain.dates import determine_effective_cutoff, determine_month_range
+
 
 
 @dataclass(frozen=True)
@@ -57,20 +58,24 @@ class CreditCardSummaryResult:
 def get_credit_card_summary(
     db: Session,
     budget_month: date,
+    as_of_date: Optional[date] = None,
 ) -> CreditCardSummaryResult:
     """
     Coordinates the credit card summary workflow:
     1. Determines period dates using shared determine_month_range.
-    2. Retrieves active credit accounts ordered by name ascending.
-    3. For each card:
+    2. Determines point-in-time cutoff using determine_effective_cutoff.
+    3. Retrieves active credit accounts ordered by name ascending.
+    4. For each card:
        - Retrieves all historical transactions ordered by date descending.
        - Maps to pure domain CreditCardTransaction.
-       - Computes financial state via calculate_credit_card_state.
+       - Computes financial state via calculate_credit_card_state with cutoff_exclusive.
        - Filters monthly transactions in [start_date, end_date) preserving date descending order.
        - Maps monthly transactions to immutable application items.
-    4. Returns CreditCardSummaryResult.
+    5. Returns CreditCardSummaryResult.
     """
     start_date, end_date = determine_month_range(budget_month)
+    effective_today = as_of_date if as_of_date is not None else date.today()
+    cutoff_exclusive = determine_effective_cutoff(end_date, effective_today)
 
     credit_accounts = get_active_credit_accounts(db)
 
@@ -93,6 +98,7 @@ def get_credit_card_summary(
             transactions=domain_txns,
             period_start=start_date,
             period_end=end_date,
+            cutoff_exclusive=cutoff_exclusive,
         )
 
         monthly_items = [

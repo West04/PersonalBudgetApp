@@ -190,13 +190,14 @@ During this structural slice, persistence execution intentionally remains:
 
 The refactoring slice must preserve all characterized existing behaviors exactly:
 
-### 6.1. Credit-Card Calculation Semantics (Unresolved Product Decisions)
-- `balance_owed` is calculated as `starting_balance + all_time_net_transactions`.
-- Transactions with `is_transfer == True` **remain included** in `balance_owed`.
-- Positive transactions with `is_transfer == True` **remain excluded** from `charges_this_month`.
-- Negative transactions with `is_transfer == True` **remain included** in `payments_this_month`.
-- Future-dated transactions **remain included** in `balance_owed`.
-- These are characterized, unresolved domain decisions and must not be altered during this structural slice.
+### 6.1. Credit-Card Calculation Semantics (Resolved Product Contract)
+- `balance_owed` is calculated as `starting_balance + sum(tx.amount for tx in transactions if tx.date < cutoff_exclusive)`.
+- Transactions with `is_transfer == True` **remain included** in `balance_owed` (card-payment transfers reduce debt, positive transfers increase debt).
+- Merchant refunds/credits (`amount < 0, is_transfer == False`) reduce `balance_owed`.
+- Positive transactions with `is_transfer == True` **remain excluded** from `charges_this_month` (not a purchase charge).
+- `charges_this_month` reflects gross positive non-transfer charges in `[period_start, cutoff_exclusive)`. Merchant refunds do not reduce this metric.
+- `payments_this_month` includes **only negative transfer payments** (`amount < 0 and is_transfer == True`) in `[period_start, cutoff_exclusive)`. Merchant refunds and non-transfer credits are strictly excluded.
+- Future-dated transactions (`tx.date >= cutoff_exclusive`) are **strictly excluded** from point-in-time `balance_owed` and monthly activity.
 
 ### 6.2. Persistence Field Handling
 - `account.starting_balance` is passed directly to the Engine (which normalizes it to Decimal).
@@ -230,14 +231,16 @@ calculate_credit_card_state(
     transactions: Sequence[CreditCardTransaction],
     period_start: date,
     period_end: date,
+    cutoff_exclusive: Optional[date] = None,
 ) -> CreditCardState
 ```
 
 remains the sole authoritative calculation component. It owns:
 - starting-balance conversion;
-- `balance_owed`;
-- `charges_this_month`;
-- `payments_this_month`.
+- `balance_owed` (point-in-time through cutoff);
+- `charges_this_month` (gross charges in period through cutoff);
+- `payments_this_month` (transfer payments in period through cutoff).
+
 
 The Manager must not duplicate, wrap, or re-implement any of these calculations.
 

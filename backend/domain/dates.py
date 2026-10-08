@@ -17,3 +17,14 @@ def determine_month_range(month_date: date) -> tuple[date, date]:
     else:
         end_date = date(start_date.year, start_date.month + 1, 1)
     return start_date, end_date
+
+
+def determine_effective_cutoff(period_end: date, as_of_date: date) -> date:
+    """
+    Determines the exclusive date cutoff for credit card point-in-time calculations:
+    - Historical month: period_end (includes through month's final calendar day).
+    - Current/Future month: min(period_end, as_of_date + 1 day).
+    """
+    from datetime import timedelta
+    return min(period_end, as_of_date + timedelta(days=1))
+
