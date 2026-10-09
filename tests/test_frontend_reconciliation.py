@@ -43,8 +43,8 @@ def test_accounts_reconciliation_ui_contract(require_node):
         hasStatementEndingBalanceInput: code.includes('label="Statement Ending Balance ($)"') && code.includes('v-model.number="reconcileForm.endingBalance"'),
 
         // 3. Difference presentation (textual, not color-only)
-        hasDifferenceCard: code.includes('class="card-label">Difference</div>'),
-        hasTextualBalancedStatus: code.includes('✓ Balanced ($0.00)') && code.includes('to balance'),
+        hasDifferenceCard: code.includes('class="card-label">Difference</dt>'),
+        hasTextualBalancedStatus: code.includes('Balanced ($0.00)') && code.includes('to balance'),
 
         // 4. Eligible transactions & cleared controls
         hasClearedCheckbox: code.includes('class="reconcile-checkbox"') && code.includes('toggleTxCleared'),

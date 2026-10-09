@@ -234,30 +234,42 @@
           </FormField>
         </div>
 
-        <!-- Summary Strip (Statement Balance, Cleared Balance, Difference) -->
-        <div class="reconcile-summary-strip">
-          <div class="summary-card">
-            <div class="card-label">Statement Balance</div>
-            <div class="card-value font-mono">{{ formatCurrency(Number(reconcileForm.endingBalance) || 0) }}</div>
+        <!-- Summary: statement vs cleared balance. Figures that depend on the
+             loaded transactions show a dash until they exist, never a stand-in zero. -->
+        <dl class="reconcile-summary-strip">
+          <div class="summary-item">
+            <dt class="card-label">Statement balance</dt>
+            <dd class="card-value"><Money :amount="Number(reconcileForm.endingBalance) || 0" /></dd>
           </div>
-          <div class="summary-card">
-            <div class="card-label">Cleared Balance</div>
-            <div class="card-value font-mono">{{ formatCurrency(calculatedClearedBalance) }}</div>
-            <div class="card-subtext">
-              Baseline: {{ formatCurrency(Number(reconcileSummary?.prior_reconciled_balance) || 0) }}
-            </div>
+          <div class="summary-item">
+            <dt class="card-label">Cleared balance</dt>
+            <dd class="card-value">
+              <Money v-if="reconcileSummary" :amount="calculatedClearedBalance" />
+              <span v-else class="value-unavailable">—</span>
+            </dd>
+            <dd v-if="reconcileSummary" class="card-subtext">
+              Baseline: <span class="num">{{ formatCurrency(Number(reconcileSummary.prior_reconciled_balance) || 0) }}</span>
+            </dd>
           </div>
           <div
-            class="summary-card diff-card"
-            :class="{ 'diff-balanced': isBalanced, 'diff-mismatch': !isBalanced }"
+            class="summary-item diff-item"
+            :class="reconcileSummary ? { 'diff-balanced': isBalanced, 'diff-mismatch': !isBalanced } : 'diff-unknown'"
           >
-            <div class="card-label">Difference</div>
-            <div class="card-value font-mono">{{ formatCurrency(differenceAmount) }}</div>
-            <div class="card-status-text" aria-live="polite">
-              {{ isBalanced ? '✓ Balanced ($0.00)' : `${formatCurrency(Math.abs(differenceAmount))} to balance` }}
-            </div>
+            <dt class="card-label">Difference</dt>
+            <dd class="card-value">
+              <Money v-if="reconcileSummary" :amount="differenceAmount" />
+              <span v-else class="value-unavailable">—</span>
+            </dd>
+            <dd class="card-status-text" aria-live="polite">
+              <template v-if="!reconcileSummary">{{ reconcileLoading ? 'Waiting for transactions' : 'Not available' }}</template>
+              <template v-else-if="isBalanced">
+                <AppIcon name="check" :size="14" class="status-icon" />
+                Balanced ($0.00)
+              </template>
+              <template v-else>{{ formatCurrency(Math.abs(differenceAmount)) }} to balance</template>
+            </dd>
           </div>
-        </div>
+        </dl>
 
         <!-- Error Banner inside modal -->
         <ErrorBanner
@@ -269,45 +281,50 @@
         <!-- Loading State -->
         <LoadingState v-if="reconcileLoading" message="Loading account transactions..." />
 
-        <!-- Transactions Section -->
-        <div v-else class="reconcile-transactions-section">
+        <!-- Transactions: only once loaded, so a failed load is never shown as "nothing to reconcile" -->
+        <section
+          v-else-if="reconcileSummary"
+          class="reconcile-transactions-section"
+          aria-labelledby="reconcile-tx-heading"
+        >
           <div class="tx-header-bar">
-            <div class="tx-counts">
-              <span class="count-badge">
-                <strong>{{ clearedCount }}</strong> of <strong>{{ totalTxnCount }}</strong> cleared
-              </span>
-            </div>
+            <h3 id="reconcile-tx-heading" class="tx-heading">Unreconciled transactions</h3>
+            <span class="count-badge">
+              <span class="num">{{ clearedCount }}</span> of <span class="num">{{ totalTxnCount }}</span> cleared
+            </span>
             <button
               v-if="totalTxnCount > 0"
               type="button"
-              class="btn-text"
+              class="btn btn-ghost btn-sm"
               @click="toggleClearAll"
             >
               {{ allCleared ? 'Unclear All' : 'Clear All' }}
             </button>
           </div>
 
-          <div v-if="!reconcileSummary?.transactions?.length" class="empty-reconcile-txns">
-            <p>No unreconciled transactions dated on or before {{ reconcileForm.endingDate }}.</p>
-          </div>
+          <p v-if="!reconcileSummary.transactions.length" class="empty-reconcile-txns">
+            No unreconciled transactions dated on or before {{ formatDateOnly(reconcileForm.endingDate, { includeYear: true }) }}.
+          </p>
 
           <div v-else class="reconcile-table-wrapper">
-            <table class="reconcile-table" aria-label="Transactions to reconcile">
-              <thead>
-                <tr>
-                  <th scope="col" class="th-cleared">Cleared</th>
-                  <th scope="col">Date</th>
-                  <th scope="col">Description</th>
-                  <th scope="col" class="right">Amount</th>
+            <table class="reconcile-table" role="table" aria-label="Transactions to reconcile">
+              <thead role="rowgroup">
+                <tr role="row">
+                  <th scope="col" class="th-cleared" role="columnheader">Cleared</th>
+                  <th scope="col" class="th-date" role="columnheader">Date</th>
+                  <th scope="col" role="columnheader">Description</th>
+                  <th scope="col" class="th-amount right" role="columnheader">Amount</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody role="rowgroup">
                 <tr
                   v-for="tx in reconcileSummary.transactions"
                   :key="tx.transaction_id"
+                  class="reconcile-row"
                   :class="{ 'row-cleared': tx.is_cleared }"
+                  role="row"
                 >
-                  <td class="td-cleared">
+                  <td class="td-cleared" role="cell">
                     <input
                       type="checkbox"
                       :checked="tx.is_cleared"
@@ -316,24 +333,24 @@
                       class="reconcile-checkbox"
                     />
                   </td>
-                  <td class="font-mono text-sm">{{ formatDateOnly(tx.date) }}</td>
-                  <td class="desc-cell">
-                    <span class="tx-desc" :title="tx.description">{{ tx.description }}</span>
-                    <span v-if="tx.is_transfer" class="badge-transfer">transfer</span>
-                    <span v-if="tx.pending" class="badge-pending">pending</span>
-                    <span v-if="tx.is_reviewed" class="badge-reviewed">reviewed</span>
+                  <td class="td-date num" role="cell">{{ formatDateOnly(tx.date) }}</td>
+                  <td class="desc-cell" role="cell">
+                    <div class="desc-inner">
+                      <span class="tx-desc" :title="tx.description">{{ tx.description }}</span>
+                      <span v-if="tx.is_transfer" class="tx-tag">Transfer</span>
+                      <span v-if="tx.pending" class="tx-tag">Pending</span>
+                      <span v-if="tx.is_reviewed" class="tx-tag">Reviewed</span>
+                    </div>
                   </td>
-                  <td
-                    class="font-mono right text-sm"
-                    :class="{ 'inflow': Number(tx.amount) < 0 }"
-                  >
-                    {{ Number(tx.amount) < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(tx.amount))) }}
+                  <td class="td-amount right" role="cell">
+                    <!-- Existing sign convention: inflows (negative) display with an explicit + -->
+                    <span class="money" :class="Number(tx.amount) < 0 ? 'money--inflow' : 'money--outflow'">{{ Number(tx.amount) < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(tx.amount))) }}</span>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
       </div>
 
       <template #footer>
@@ -1105,79 +1122,88 @@ const finishReconciliation = async () => {
   gap: var(--space-md);
 }
 
+.reconcile-dialog-content :deep(.form-field) {
+  margin-bottom: 0;
+}
+
+.reconcile-dialog-content :deep(.error-banner) {
+  margin-bottom: 0;
+}
+
 .reconcile-inputs-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-md);
 }
 
+/* Summary: one bounded strip, three figures on a shared baseline */
 .reconcile-summary-strip {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: var(--space-sm);
+  margin: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  overflow: hidden;
 }
 
-.summary-card {
-  background-color: var(--color-background);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-sm) var(--space-md);
+.summary-item {
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--space-sm) var(--space-md);
 }
 
-.summary-card .card-label {
+.summary-item + .summary-item {
+  border-left: 1px solid var(--border-subtle);
+}
+
+.summary-item dd {
+  margin: 0;
+}
+
+.summary-item .card-label {
+  font-size: var(--type-label-size);
+  color: var(--text-muted);
+}
+
+.summary-item .card-value {
+  font-size: var(--type-heading-size);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.value-unavailable {
+  color: var(--text-muted);
+}
+
+.summary-item .card-subtext {
   font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: var(--font-weight-bold);
-  margin-bottom: 2px;
+  color: var(--text-muted);
 }
 
-.summary-card .card-value {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-}
-
-.summary-card .card-subtext {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  margin-top: 2px;
-}
-
-.diff-card {
-  border-width: 2px;
-}
-
+/* Difference state is named in text; the tint only reinforces it */
 .diff-balanced {
-  border-color: var(--status-success-border);
-  background-color: var(--status-success-bg);
-}
-
-.diff-balanced .card-value {
-  color: var(--color-success);
+  background: var(--status-success-bg);
 }
 
 .diff-mismatch {
-  border-color: var(--status-warning-border);
-  background-color: var(--status-warning-bg);
-}
-
-.diff-mismatch .card-value {
-  color: var(--status-warning);
+  background: var(--status-warning-bg);
 }
 
 .card-status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
-  margin-top: 2px;
+  color: var(--text-muted);
 }
 
 .diff-balanced .card-status-text {
-  color: var(--color-success);
+  color: var(--status-success);
 }
 
 .diff-mismatch .card-status-text {
@@ -1187,127 +1213,188 @@ const finishReconciliation = async () => {
 .reconcile-transactions-section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-sm);
 }
 
 .tx-header-bar {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
-  padding: 4px 0;
+  gap: var(--space-xs) var(--space-md);
+}
+
+.tx-heading {
+  margin: 0;
+  font-size: var(--type-subheading-size);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
 }
 
 .count-badge {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
-.btn-text {
-  background: none;
-  border: none;
-  color: var(--color-primary);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  padding: 2px 6px;
-  text-decoration: underline;
+  flex: 1;
+  font-size: var(--type-meta-size);
+  color: var(--text-secondary);
 }
 
 .empty-reconcile-txns {
-  padding: var(--space-lg);
+  margin: 0;
+  padding: var(--space-lg) var(--space-md);
   text-align: center;
-  background-color: var(--color-background);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
 }
 
 .reconcile-table-wrapper {
+  container: reconcile / inline-size;
   max-height: 280px;
   overflow-y: auto;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
 }
 
 .reconcile-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--font-size-sm);
 }
 
 .reconcile-table th {
   position: sticky;
   top: 0;
-  background-color: var(--color-background);
-  border-bottom: 1px solid var(--color-border);
-  padding: 8px 12px;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text-muted);
-  text-align: left;
   z-index: 1;
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-align: left;
+  color: var(--table-header-text);
+  background: var(--table-header);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .reconcile-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  font-size: var(--font-size-sm);
+  padding: 6px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--table-border);
+}
+
+.reconcile-row:last-child td {
+  border-bottom: 0;
+}
+
+.reconcile-row:hover td {
+  background: var(--table-hover);
 }
 
 .th-cleared, .td-cleared {
-  width: 48px;
-  text-align: center !important;
+  width: 72px;
+}
+
+.th-date { width: 84px; }
+.th-amount { width: 128px; }
+
+.reconcile-table .right {
+  text-align: right;
+}
+
+.td-date {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.td-amount {
+  white-space: nowrap;
+  font-weight: var(--font-weight-medium);
 }
 
 .reconcile-checkbox {
+  display: block;
   width: 16px;
   height: 16px;
+  margin: 0;
   cursor: pointer;
-}
-
-.row-cleared {
-  background-color: var(--bg-sunken);
+  accent-color: var(--accent-primary);
 }
 
 .desc-cell {
+  min-width: 0;
+}
+
+.desc-inner {
   display: flex;
   align-items: center;
   gap: 6px;
-  max-width: 320px;
+  min-width: 0;
 }
 
 .tx-desc {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--text-primary);
 }
 
-.badge-transfer, .badge-pending, .badge-reviewed {
-  font-size: 10px;
-  font-weight: var(--font-weight-semibold);
-  padding: 1px 5px;
-  border-radius: var(--radius-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.tx-tag {
   flex-shrink: 0;
-}
-
-.badge-transfer {
-  background-color: var(--bg-subtle);
+  padding: 0 5px;
+  font-size: var(--font-size-xs);
   color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
 }
 
-.badge-pending {
-  background-color: var(--status-warning-bg);
-  color: var(--status-warning);
-}
+/* Narrow dialog: each transaction becomes a two-line record. Explicit ARIA
+   roles keep table semantics when display changes. */
+@container reconcile (width < 480px) {
+  .reconcile-table,
+  .reconcile-table tbody {
+    display: block;
+  }
 
-.badge-reviewed {
-  background-color: var(--status-success-bg);
-  color: var(--status-success);
-}
+  .reconcile-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
 
-.inflow {
-  color: var(--financial-inflow);
+  .reconcile-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "check desc amount"
+      "check date date";
+    align-items: center;
+    gap: 2px var(--space-sm);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--table-border);
+  }
+
+  .reconcile-row:last-child {
+    border-bottom: 0;
+  }
+
+  .reconcile-table .reconcile-row td {
+    width: auto;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .td-cleared { grid-area: check; padding-right: 4px !important; }
+  .desc-cell { grid-area: desc; }
+
+  /* Tags wrap under the description so they never crowd the amount */
+  .desc-inner { flex-wrap: wrap; row-gap: 2px; }
+  .tx-desc { flex: 1 1 100%; }
+  .td-amount { grid-area: amount; }
+  .td-date { grid-area: date; font-size: var(--font-size-xs); }
 }
 
 .reconcile-footer {
@@ -1329,6 +1416,25 @@ const finishReconciliation = async () => {
 
   .reconcile-summary-strip {
     grid-template-columns: 1fr;
+  }
+
+  .summary-item + .summary-item {
+    border-left: 0;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  /* Label and figure share a line; supporting text sits beneath */
+  .summary-item {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    column-gap: var(--space-md);
+  }
+
+  .summary-item .card-subtext,
+  .summary-item .card-status-text {
+    flex-basis: 100%;
   }
 }
 </style>

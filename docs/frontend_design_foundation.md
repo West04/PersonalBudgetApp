@@ -106,6 +106,9 @@ Page containers (opt-in per page slice): `.page-container` (1200px),
   states (pre-existing).
 - Undefined custom properties referenced by pages: `--color-primary-bg`,
   `--color-surface-subtle`, `--font-mono`, `--font-weight-normal` (pre-existing).
-- Page-local hardcoded colors (Upload) and the calendar emoji in `MonthNavigator`.
-  Credit Cards and the Accounts reconcile dialog now use tokens (Accounts/Credit
-  Cards slice); Transactions was cleared in its own slice.
+- The calendar emoji in `MonthNavigator` and the warning emoji in `ErrorBanner`.
+  Page-local hardcoded colors are gone: Credit Cards and Accounts (Accounts/Credit
+  Cards slice), Transactions (its own slice) and Import plus the reconcile dialog
+  (Import/Reconciliation slice). Import keeps its existing four-step sequence
+  (File, Account, Preview, Done); its preview table and the reconcile dialog's
+  transaction table restack with explicit ARIA roles below 560px / 480px.
