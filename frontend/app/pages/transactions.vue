@@ -1,6 +1,5 @@
 <template>
-  <div class="transactions-page">
-    <!-- Header -->
+  <div class="transactions-page page-container page-container--wide">
     <PageHeader
       title="Transactions"
       subtitle="Browse and categorize bank transactions"
@@ -9,46 +8,54 @@
         <MonthNavigator />
       </template>
       <template #actions>
+        <!-- Secondary workflows: quiet buttons so they do not compete with the title -->
         <button
           type="button"
-          class="btn-transfer-matches"
+          class="btn btn-ghost btn-sm btn-transfer-matches"
+          :class="{ 'is-open': showTransfersPanel }"
           @click="toggleTransfersPanel"
           :disabled="candidatesLoading"
+          :aria-expanded="showTransfersPanel"
           aria-label="Find and review transfer matches"
         >
-          🔍 Find Transfer Matches
-          <span v-if="candidates.length > 0" class="cand-badge">({{ candidates.length }})</span>
+          <AppIcon name="transactions" :size="16" />
+          Find transfer matches
+          <span v-if="candidates.length > 0" class="cand-badge num">{{ candidates.length }}</span>
         </button>
         <button
           type="button"
-          class="btn-recurring-matches"
+          class="btn btn-ghost btn-sm btn-recurring-matches"
+          :class="{ 'is-open': showRecurringPanel }"
           @click="toggleRecurringPanel"
           :disabled="recurringLoading"
+          :aria-expanded="showRecurringPanel"
           aria-label="View and manage recurring activity"
         >
+          <AppIcon name="repeat" :size="16" />
           Recurring
-          <span v-if="activeRecurringCount > 0" class="cand-badge">({{ activeRecurringCount }})</span>
+          <span v-if="activeRecurringCount > 0" class="cand-badge num">{{ activeRecurringCount }}</span>
         </button>
       </template>
     </PageHeader>
 
-    <!-- Error Banner -->
     <ErrorBanner
       v-if="displayError"
       :error="displayError"
       @dismiss="clearErrors"
     />
 
-    <!-- Transfer Review Panel -->
-    <section v-if="showTransfersPanel" class="transfer-panel card" aria-label="Transfer matches review">
+    <!-- Transfer review panel -->
+    <section v-if="showTransfersPanel" class="tx-panel transfer-panel" aria-label="Transfer matches review">
       <div class="panel-header">
-        <div class="panel-title-row">
-          <div class="panel-title-with-badge">
-            <h2 class="panel-title">Potential Transfers</h2>
-            <span v-if="candidates.length > 0" class="panel-count-badge">{{ candidates.length }} {{ candidates.length === 1 ? 'match' : 'matches' }}</span>
-          </div>
-          <button type="button" class="btn-close-panel" @click="showTransfersPanel = false" aria-label="Close transfer matches panel">✕</button>
+        <div class="panel-titles">
+          <h2 class="panel-title">Potential transfers</h2>
+          <span v-if="candidates.length > 0" class="panel-count">
+            {{ candidates.length }} {{ candidates.length === 1 ? 'match' : 'matches' }}
+          </span>
         </div>
+        <button type="button" class="btn-icon btn-close-panel" @click="showTransfersPanel = false" aria-label="Close transfer matches panel">
+          <AppIcon name="close" :size="16" />
+        </button>
         <p class="panel-sub">
           These look like transfers appearing on both accounts (credit card payments, savings moves, etc.). Confirm pairs to mark them as transfers.
         </p>
@@ -56,339 +63,351 @@
 
       <LoadingState v-if="candidatesLoading" message="Finding transfer matches..." />
 
-      <div v-else-if="transferError" class="panel-error">
+      <div v-else-if="transferError" class="panel-error" role="alert">
         {{ transferError }}
       </div>
 
-      <div v-else-if="candidates.length === 0" class="empty-candidates">
+      <div v-else-if="candidates.length === 0" class="panel-empty">
         <p>No potential transfer matches found.</p>
       </div>
 
-      <div v-else class="candidate-list">
-        <div v-for="(pair, idx) in candidates" :key="idx" class="candidate-row">
+      <ul v-else class="candidate-list panel-scroll" tabindex="0" aria-label="Transfer match candidates">
+        <li v-for="(pair, idx) in candidates" :key="idx" class="candidate-row">
           <div class="candidate-side outflow">
-            <div class="cand-account">{{ pair.outflow_account_name }}</div>
-            <div class="cand-desc" :title="pair.outflow_side.description">{{ pair.outflow_side.description }}</div>
-            <div class="cand-meta">{{ formatDate(pair.outflow_side.date) }}</div>
+            <span class="sr-only">From</span>
+            <span class="cand-account">{{ pair.outflow_account_name }}</span>
+            <span class="cand-desc" :title="pair.outflow_side.description">{{ pair.outflow_side.description }}</span>
+            <span class="cand-meta num">{{ formatDate(pair.outflow_side.date) }}</span>
           </div>
           <div class="candidate-arrow">
-            <span class="amount-badge">{{ formatCurrency(Math.abs(Number(pair.outflow_side.amount))) }}</span>
-            <span class="arrow" aria-hidden="true">→</span>
+            <span class="amount-badge money num">{{ formatCurrency(Math.abs(Number(pair.outflow_side.amount))) }}</span>
+            <AppIcon name="arrow" :size="16" class="cand-arrow-icon" />
           </div>
           <div class="candidate-side inflow">
-            <div class="cand-account">{{ pair.inflow_account_name }}</div>
-            <div class="cand-desc" :title="pair.inflow_side.description">{{ pair.inflow_side.description }}</div>
-            <div class="cand-meta">{{ formatDate(pair.inflow_side.date) }}</div>
+            <span class="sr-only">To</span>
+            <span class="cand-account">{{ pair.inflow_account_name }}</span>
+            <span class="cand-desc" :title="pair.inflow_side.description">{{ pair.inflow_side.description }}</span>
+            <span class="cand-meta num">{{ formatDate(pair.inflow_side.date) }}</span>
           </div>
           <div class="candidate-actions">
             <button
               type="button"
-              class="confirm-btn"
+              class="btn btn-secondary btn-sm confirm-btn"
               @click="confirmTransfer(pair, idx)"
               :disabled="confirmingPair"
               :aria-label="`Confirm transfer between ${pair.outflow_account_name} and ${pair.inflow_account_name}`"
             >
-              ✓ Confirm
+              Confirm
             </button>
             <button
               type="button"
-              class="dismiss-btn"
+              class="btn btn-ghost btn-sm dismiss-btn"
               @click="dismissTransfer(idx)"
               :aria-label="`Dismiss candidate match between ${pair.outflow_account_name} and ${pair.inflow_account_name}`"
             >
-              ✕ Dismiss
+              Dismiss
             </button>
           </div>
-        </div>
-      </div>
+        </li>
+      </ul>
     </section>
 
-    <!-- Recurring Activity Panel -->
-    <section v-if="showRecurringPanel" class="recurring-panel card" aria-label="Recurring activity review">
+    <!-- Recurring activity panel -->
+    <section v-if="showRecurringPanel" class="tx-panel recurring-panel" aria-label="Recurring activity review">
       <div class="panel-header">
-        <div class="panel-title-row">
-          <div class="panel-title-with-badge">
-            <h2 class="panel-title">Recurring Activity</h2>
-            <span v-if="activeRecurringCount > 0" class="panel-count-badge">
-              {{ activeRecurringCount }} {{ activeRecurringCount === 1 ? 'pattern' : 'patterns' }}
-            </span>
-          </div>
-          <button type="button" class="btn-close-panel" @click="showRecurringPanel = false" aria-label="Close recurring panel">✕</button>
+        <div class="panel-titles">
+          <h2 class="panel-title">Recurring Activity</h2>
+          <span v-if="activeRecurringCount > 0" class="panel-count">
+            {{ activeRecurringCount }} {{ activeRecurringCount === 1 ? 'pattern' : 'patterns' }}
+          </span>
         </div>
+        <button type="button" class="btn-icon btn-close-panel" @click="showRecurringPanel = false" aria-label="Close recurring panel">
+          <AppIcon name="close" :size="16" />
+        </button>
         <p class="panel-sub">
           Automatically detected repeating bills, subscriptions, and income patterns. Confirm genuine items or dismiss non-recurring charges.
         </p>
-        <div class="recurring-tabs" role="tablist" aria-label="Recurring pattern filter tabs">
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="recurringTab === 'all'"
-            class="tab-btn"
-            :class="{ active: recurringTab === 'all' }"
-            @click="recurringTab = 'all'"
-          >
-            All ({{ recurringItems.length }})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="recurringTab === 'confirmed'"
-            class="tab-btn"
-            :class="{ active: recurringTab === 'confirmed' }"
-            @click="recurringTab = 'confirmed'"
-          >
-            Confirmed ({{ recurringItems.filter(i => i.status === 'confirmed').length }})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="recurringTab === 'detected'"
-            class="tab-btn"
-            :class="{ active: recurringTab === 'detected' }"
-            @click="recurringTab = 'detected'"
-          >
-            Needs Review ({{ recurringItems.filter(i => i.status === 'detected').length }})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="recurringTab === 'dismissed'"
-            class="tab-btn"
-            :class="{ active: recurringTab === 'dismissed' }"
-            @click="recurringTab = 'dismissed'"
-          >
-            Dismissed ({{ recurringItems.filter(i => i.status === 'dismissed').length }})
-          </button>
+      </div>
+
+      <div class="recurring-tabs" role="tablist" aria-label="Recurring pattern filter tabs">
+        <button
+          v-for="tab in recurringTabs"
+          :id="`recurring-tab-${tab.value}`"
+          :key="tab.value"
+          type="button"
+          role="tab"
+          :aria-selected="recurringTab === tab.value"
+          aria-controls="recurring-tabpanel"
+          class="tab-btn"
+          :class="{ active: recurringTab === tab.value }"
+          @click="recurringTab = tab.value"
+        >
+          {{ tab.label }} <span class="tab-count num">{{ tab.count }}</span>
+        </button>
+      </div>
+
+      <div
+        id="recurring-tabpanel"
+        class="recurring-tabpanel"
+        role="tabpanel"
+        :aria-labelledby="`recurring-tab-${recurringTab}`"
+      >
+        <LoadingState v-if="recurringLoading" message="Analyzing recurring patterns..." />
+
+        <div v-else-if="recurringError" class="panel-error" role="alert">
+          {{ recurringError }}
         </div>
-      </div>
 
-      <LoadingState v-if="recurringLoading" message="Analyzing recurring patterns..." />
+        <div v-else-if="filteredRecurringItems.length === 0" class="panel-empty">
+          <p>No recurring patterns found in this view.</p>
+        </div>
 
-      <div v-else-if="recurringError" class="panel-error">
-        {{ recurringError }}
-      </div>
-
-      <div v-else-if="filteredRecurringItems.length === 0" class="empty-candidates">
-        <p>No recurring patterns found in this view.</p>
-      </div>
-
-      <div v-else class="recurring-table-wrapper">
-        <table class="recurring-table" aria-label="Recurring items table">
-          <thead>
-            <tr>
-              <th scope="col">Merchant</th>
-              <th scope="col">Cadence</th>
-              <th scope="col">Typical Amount</th>
-              <th scope="col">Next Expected</th>
-              <th scope="col">History</th>
-              <th scope="col">Status</th>
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in filteredRecurringItems" :key="item.id" class="recurring-row">
-              <td class="rec-merchant-cell">
-                <span class="rec-merchant-name">{{ item.merchant }}</span>
-                <span class="rec-account-name font-mono">{{ item.account_name || 'Account' }}</span>
-              </td>
-              <td class="rec-cadence-cell">
-                <span class="cadence-tag font-mono">{{ item.cadence }}</span>
-              </td>
-              <td class="rec-amount-cell font-mono">
-                {{ formatCurrency(Number(item.expected_amount)) }}
-                <span class="amount-type-hint">({{ item.amount_type }})</span>
-              </td>
-              <td class="rec-next-date-cell font-mono">
-                {{ item.next_expected_date ? formatDate(item.next_expected_date) : 'N/A' }}
-              </td>
-              <td class="rec-count-cell">
-                {{ item.occurrence_count }} occurrences
-              </td>
-              <td class="rec-status-cell">
-                <span class="status-pill" :class="item.status">{{ item.status }}</span>
-              </td>
-              <td class="rec-actions-cell">
-                <button
-                  v-if="item.status !== 'confirmed'"
-                  type="button"
-                  class="confirm-btn"
-                  @click="confirmRecurring(item)"
-                  :disabled="recurringActionId === item.id"
-                  :aria-label="`Confirm recurring pattern for ${item.merchant}`"
-                >
-                  Confirm
-                </button>
-                <button
-                  v-if="item.status !== 'dismissed'"
-                  type="button"
-                  class="dismiss-btn"
-                  @click="dismissRecurring(item)"
-                  :disabled="recurringActionId === item.id"
-                  :aria-label="`Dismiss recurring pattern for ${item.merchant}`"
-                >
-                  Dismiss
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-else class="recurring-table-wrapper panel-scroll" tabindex="0" aria-label="Recurring items, scrollable">
+          <table class="recurring-table" aria-label="Recurring items table">
+            <thead>
+              <tr>
+                <th scope="col">Merchant</th>
+                <th scope="col">Cadence</th>
+                <th scope="col" class="col-num">Typical amount</th>
+                <th scope="col">Next expected</th>
+                <th scope="col">History</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="col-actions"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in filteredRecurringItems" :key="item.id" class="recurring-row">
+                <td class="rec-merchant-cell">
+                  <span class="rec-merchant-name">{{ item.merchant }}</span>
+                  <span class="rec-account-name">{{ item.account_name || 'Account' }}</span>
+                </td>
+                <td class="rec-cadence-cell">
+                  <span class="cadence-tag">{{ item.cadence }}</span>
+                </td>
+                <td class="rec-amount-cell col-num">
+                  <span class="money num">{{ formatCurrency(Number(item.expected_amount)) }}</span>
+                  <span class="amount-type-hint">{{ item.amount_type }}</span>
+                </td>
+                <td class="rec-next-date-cell num">
+                  {{ item.next_expected_date ? formatDate(item.next_expected_date) : 'N/A' }}
+                </td>
+                <td class="rec-count-cell num">
+                  {{ item.occurrence_count }} occurrences
+                </td>
+                <td class="rec-status-cell">
+                  <span class="rec-status" :class="`rec-status--${item.status}`">
+                    <AppIcon
+                      :name="item.status === 'confirmed' ? 'check-circle' : item.status === 'detected' ? 'clock' : 'circle'"
+                      :size="14"
+                    />
+                    <span class="status-pill">{{ item.status }}</span>
+                  </span>
+                </td>
+                <td class="rec-actions-cell">
+                  <button
+                    v-if="item.status !== 'confirmed'"
+                    type="button"
+                    class="btn btn-secondary btn-sm confirm-btn"
+                    @click="confirmRecurring(item)"
+                    :disabled="recurringActionId === item.id"
+                    :aria-label="`Confirm recurring pattern for ${item.merchant}`"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    v-if="item.status !== 'dismissed'"
+                    type="button"
+                    class="btn btn-ghost btn-sm dismiss-btn"
+                    @click="dismissRecurring(item)"
+                    :disabled="recurringActionId === item.id"
+                    :aria-label="`Dismiss recurring pattern for ${item.merchant}`"
+                  >
+                    Dismiss
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
-    <!-- Filters Section -->
-    <div class="filters-card card" aria-label="Transaction filters">
-      <div class="filters-grid">
-        <!-- Search Filter -->
-        <div class="filter-group">
-          <label for="tx-search-input">Search</label>
+    <!-- Filter toolbar -->
+    <section class="tx-toolbar" aria-label="Transaction filters">
+      <div class="toolbar-controls">
+        <div class="filter-group filter-group--search">
+          <label for="tx-search-input" class="filter-label">Search</label>
           <div class="search-input-wrapper">
+            <AppIcon name="search" :size="16" class="search-icon" />
             <input
               id="tx-search-input"
               type="text"
               v-model="searchQuery"
               placeholder="Search description or merchant..."
-              class="filter-input"
+              class="filter-input search-input"
               aria-label="Search transaction description or merchant"
             />
             <button
               v-if="searchQuery"
               type="button"
-              class="search-clear-btn"
+              class="btn-icon search-clear-btn"
               @click="searchQuery = ''"
               aria-label="Clear search input"
               title="Clear search"
             >
-              ✕
+              <AppIcon name="close" :size="14" />
             </button>
           </div>
         </div>
 
-        <!-- Account Filter (Route-backed) -->
-        <div class="filter-group">
-          <label for="tx-account-select">Account</label>
-          <select
-            id="tx-account-select"
-            v-model="selectedAccount"
-            class="filter-input"
-            aria-label="Filter by account"
-          >
-            <option value="">All Accounts</option>
-            <option
-              v-for="acc in accounts"
-              :key="acc.account_id"
-              :value="acc.account_id"
-            >
-              {{ acc.name }}
-            </option>
-          </select>
-        </div>
-
-        <!-- Category Filter -->
-        <div class="filter-group">
-          <label for="tx-category-select">Category</label>
-          <select
-            id="tx-category-select"
-            v-model="selectedCategory"
-            class="filter-input"
-            aria-label="Filter by category"
-          >
-            <option value="">All Categories</option>
-            <optgroup
-              v-for="group in categoryGroups"
-              :key="group.category_group_id"
-              :label="group.name"
-            >
-              <option
-                v-for="cat in group.categories"
-                :key="cat.category_id"
-                :value="cat.category_id"
-              >
-                {{ cat.name }}
-              </option>
-            </optgroup>
-          </select>
-        </div>
-
-        <!-- Review Status Filter -->
-        <div class="filter-group">
-          <label for="tx-review-select">Review Status</label>
-          <select
-            id="tx-review-select"
-            v-model="reviewFilter"
-            class="filter-input"
-            aria-label="Filter by review status"
-          >
-            <option value="all">All</option>
-            <option value="needs_review">Needs Review</option>
-            <option value="reviewed">Reviewed</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Filters Meta Row: Uncategorized toggle, active indicators, and reset -->
-      <div class="filters-meta-row">
-        <div class="filter-meta-left">
-          <label class="checkbox-label" for="tx-uncategorized-checkbox">
-            <input
-              type="checkbox"
-              id="tx-uncategorized-checkbox"
-              v-model="uncategorizedOnly"
-              class="filter-checkbox"
-            />
-            <span>Uncategorized Only</span>
-          </label>
-        </div>
-
-        <div class="filter-meta-right">
-          <span class="filter-summary-text" aria-live="polite">
-            {{ transactionCountLabel }}
-            <template v-if="filterSummaryParts.length > 0">
-              · <span class="summary-chips">{{ filterSummaryParts.join(' · ') }}</span>
-            </template>
+        <!-- Narrow screens: the remaining filters sit behind this disclosure -->
+        <button
+          type="button"
+          class="btn btn-ghost filters-toggle"
+          :class="{ 'is-open': filtersOpen }"
+          :aria-expanded="filtersOpen"
+          aria-controls="tx-filter-fields"
+          @click="filtersOpen = !filtersOpen"
+        >
+          <AppIcon name="filter" :size="16" />
+          Filters
+          <span v-if="activeFilterCount > 0" class="filters-toggle-count num">
+            {{ activeFilterCount }}<span class="sr-only"> active</span>
           </span>
+          <AppIcon name="chevron" :size="14" class="filters-toggle-chevron" />
+        </button>
 
-          <button
-            type="button"
-            class="btn-clear-filters"
-            :disabled="!hasActiveSecondaryFilters"
-            @click="clearSecondaryFilters"
-            aria-label="Clear active secondary filters"
-          >
-            Clear filters
-          </button>
+        <div id="tx-filter-fields" class="filter-fields" :class="{ 'is-open': filtersOpen }">
+          <!-- Account filter (route-backed) -->
+          <div class="filter-group">
+            <label for="tx-account-select" class="filter-label">Account</label>
+            <select
+              id="tx-account-select"
+              v-model="selectedAccount"
+              class="filter-input"
+              :class="{ 'is-active': selectedAccount }"
+              aria-label="Filter by account"
+            >
+              <option value="">All Accounts</option>
+              <option
+                v-for="acc in accounts"
+                :key="acc.account_id"
+                :value="acc.account_id"
+              >
+                {{ acc.name }}
+              </option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label for="tx-category-select" class="filter-label">Category</label>
+            <select
+              id="tx-category-select"
+              v-model="selectedCategory"
+              class="filter-input"
+              :class="{ 'is-active': selectedCategory }"
+              aria-label="Filter by category"
+            >
+              <option value="">All Categories</option>
+              <optgroup
+                v-for="group in categoryGroups"
+                :key="group.category_group_id"
+                :label="group.name"
+              >
+                <option
+                  v-for="cat in group.categories"
+                  :key="cat.category_id"
+                  :value="cat.category_id"
+                >
+                  {{ cat.name }}
+                </option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label for="tx-review-select" class="filter-label">Review status</label>
+            <select
+              id="tx-review-select"
+              v-model="reviewFilter"
+              class="filter-input"
+              :class="{ 'is-active': reviewFilter !== 'all' }"
+              aria-label="Filter by review status"
+            >
+              <option value="all">All</option>
+              <option value="needs_review">Needs Review</option>
+              <option value="reviewed">Reviewed</option>
+            </select>
+          </div>
+
+          <div class="filter-group filter-group--check">
+            <label class="checkbox-label" for="tx-uncategorized-checkbox">
+              <input
+                type="checkbox"
+                id="tx-uncategorized-checkbox"
+                v-model="uncategorizedOnly"
+                class="form-checkbox filter-checkbox"
+              />
+              <span>Uncategorized only</span>
+            </label>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Loading State -->
+      <div class="toolbar-summary">
+        <span class="filter-summary-text" aria-live="polite">
+          <span class="summary-count num">{{ transactionCountLabel }}</span>
+          <template v-if="filterSummaryParts.length > 0">
+            · <span class="summary-chips">{{ filterSummaryParts.join(' · ') }}</span>
+          </template>
+        </span>
+
+        <button
+          type="button"
+          class="btn-clear-filters"
+          :disabled="!hasActiveSecondaryFilters"
+          @click="clearSecondaryFilters"
+          aria-label="Clear active secondary filters"
+        >
+          Clear filters
+        </button>
+      </div>
+    </section>
+
     <LoadingState
       v-if="pending && !transactionsData"
       message="Loading transactions..."
     />
 
-    <!-- Transactions Table Container -->
+    <!-- Ledger -->
     <div v-else class="transactions-container">
-      <div class="card table-card">
+      <div class="ledger surface-card">
         <div class="table-responsive">
-          <table class="transactions-table" aria-label="Transactions ledger">
-            <thead>
-              <tr>
-                <th scope="col" class="date-col">Date</th>
-                <th scope="col" class="desc-col">Merchant / Description</th>
-                <th scope="col" class="account-col">Account</th>
-                <th scope="col" class="category-col">Category</th>
-                <th scope="col" class="amount-col">Amount</th>
-                <th scope="col" class="status-col">Review</th>
+          <table class="transactions-table" aria-label="Transactions ledger" role="table">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th scope="col" class="date-col" role="columnheader">Date</th>
+                <th scope="col" class="desc-col" role="columnheader">Merchant / Description</th>
+                <th scope="col" class="account-col" role="columnheader">Account</th>
+                <th scope="col" class="category-col" role="columnheader">Category</th>
+                <th scope="col" class="amount-col" role="columnheader">Amount</th>
+                <th scope="col" class="status-col" role="columnheader">Review</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               <tr
                 v-for="tx in transactionsData?.items"
                 :key="tx.transaction_id"
                 :data-tx-id="tx.transaction_id"
+                class="tx-row"
+                role="row"
+                :class="{
+                  'is-unreviewed': !tx.is_reviewed,
+                  'is-pending': tx.pending,
+                }"
               >
-                <td class="date-cell font-mono">{{ formatDate(tx.date) }}</td>
-                <td class="desc-cell" :class="{ 'is-editing': editingMerchantId === tx.transaction_id }">
+                <td class="date-cell num" role="cell">{{ formatDate(tx.date) }}</td>
+                <td class="desc-cell" role="cell" :class="{ 'is-editing': editingMerchantId === tx.transaction_id }">
                   <template v-if="editingMerchantId === tx.transaction_id">
                     <form @submit.prevent="saveMerchant(tx)" class="merchant-edit-form">
                       <input
@@ -400,59 +419,70 @@
                         @keydown.esc="cancelEditingMerchant"
                         :disabled="savingMerchant"
                       />
-                      <div class="merchant-edit-actions">
-                        <button
-                          type="submit"
-                          class="btn-save-merchant"
-                          :disabled="savingMerchant"
-                          aria-label="Save merchant"
-                          title="Save"
-                        >
-                          ✓
-                        </button>
-                        <button
-                          type="button"
-                          class="btn-cancel-merchant"
-                          @click="cancelEditingMerchant"
-                          :disabled="savingMerchant"
-                          aria-label="Cancel editing merchant"
-                          title="Cancel"
-                        >
-                          ✕
-                        </button>
-                      </div>
+                      <button
+                        type="submit"
+                        class="btn-icon btn-save-merchant"
+                        :disabled="savingMerchant"
+                        aria-label="Save merchant"
+                        title="Save"
+                      >
+                        <AppIcon name="check" :size="16" />
+                      </button>
+                      <button
+                        type="button"
+                        class="btn-icon btn-cancel-merchant"
+                        @click="cancelEditingMerchant"
+                        :disabled="savingMerchant"
+                        aria-label="Cancel editing merchant"
+                        title="Cancel"
+                      >
+                        <AppIcon name="close" :size="16" />
+                      </button>
                     </form>
                   </template>
                   <template v-else>
                     <div class="merchant-row">
-                      <span class="merchant-name" :class="{ 'is-overridden': tx.is_merchant_overridden }">
+                      <span
+                        class="merchant-name"
+                        :class="{ 'is-overridden': tx.is_merchant_overridden }"
+                        :title="tx.merchant || tx.description"
+                      >
                         {{ tx.merchant || tx.description }}
                       </span>
                       <button
                         type="button"
-                        class="btn-edit-merchant"
+                        class="btn-icon btn-edit-merchant"
                         @click="startEditingMerchant(tx)"
                         :aria-label="`Edit merchant for ${tx.merchant || tx.description}`"
                         title="Edit merchant"
                       >
-                        ✎
+                        <AppIcon name="edit" :size="14" />
                       </button>
-                      <span v-if="tx.is_transfer" class="transfer-tag">transfer</span>
-                      <span v-if="getRecurringCadenceForTx(tx)" class="recurring-tag font-mono">Recurring · {{ getRecurringCadenceForTx(tx) }}</span>
                     </div>
                   </template>
-                  <div
-                    v-if="tx.merchant && tx.merchant.toLowerCase() !== tx.description.toLowerCase()"
-                    class="raw-desc-text"
-                    :title="`Original description: ${tx.description}`"
-                  >
-                    {{ tx.description }}
+                  <div class="tx-meta">
+                    <!-- Shown only when the Account column is folded away -->
+                    <span class="account-inline">{{ tx.account?.name || 'Unknown' }}</span>
+                    <span
+                      v-if="tx.pending"
+                      class="tx-flag tx-flag--pending"
+                      title="Not yet posted by the bank"
+                    ><AppIcon name="clock" :size="12" />Pending</span>
+                    <span v-if="tx.is_transfer" class="tx-flag transfer-tag"><AppIcon name="transactions" :size="12" />Transfer</span>
+                    <span v-if="getRecurringCadenceForTx(tx)" class="tx-flag recurring-tag"><AppIcon name="repeat" :size="12" />Recurring · {{ getRecurringCadenceForTx(tx) }}</span>
+                    <span
+                      v-if="tx.merchant && tx.merchant.toLowerCase() !== tx.description.toLowerCase()"
+                      class="raw-desc-text"
+                      :title="`Original description: ${tx.description}`"
+                    >
+                      {{ tx.description }}
+                    </span>
                   </div>
                 </td>
-                <td class="account-cell">
-                  <span class="account-tag">{{ tx.account?.name || 'Unknown' }}</span>
+                <td class="account-cell" role="cell">
+                  <span class="account-name" :title="tx.account?.name || 'Unknown'">{{ tx.account?.name || 'Unknown' }}</span>
                 </td>
-                <td class="category-cell">
+                <td class="category-cell" role="cell">
                   <div v-if="tx.is_split" class="split-cell-content">
                     <button
                       type="button"
@@ -461,6 +491,7 @@
                       :title="`Split across ${tx.split_count} categories. Click to view or edit.`"
                       :aria-label="`Split across ${tx.split_count} categories for transaction ${tx.merchant || tx.description}`"
                     >
+                      <AppIcon name="split" :size="14" />
                       <span class="split-badge-label">Split · {{ tx.split_count }}</span>
                     </button>
                   </div>
@@ -519,72 +550,84 @@
                         title="Split into multiple categories"
                         :aria-label="`Split transaction ${tx.merchant || tx.description} into multiple categories`"
                       >
-                        Split
+                        <AppIcon name="split" :size="14" />
+                        <span class="split-trigger-text">Split</span>
                       </button>
                     </div>
                   </div>
                 </td>
                 <td
-                  class="amount-cell font-mono"
+                  class="amount-cell"
+                  role="cell"
                   :class="{ 'inflow': tx.amount < 0 }"
                 >
-                  {{ tx.amount < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(tx.amount))) }}
+                  <!-- Existing sign convention: inflows (negative) display with an explicit + -->
+                  <span class="money" :class="tx.amount < 0 ? 'money--inflow' : 'money--outflow'">{{ tx.amount < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(tx.amount))) }}</span>
                 </td>
-                <td class="status-cell">
+                <td class="status-cell" role="cell">
                   <button
                     type="button"
                     class="review-toggle-btn"
                     :class="tx.is_reviewed ? 'is-reviewed' : 'needs-review'"
                     @click="toggleReviewStatus(tx)"
                     :disabled="updatingReviewId === tx.transaction_id"
+                    :title="tx.is_reviewed ? 'Reviewed' : 'Needs review'"
                     :aria-label="tx.is_reviewed ? `Mark transaction ${tx.description} as needs review` : `Mark transaction ${tx.description} as reviewed`"
                   >
-                    <span v-if="tx.is_reviewed" class="status-label">
-                      <span class="check-icon" aria-hidden="true">✓</span> Reviewed
-                    </span>
-                    <span v-else class="status-label">
-                      Needs Review
-                    </span>
+                    <AppIcon :name="tx.is_reviewed ? 'check-circle' : 'circle'" :size="16" class="review-icon" />
+                    <span class="status-label">{{ tx.is_reviewed ? 'Reviewed' : 'Needs review' }}</span>
                   </button>
                 </td>
               </tr>
-              <tr v-if="transactionsData?.items.length === 0">
-                <td colspan="6" class="empty-row">
-                  No transactions found matching current filters.
+              <tr v-if="transactionsData?.items.length === 0" class="empty-tr" role="row">
+                <td colspan="6" class="empty-row" role="cell">
+                  <template v-if="hasAnyFilter">
+                    <p>No transactions found matching current filters.</p>
+                    <button
+                      v-if="hasActiveSecondaryFilters"
+                      type="button"
+                      class="btn btn-ghost btn-sm"
+                      @click="clearSecondaryFilters"
+                    >
+                      Clear filters
+                    </button>
+                  </template>
+                  <p v-else>No transactions for this month.</p>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- Pagination -->
-        <div class="pagination" v-if="transactionsData?.total > limit">
-          <button
-            type="button"
-            :disabled="offset === 0"
-            @click="offset = Math.max(0, offset - limit)"
-            class="page-btn"
-            aria-label="Previous page"
-          >
-            Previous
-          </button>
-          <span class="page-info">
-            Showing {{ offset + 1 }} - {{ Math.min(offset + limit, transactionsData.total) }} of {{ transactionsData.total }}
+        <nav v-if="transactionsData?.total > limit" class="pagination" aria-label="Transaction pages">
+          <span class="page-info num">
+            Showing {{ offset + 1 }}–{{ Math.min(offset + limit, transactionsData.total) }} of {{ transactionsData.total }}
           </span>
-          <button
-            type="button"
-            :disabled="offset + limit >= transactionsData.total"
-            @click="offset += limit"
-            class="page-btn"
-            aria-label="Next page"
-          >
-            Next
-          </button>
-        </div>
+          <div class="page-buttons">
+            <button
+              type="button"
+              :disabled="offset === 0"
+              @click="offset = Math.max(0, offset - limit)"
+              class="btn btn-ghost btn-sm page-btn"
+              aria-label="Previous page"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              :disabled="offset + limit >= transactionsData.total"
+              @click="offset += limit"
+              class="btn btn-ghost btn-sm page-btn"
+              aria-label="Next page"
+            >
+              Next
+            </button>
+          </div>
+        </nav>
       </div>
     </div>
 
-    <!-- Split Transaction Dialog -->
+    <!-- Split transaction dialog -->
     <AppDialog
       :open="splitDialogOpen"
       :title="splitDialogTitle"
@@ -592,38 +635,37 @@
       @close="closeSplitDialog"
     >
       <div v-if="splitTx" class="split-dialog-body">
-        <!-- Parent Details Header -->
-        <div class="split-parent-summary">
+        <dl class="split-parent-summary">
           <div class="summary-col">
-            <span class="summary-label">Date</span>
-            <span class="summary-val font-mono">{{ formatDate(splitTx.date) }}</span>
+            <dt class="summary-label">Date</dt>
+            <dd class="summary-val num">{{ formatDate(splitTx.date) }}</dd>
+          </div>
+          <div class="summary-col summary-col--wide">
+            <dt class="summary-label">Merchant / Description</dt>
+            <dd class="summary-val summary-val--strong">{{ splitTx.merchant || splitTx.description }}</dd>
           </div>
           <div class="summary-col">
-            <span class="summary-label">Merchant / Description</span>
-            <span class="summary-val font-semibold">{{ splitTx.merchant || splitTx.description }}</span>
+            <dt class="summary-label">Account</dt>
+            <dd class="summary-val">{{ splitTx.account?.name || 'Unknown' }}</dd>
           </div>
-          <div class="summary-col">
-            <span class="summary-label">Account</span>
-            <span class="summary-val">{{ splitTx.account?.name || 'Unknown' }}</span>
+          <div class="summary-col summary-col--num">
+            <dt class="summary-label">Transaction total</dt>
+            <dd class="summary-val summary-val--strong">
+              <span class="money" :class="Number(splitTx.amount) < 0 ? 'money--inflow' : 'money--outflow'">{{ Number(splitTx.amount) < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(splitTx.amount))) }}</span>
+            </dd>
           </div>
-          <div class="summary-col text-right">
-            <span class="summary-label">Transaction Total</span>
-            <span class="summary-val font-mono font-bold" :class="{ 'inflow': Number(splitTx.amount) < 0 }">
-              {{ Number(splitTx.amount) < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(splitTx.amount))) }}
-            </span>
-          </div>
-        </div>
+        </dl>
 
-        <!-- Error Banner inside dialog -->
         <div v-if="splitDialogError" class="split-error-alert" role="alert">
           <span>{{ splitDialogError }}</span>
-          <button type="button" class="alert-dismiss" @click="splitDialogError = null">✕</button>
+          <button type="button" class="btn-icon alert-dismiss" @click="splitDialogError = null" aria-label="Dismiss error">
+            <AppIcon name="close" :size="14" />
+          </button>
         </div>
 
-        <!-- Allocations Table -->
         <div class="split-allocations-section">
           <div class="split-allocations-header">
-            <span class="section-title">Category Allocations</span>
+            <h3 class="split-section-title">Category allocations</h3>
             <span class="split-rule-hint">
               {{ Number(splitTx.amount) < 0 ? 'Inflow transaction: split amounts are applied as credits.' : 'Outflow transaction: split lines must exactly total the transaction amount.' }}
             </span>
@@ -640,7 +682,7 @@
                 <select
                   :id="`split-cat-${idx}`"
                   v-model="line.category_id"
-                  class="split-select"
+                  class="form-select split-select"
                   :aria-label="`Category for split line ${idx + 1}`"
                 >
                   <option value="" disabled>Select category...</option>
@@ -663,7 +705,7 @@
               <div class="line-amount-col">
                 <label :for="`split-amount-${idx}`" class="sr-only">Amount line {{ idx + 1 }}</label>
                 <div class="amount-input-wrapper">
-                  <span class="currency-prefix">{{ Number(splitTx.amount) < 0 ? '-$' : '$' }}</span>
+                  <span class="currency-prefix num" aria-hidden="true">{{ Number(splitTx.amount) < 0 ? '-$' : '$' }}</span>
                   <input
                     :id="`split-amount-${idx}`"
                     v-model="line.amountStr"
@@ -671,7 +713,7 @@
                     step="0.01"
                     min="0.01"
                     placeholder="0.00"
-                    class="split-amount-input font-mono"
+                    class="form-input split-amount-input num"
                     :aria-label="`Amount for split line ${idx + 1}`"
                   />
                 </div>
@@ -680,7 +722,7 @@
               <div class="line-actions-col">
                 <button
                   type="button"
-                  class="btn-remove-line"
+                  class="btn btn-ghost btn-sm btn-remove-line"
                   :disabled="splitLines.length <= 2"
                   @click="removeSplitLine(idx)"
                   :title="splitLines.length <= 2 ? 'Splits require at least 2 allocations' : 'Remove allocation'"
@@ -695,7 +737,7 @@
           <div class="split-add-line-row">
             <button
               type="button"
-              class="btn-add-split-line"
+              class="btn btn-ghost btn-sm btn-add-split-line"
               @click="addSplitLine"
             >
               + Add Category Line
@@ -703,38 +745,37 @@
           </div>
         </div>
 
-        <!-- Allocation Reconciliation Math Bar -->
+        <!-- Allocation reconciliation: Total − Allocated = Remaining -->
         <div class="split-math-bar" :class="mathStatusClass">
           <div class="math-item">
-            <span class="math-label">Transaction Total</span>
-            <span class="math-val font-mono">{{ formatCurrency(parentAbsTotal) }}</span>
+            <span class="math-label">Transaction total</span>
+            <span class="math-val num">{{ formatCurrency(parentAbsTotal) }}</span>
           </div>
-          <div class="math-operator">−</div>
+          <div class="math-operator" aria-hidden="true">−</div>
           <div class="math-item">
             <span class="math-label">Allocated</span>
-            <span class="math-val font-mono">{{ formatCurrency(allocatedAbsTotal) }}</span>
+            <span class="math-val num">{{ formatCurrency(allocatedAbsTotal) }}</span>
           </div>
-          <div class="math-operator">=</div>
+          <div class="math-operator" aria-hidden="true">=</div>
           <div class="math-item">
             <span class="math-label">Remaining</span>
-            <span class="math-val font-mono font-bold">{{ formatCurrency(remainingAbsTotal) }}</span>
+            <span class="math-val math-val--strong num">{{ formatCurrency(remainingAbsTotal) }}</span>
           </div>
           <div class="math-status-badge">
-            <span v-if="isBalanced" class="badge-balanced">Balanced</span>
-            <span v-else-if="remainingCents > 0" class="badge-remaining">
+            <span v-if="isBalanced" class="badge-balanced"><AppIcon name="check" :size="14" />Balanced</span>
+            <span v-else-if="remainingCents > 0" class="badge-remaining num">
               ${{ (remainingCents / 100).toFixed(2) }} unallocated
             </span>
-            <span v-else class="badge-over">
+            <span v-else class="badge-over num">
               ${{ (Math.abs(remainingCents) / 100).toFixed(2) }} overallocated
             </span>
           </div>
         </div>
 
-        <div v-if="hasDuplicateCategories" class="split-warning-msg">
+        <div v-if="hasDuplicateCategories" class="split-warning-msg" role="alert">
           Each split line must be assigned to a different category.
         </div>
 
-        <!-- Unsplit Section if currently split -->
         <div v-if="splitTx.is_split" class="unsplit-collapse-box">
           <div class="unsplit-header">
             <span class="unsplit-title">Convert back to single category</span>
@@ -743,7 +784,7 @@
           <div class="unsplit-controls">
             <select
               v-model="unsplitTargetCategoryId"
-              class="unsplit-category-select"
+              class="form-select unsplit-category-select"
               aria-label="Select target category for unsplit"
             >
               <option value="">Leave Uncategorized</option>
@@ -763,7 +804,7 @@
             </select>
             <button
               type="button"
-              class="btn-unsplit-action"
+              class="btn btn-secondary btn-sm btn-unsplit-action"
               :disabled="unsplitInProgress"
               @click="handleUnsplit"
             >
@@ -777,7 +818,7 @@
         <div class="split-dialog-footer">
           <button
             type="button"
-            class="btn-dialog-cancel"
+            class="btn btn-ghost btn-dialog-cancel"
             @click="closeSplitDialog"
             :disabled="savingSplit || unsplitInProgress"
           >
@@ -785,7 +826,7 @@
           </button>
           <button
             type="button"
-            class="btn-dialog-save"
+            class="btn btn-primary btn-dialog-save"
             :disabled="!canSaveSplit || savingSplit"
             @click="handleSaveSplit"
           >
@@ -941,6 +982,16 @@ const getRecurringCadenceForTx = (tx: any): string | null => {
 
 const activeRecurringCount = computed(() => {
   return recurringItems.value.filter(i => i.status !== 'dismissed').length
+})
+
+const recurringTabs = computed(() => {
+  const countOf = (status: RecurringItem['status']) => recurringItems.value.filter(i => i.status === status).length
+  return [
+    { value: 'all', label: 'All', count: recurringItems.value.length },
+    { value: 'confirmed', label: 'Confirmed', count: countOf('confirmed') },
+    { value: 'detected', label: 'Needs review', count: countOf('detected') },
+    { value: 'dismissed', label: 'Dismissed', count: countOf('dismissed') },
+  ] as const
 })
 
 const filteredRecurringItems = computed(() => {
@@ -1105,19 +1156,36 @@ const transactionCountLabel = computed(() => {
   return `${count} ${count === 1 ? 'transaction' : 'transactions'}`
 })
 
+// Presentation-only UI state: none of this feeds the query or filter state
+const filtersOpen = ref(false)
+
+// Filters hidden behind the narrow-screen disclosure (search stays visible)
+const activeFilterCount = computed(() => {
+  let count = 0
+  if (selectedAccount.value) count++
+  if (selectedCategory.value) count++
+  if (uncategorizedOnly.value) count++
+  if (reviewFilter.value !== 'all') count++
+  return count
+})
+
+const hasAnyFilter = computed(() => Boolean(selectedAccount.value) || hasActiveSecondaryFilters.value)
+
 // Inline Merchant Editing
 const editingMerchantId = ref<string | null>(null)
 const editMerchantValue = ref('')
 const savingMerchant = ref(false)
-const merchantInputRef = ref<HTMLInputElement | null>(null)
+// Template ref inside v-for: Vue fills it as an array (only one editor is open at a time)
+const merchantInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null)
 
 const startEditingMerchant = (tx: any) => {
   editingMerchantId.value = tx.transaction_id
   editMerchantValue.value = tx.merchant || tx.description || ''
   nextTick(() => {
-    if (merchantInputRef.value) {
-      merchantInputRef.value.focus()
-      merchantInputRef.value.select()
+    const input = Array.isArray(merchantInputRef.value) ? merchantInputRef.value[0] : merchantInputRef.value
+    if (input) {
+      input.focus()
+      input.select()
     }
   })
 }
@@ -1522,1047 +1590,1251 @@ const handleUnsplit = async () => {
 </script>
 
 <style scoped>
-.transactions-page {
-  padding: var(--space-lg);
-  max-width: var(--page-max-width);
-  margin: 0 auto;
+/* Header actions ---------------------------------------------------------- */
+
+.btn-transfer-matches,
+.btn-recurring-matches {
+  color: var(--text-secondary);
 }
 
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+.btn-transfer-matches.is-open,
+.btn-recurring-matches.is-open {
+  background-color: var(--accent-subtle);
+  border-color: var(--accent-primary);
+  color: var(--accent-text);
 }
 
-/* Filters Card */
-.filters-card {
-  padding: var(--space-lg);
-  margin-bottom: var(--space-lg);
+.cand-badge {
+  min-width: 1.25rem;
+  padding: 0 5px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.5;
+  text-align: center;
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-xs);
+}
+
+/* Secondary panels (transfers, recurring) ---------------------------------- */
+/* User-opened and bounded, so they get a quiet surface; their lists scroll   */
+/* internally so the ledger stays near the fold.                              */
+
+.tx-panel {
+  margin-bottom: var(--space-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.panel-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-sm);
+  padding: 10px 8px 10px var(--space-md);
+}
+
+.panel-titles {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px var(--space-sm);
+  min-width: 0;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: var(--type-subheading-size);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.panel-count {
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+  font-variant-numeric: var(--font-numeric-features);
+}
+
+.panel-sub {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  max-width: 80ch;
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+.panel-error {
+  margin: 0 var(--space-md) var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-meta-size);
+  color: var(--status-error);
+  background: var(--status-error-bg);
+  border-left: 3px solid var(--status-error);
+}
+
+.panel-empty {
+  padding: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+.panel-empty p {
+  margin: 0;
+}
+
+.panel-scroll {
+  max-height: 296px;
+  overflow: auto;
+  border-top: 1px solid var(--border-subtle);
+  overscroll-behavior: contain;
+}
+
+.panel-scroll:focus-visible {
+  outline-offset: -2px;
+}
+
+.tx-panel :deep(.loading-state) {
+  min-height: 0;
+  padding: var(--space-lg) var(--space-md);
+}
+
+/* Transfer candidates */
+
+.candidate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.candidate-row {
+  display: grid;
+  /* fixed amount/action tracks so every pair lines up with the next */
+  grid-template-columns: minmax(0, 1fr) 8.5rem minmax(0, 1fr) 10.5rem;
+  align-items: center;
+  gap: var(--space-xs) var(--space-md);
+  padding: 8px var(--space-md);
+}
+
+.candidate-row + .candidate-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.candidate-side {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  min-width: 0;
+  line-height: 1.35;
 }
 
-.filters-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+.cand-account {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cand-desc,
+.cand-meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  color: var(--text-muted);
+}
+
+.amount-badge {
+  font-weight: var(--font-weight-semibold);
+  color: var(--financial-neutral);
+}
+
+.candidate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+@media (max-width: 767px) {
+  .candidate-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "amount amount"
+      "out in"
+      "actions actions";
+    align-items: start;
+  }
+
+  .candidate-side.outflow { grid-area: out; }
+  .candidate-side.inflow { grid-area: in; }
+  .candidate-arrow { grid-area: amount; }
+  .candidate-actions { grid-area: actions; }
+
+  .candidate-arrow {
+    flex-direction: row-reverse;
+    justify-content: flex-end;
+  }
+}
+
+/* Recurring tabs + table */
+
+.recurring-tabs {
+  display: flex;
   gap: var(--space-md);
+  padding: 0 var(--space-md);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tab-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 2px;
+  font: inherit;
+  font-size: var(--type-meta-size);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.tab-btn.active {
+  color: var(--accent-text);
+}
+
+/* Selected tab: an underline (not only a color change) */
+.tab-btn.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent-primary);
+}
+
+.tab-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.recurring-tabpanel .panel-scroll {
+  border-top: 0;
+}
+
+.recurring-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: var(--type-meta-size);
+}
+
+.recurring-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 7px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-align: left;
+  color: var(--table-header-text);
+  background: var(--table-header);
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+
+.recurring-table td {
+  padding: 6px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--table-border);
+  color: var(--text-secondary);
+}
+
+.recurring-row:last-child td {
+  border-bottom: 0;
+}
+
+.recurring-row:hover td {
+  background: var(--table-hover);
+}
+
+.recurring-table .col-num {
+  text-align: right;
+}
+
+.recurring-table .col-actions {
+  width: 1%;
+}
+
+.rec-merchant-cell {
+  max-width: 260px;
+}
+
+.rec-merchant-name,
+.rec-account-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rec-merchant-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+.rec-account-name {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.cadence-tag {
+  text-transform: capitalize;
+}
+
+.rec-amount-cell {
+  white-space: nowrap;
+}
+
+.rec-amount-cell .money {
+  color: var(--financial-neutral);
+  font-weight: var(--font-weight-medium);
+}
+
+.amount-type-hint {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.rec-next-date-cell,
+.rec-count-cell {
+  white-space: nowrap;
+}
+
+.rec-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+/* Raw status text kept; capitalized for display */
+.status-pill {
+  text-transform: capitalize;
+}
+
+.rec-status--confirmed { color: var(--status-success); }
+.rec-status--detected { color: var(--status-warning); }
+.rec-status--dismissed { color: var(--text-muted); }
+
+.rec-actions-cell {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.rec-actions-cell .btn + .btn {
+  margin-left: var(--space-xs);
+}
+
+/* Filter toolbar ----------------------------------------------------------- */
+
+.tx-toolbar {
+  margin-bottom: var(--space-sm);
+}
+
+.toolbar-controls {
+  display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
+  gap: var(--space-sm) var(--space-sm);
 }
 
 .filter-group {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: 3px;
+  min-width: 0;
 }
 
-.filter-group label {
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.filter-group--search {
+  flex: 1 1 260px;
 }
 
-.search-input-wrapper {
-  position: relative;
+.filter-fields {
+  flex: 3 1 600px;
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-sm);
+  min-width: 0;
 }
 
-.search-clear-btn {
-  position: absolute;
-  right: 8px;
-  background: transparent;
-  border: none;
-  color: var(--color-text-light);
-  cursor: pointer;
-  padding: 4px;
-  font-size: 0.75rem;
-  line-height: 1;
-  border-radius: var(--radius-xs);
+.filter-fields > .filter-group {
+  flex: 1 1 150px;
 }
 
-.search-clear-btn:hover {
-  color: var(--color-text);
+.filter-fields > .filter-group--check {
+  flex: 0 0 auto;
+}
+
+.filter-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--type-label-weight);
+  color: var(--text-secondary);
 }
 
 .filter-input {
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-base);
-  font-family: inherit;
-  color: var(--color-text);
-  background: var(--color-surface);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  box-sizing: border-box;
-}
-
-.filter-input:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-focus);
-}
-
-/* Filters Meta Row */
-.filters-meta-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--color-border-subtle);
-}
-
-.filter-meta-left {
-  display: flex;
-  align-items: center;
-}
-
-.checkbox-label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  cursor: pointer;
+  height: 34px;
+  padding: 0 10px;
+  font: inherit;
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text);
-  user-select: none;
+  color: var(--input-text);
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease;
 }
 
-.filter-checkbox {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--color-primary);
-  cursor: pointer;
+.filter-input:hover:not(:disabled) {
+  border-color: var(--input-border-hover);
 }
 
-.filter-meta-right {
+.filter-input::placeholder {
+  color: var(--input-placeholder);
+}
+
+/* A narrowed filter reads as selected (summary text names it too) */
+.filter-input.is-active {
+  border-color: var(--accent-primary);
+  background-color: var(--accent-subtle);
+}
+
+.search-input-wrapper {
+  position: relative;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.search-input {
+  padding-left: 32px;
+  padding-right: 34px;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.filter-group--check .checkbox-label {
+  height: 34px;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.filters-toggle {
+  display: none;
+}
+
+.toolbar-summary {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  justify-content: space-between;
   flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-md);
+  min-height: 32px;
+  margin-top: 6px;
 }
 
 .filter-summary-text {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  min-width: 0;
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+.summary-count {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
 }
 
 .summary-chips {
-  color: var(--color-text);
-  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
 }
 
 .btn-clear-filters {
-  background: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
+  min-height: 28px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: var(--type-meta-size);
   font-weight: var(--font-weight-medium);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
+  color: var(--accent-text);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs);
   cursor: pointer;
-  transition: all 0.15s ease;
 }
 
 .btn-clear-filters:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
-  border-color: var(--color-border-hover);
-}
-
-.btn-clear-filters:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .btn-clear-filters:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  color: var(--text-disabled);
+  cursor: default;
 }
 
-/* Table Card & Responsive Wrapper */
-.table-card {
+/* Narrow screens: search + Filters disclosure; the fields stack when opened */
+@media (max-width: 767px) {
+  .toolbar-controls {
+    flex-wrap: wrap;
+  }
+
+  .filter-group--search {
+    flex: 1 1 0;
+  }
+
+  .filter-group--search .filter-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .filters-toggle {
+    display: inline-flex;
+    height: 34px;
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: var(--font-size-sm);
+  }
+
+  .filters-toggle.is-open {
+    background: var(--bg-subtle);
+    color: var(--text-primary);
+  }
+
+  .filters-toggle-count {
+    min-width: 1.25rem;
+    padding: 0 4px;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-on-accent);
+    background: var(--accent-primary);
+    border-radius: var(--radius-xs);
+  }
+
+  .filters-toggle-chevron {
+    transition: transform 0.15s ease;
+  }
+
+  .filters-toggle.is-open .filters-toggle-chevron {
+    transform: rotate(180deg);
+  }
+
+  .filter-fields {
+    display: none;
+    flex: 1 1 100%;
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--space-sm) 0 var(--space-xs);
+  }
+
+  .filter-fields.is-open {
+    display: flex;
+  }
+
+  .filter-fields > .filter-group {
+    flex: 0 0 auto;
+  }
+
+  .filter-input {
+    height: 40px;
+    font-size: 1rem; /* avoids iOS zoom on focus */
+  }
+
+  .filter-group--check .checkbox-label {
+    height: 36px;
+  }
+}
+
+/* Ledger ------------------------------------------------------------------- */
+
+.transactions-container {
+  container: ledger / inline-size;
+}
+
+.ledger {
   overflow: hidden;
 }
 
 .table-responsive {
-  width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 
 .transactions-table {
   width: 100%;
-  min-width: 640px;
   border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--font-size-sm);
   text-align: left;
 }
 
 .transactions-table th {
-  padding: 12px 16px;
-  background: #f8fafc;
-  border-bottom: 1px solid var(--color-border);
+  height: 34px;
+  padding: 0 12px;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--table-header-text);
+  background: var(--table-header);
+  border-bottom: 1px solid var(--border-default);
   white-space: nowrap;
 }
 
+.date-col { width: 108px; }
+.account-col { width: 15%; }
+.category-col { width: 248px; }
+.amount-col { width: 128px; text-align: right; }
+.status-col { width: 132px; }
+
 .transactions-table td {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  font-size: var(--font-size-base);
-  color: var(--color-text);
+  padding: 5px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--table-border);
 }
 
-.transactions-table tr:last-child td {
-  border-bottom: none;
+.tx-row:last-child td {
+  border-bottom: 0;
 }
 
-.transactions-table tbody tr:hover td {
-  background-color: #fafbfc;
-}
-
-.date-col {
-  width: 110px;
+.tx-row:hover td,
+.tx-row:focus-within td {
+  background: var(--table-hover);
 }
 
 .date-cell {
-  color: var(--color-text-muted);
+  color: var(--text-secondary);
   white-space: nowrap;
-  font-size: var(--font-size-sm);
 }
 
-.desc-col {
-  min-width: 220px;
-}
+/* Merchant / description */
 
 .desc-cell {
-  max-width: 340px;
-}
-
-.desc-text {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: var(--font-weight-medium);
+  min-width: 0;
 }
 
 .merchant-row {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
-  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
 }
 
 .merchant-name {
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-size-base);
-}
-
-.merchant-name.is-overridden {
-  color: var(--color-text-emphasis, #0f172a);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
 }
 
 .btn-edit-merchant {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  opacity: 0.6;
-  transition: opacity 0.15s ease, background 0.15s ease;
-  line-height: 1;
-}
-
-.btn-edit-merchant:hover {
-  opacity: 1;
-  background: var(--color-surface-hover);
-  color: var(--color-primary);
-}
-
-.btn-edit-merchant:focus-visible {
-  outline: 2px solid var(--color-primary);
-  opacity: 1;
-}
-
-.raw-desc-text {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 2px;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-muted);
 }
 
 .merchant-edit-form {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
-  width: 100%;
+  gap: 2px;
 }
 
 .merchant-edit-input {
-  padding: 3px 6px;
-  font-size: var(--font-size-sm);
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  width: 100%;
-  max-width: 180px;
-}
-
-.merchant-edit-input:focus {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--color-primary-focus);
-}
-
-.merchant-edit-actions {
-  display: inline-flex;
-  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font: inherit;
+  font-weight: var(--font-weight-medium);
+  color: var(--input-text);
+  background: var(--input-bg);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-xs);
 }
 
 .btn-save-merchant,
 .btn-cancel-merchant {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 2px 6px;
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-  line-height: 1.2;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
 }
 
 .btn-save-merchant {
-  color: var(--color-success);
-  border-color: var(--color-success-border, #86efac);
+  color: var(--accent-text);
 }
 
-.btn-save-merchant:hover:not(:disabled) {
-  background: var(--color-success-bg, #f0fdf4);
-}
-
-.btn-cancel-merchant {
-  color: var(--color-text-muted);
-}
-
-.btn-cancel-merchant:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-}
-
-.account-col {
-  width: 140px;
-}
-
-.account-tag {
-  background: var(--color-surface-hover);
-  border: 1px solid var(--color-border-subtle);
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-.category-col {
-  width: 250px;
-}
-
-.ml-suggestion-box {
+.tx-meta {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 6px;
-  padding: 4px 8px;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  line-height: 1.2;
+  align-items: baseline;
+  gap: 0 var(--space-sm);
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  color: var(--text-muted);
 }
 
-.ml-suggestion-text {
-  color: #166534;
+.account-inline {
+  display: none;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.tx-flag {
+  /* State flags hold their width; the original description and inline account
+     truncate first. Block-level (as a flex item) so a flag wider than the whole
+     line ends in an ellipsis rather than a clipped word. */
+  display: inline-block;
+  flex-shrink: 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+}
+
+.tx-flag .app-icon {
+  display: inline-block;
+  margin-right: 3px;
+  vertical-align: -2px;
+}
+
+.raw-desc-text {
+  /* gives way first: description, then inline account, then state flags */
+  flex-shrink: 100;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.account-cell {
+  color: var(--text-secondary);
+}
+
+.account-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Category */
+
+.unsplit-cell-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.category-select-row {
+  display: grid;
+  /* fixed Split track keeps selects aligned on rows that cannot be split */
+  grid-template-columns: minmax(0, 1fr) 62px;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.category-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: var(--type-meta-size);
+  color: var(--text-primary);
+  background-color: var(--input-bg);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.category-select:hover:not(:disabled) {
+  border-color: var(--input-border-hover);
+}
+
+.category-select:disabled {
+  background-color: var(--input-disabled-bg);
+  cursor: progress;
+}
+
+/* Missing category = incomplete work, not an error: dashed edge + warning-toned
+   label. The word "Uncategorized" carries the state; color only reinforces it. */
+.category-select.uncategorized {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  color: var(--status-warning);
+  font-weight: var(--font-weight-medium);
+}
+
+.category-select.uncategorized:hover:not(:disabled) {
+  border-color: var(--status-warning);
+  background-color: var(--status-warning-bg);
+}
+
+/* Option text stays neutral inside the native menu */
+.category-select option,
+.category-select optgroup {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-regular);
+}
+
+.btn-split-trigger,
+.btn-split-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  font: inherit;
+  font-size: var(--type-meta-size);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-split-trigger {
+  justify-content: center;
+  padding: 0 6px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.btn-split-trigger:hover {
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+  border-color: var(--border-default);
+}
+
+.btn-split-badge {
+  width: 100%;
+  padding: 0 8px;
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-default);
+  text-align: left;
+}
+
+.btn-split-badge .app-icon {
+  color: var(--text-muted);
+}
+
+.btn-split-badge:hover {
+  border-color: var(--input-border-hover);
+  background: var(--bg-subtle);
+}
+
+/* ML suggestion: one quiet line above the selector */
+.ml-suggestion-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.ml-suggestion-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-suggestion-text strong {
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
 .ml-suggestion-score {
-  color: #15803d;
-  font-size: 10px;
+  color: var(--text-muted);
 }
 
 .btn-accept-suggestion {
   flex-shrink: 0;
-  padding: 2px 7px;
-  background: #16a34a;
-  color: #ffffff;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: 600;
+  min-height: 24px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent-text);
+  background: var(--bg-surface);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-xs);
   cursor: pointer;
-  transition: background 0.15s ease;
 }
 
 .btn-accept-suggestion:hover:not(:disabled) {
-  background: #15803d;
+  background: var(--accent-subtle);
 }
 
 .btn-accept-suggestion:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+  opacity: 0.5;
+  cursor: progress;
 }
 
-.category-select {
-  padding: 6px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-  width: 100%;
-  max-width: 210px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  transition: border-color 0.15s ease;
-  font-family: inherit;
-}
+/* Amount */
 
-.category-select:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-focus);
-}
-
-.category-select.uncategorized {
-  border-color: var(--color-danger-border);
-  background-color: var(--color-danger-bg);
-  color: var(--color-danger-hover);
-  font-weight: var(--font-weight-medium);
-}
-
-.amount-col {
+.amount-col,
+.amount-cell {
   text-align: right;
-  width: 120px;
 }
 
 .amount-cell {
-  text-align: right;
-  font-weight: var(--font-weight-semibold);
-}
-
-.amount-cell.inflow {
-  color: var(--color-success);
-}
-
-.empty-row {
-  text-align: center;
-  padding: 48px !important;
-  color: var(--color-text-muted);
-  font-style: italic;
-}
-
-/* Pagination */
-.pagination {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-md) var(--space-lg);
-  background: #f8fafc;
-  border-top: 1px solid var(--color-border);
-}
-
-.page-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  transition: all 0.15s ease;
-}
-
-.page-btn:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  border-color: var(--color-border-hover);
-}
-
-.page-btn:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
-}
-
-.page-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.page-info {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-}
-
-/* Header Transfer Button */
-.btn-transfer-matches {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  padding: 8px 16px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-transfer-matches:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  border-color: var(--color-border-hover);
-}
-
-.btn-transfer-matches:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.cand-badge {
-  background: var(--color-primary);
-  color: white;
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
-}
-
-/* Transfer Panel */
-.transfer-panel {
-  padding: var(--space-lg);
-  margin-bottom: var(--space-lg);
-  background: #f8fafc;
-  border: 1px solid #bfdbfe;
-  border-radius: var(--radius-lg);
-}
-
-.panel-header {
-  margin-bottom: var(--space-md);
-}
-
-.panel-title-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.panel-title-with-badge {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.panel-title {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-  margin: 0;
-}
-
-.panel-count-badge {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-}
-
-.panel-sub {
-  margin: var(--space-xs) 0 0;
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
-.btn-close-panel {
-  background: transparent;
-  border: none;
-  font-size: 1.1rem;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-}
-
-.btn-close-panel:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
-}
-
-.empty-candidates {
-  padding: var(--space-md);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  font-style: italic;
-  text-align: center;
-}
-
-.panel-error {
-  background: #fee2e2;
-  color: #dc2626;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  margin-bottom: var(--space-md);
-}
-
-.candidate-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.candidate-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  flex-wrap: wrap;
-}
-
-.candidate-side {
-  flex: 1;
-  min-width: 140px;
-}
-
-.cand-account {
-  font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-sm);
-  color: var(--color-text);
-}
-
-.cand-desc {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
-}
-
-.cand-meta {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-}
-
-.candidate-arrow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.amount-badge {
-  background: #f1f5f9;
-  border: 1px solid var(--color-border);
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
-  font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
-  color: var(--color-text);
-}
-
-.arrow {
-  color: var(--color-text-muted);
-  font-weight: bold;
-}
-
-.candidate-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.confirm-btn {
-  background: var(--color-primary);
-  color: white;
-  border: none;
-  padding: 6px 14px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
-  cursor: pointer;
-  transition: background 0.15s ease;
 }
 
-.confirm-btn:hover:not(:disabled) {
-  background: var(--color-primary-hover);
+/* Right-aligned figures only need room on the left; this keeps 7-figure
+   amounts inside the cell without widening the column further */
+.transactions-table td.amount-cell {
+  padding-left: 4px;
 }
 
-.confirm-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.dismiss-btn {
-  background: transparent;
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.dismiss-btn:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
-}
-
-/* Review Status Column & Button */
-.status-col {
-  width: 140px;
-  text-align: center;
-}
-
-.status-cell {
-  text-align: center;
-  white-space: nowrap;
-}
+/* Review toggle: shape + word carry the state, color only reinforces it */
 
 .review-toggle-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 8px 0 6px;
+  font: inherit;
+  font-size: var(--type-meta-size);
+  white-space: nowrap;
+  background: transparent;
   border: 1px solid transparent;
-  transition: all 0.15s ease;
-  user-select: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.review-toggle-btn.is-reviewed {
-  background: #ecfdf5;
-  color: #065f46;
-  border-color: #a7f3d0;
-}
-
-.review-toggle-btn.is-reviewed:hover:not(:disabled) {
-  background: #d1fae5;
-  border-color: #6ee7b7;
-}
-
-.review-toggle-btn.needs-review {
-  background: #fffbeb;
-  color: #92400e;
-  border-color: #fde68a;
-}
-
-.review-toggle-btn.needs-review:hover:not(:disabled) {
-  background: #fef3c7;
-  border-color: #fcd34d;
-}
-
-.review-toggle-btn:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
+.review-toggle-btn:hover:not(:disabled) {
+  background: var(--bg-surface);
+  border-color: var(--border-default);
 }
 
 .review-toggle-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  opacity: 0.55;
+  cursor: progress;
 }
 
-.check-icon {
-  font-weight: bold;
-}
-
-.status-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.transfer-tag {
-  display: inline-block;
-  margin-left: var(--space-xs);
-  padding: 1px 6px;
-  background: #f1f5f9;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: 10px;
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-/* Header Recurring Button */
-.btn-recurring-matches {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  padding: 8px 16px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
+.review-toggle-btn.needs-review {
+  color: var(--text-primary);
   font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all 0.15s ease;
 }
 
-.btn-recurring-matches:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  border-color: var(--color-border-hover);
+.review-toggle-btn.needs-review .review-icon {
+  color: var(--border-strong);
 }
 
-.btn-recurring-matches:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.review-toggle-btn.is-reviewed {
+  color: var(--text-muted);
 }
 
-/* Recurring Panel */
-.recurring-panel {
-  padding: var(--space-lg);
-  margin-bottom: var(--space-lg);
-  background: #f8fafc;
-  border: 1px solid #cbd5e1;
-  border-radius: var(--radius-lg);
+.review-toggle-btn.is-reviewed .review-icon {
+  color: var(--status-success);
 }
 
-.recurring-tabs {
+/* Empty + pagination */
+
+.empty-row {
+  padding: var(--space-xl) var(--space-md) !important;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.empty-row p {
+  margin: 0 0 var(--space-sm);
+}
+
+.empty-row p:last-child {
+  margin-bottom: 0;
+}
+
+.pagination {
   display: flex;
-  gap: var(--space-xs);
-  margin-top: var(--space-md);
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: var(--space-xs);
+  align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
-}
-
-.tab-btn {
-  padding: 6px 12px;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.tab-btn:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
-}
-
-.tab-btn.active {
-  background: var(--color-primary);
-  color: #ffffff;
-  font-weight: var(--font-weight-semibold);
-}
-
-.recurring-table-wrapper {
-  overflow-x: auto;
-  margin-top: var(--space-md);
-}
-
-.recurring-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--font-size-sm);
-}
-
-.recurring-table th {
-  text-align: left;
+  gap: var(--space-sm);
   padding: 8px 12px;
-  border-bottom: 2px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-sunken);
 }
 
-.recurring-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  vertical-align: middle;
+.page-info {
+  font-size: var(--type-meta-size);
+  color: var(--text-secondary);
 }
 
-.rec-merchant-cell {
+.page-buttons {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  gap: var(--space-xs);
 }
 
-.rec-merchant-name {
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
+/* Medium ledger: Account folds under the merchant; review shows icon only */
+@container ledger (max-width: 999px) {
+  .date-col { width: 96px; }
+  .category-col { width: 220px; }
+  /* Same track as desktop and stable through the whole medium range, so every
+     figure (up to +$1,234,567.89) keeps the same right edge */
+  .amount-col { width: 128px; min-width: 128px; }
+  .status-col { width: 64px; padding: 0 8px !important; text-align: center; }
+
+  /* Collapsed to zero width rather than removed, so column counts (and the
+     empty row's colspan) stay intact; the name shows under the merchant. */
+  .transactions-table .account-col,
+  .transactions-table .account-cell {
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+    visibility: hidden;
+  }
+
+  .account-inline {
+    display: block;
+  }
+
+  .status-cell {
+    text-align: center;
+  }
+
+  .review-toggle-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .review-toggle-btn .status-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .review-toggle-btn .review-icon {
+    width: 18px;
+    height: 18px;
+  }
 }
 
-.rec-account-name {
-  font-size: 11px;
-  color: var(--color-text-muted);
+@container ledger (max-width: 760px) {
+  /* Room for the 128px amount track comes from Category and the icon-only
+     Review column, not Merchant; the select still shows "Uncategorized" */
+  .category-col { width: 188px; }
+  .status-col { width: 56px; padding: 0 4px !important; }
+
+  /* Split keeps its icon, tooltip and accessible name; the word is hidden */
+  .category-select-row { grid-template-columns: minmax(0, 1fr) 30px; }
+  .btn-split-trigger { padding: 0; }
+  .split-trigger-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
 }
 
-.cadence-tag {
-  display: inline-block;
-  padding: 2px 8px;
-  background: #e0f2fe;
-  color: #0369a1;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
-  font-weight: var(--font-weight-semibold);
-  text-transform: capitalize;
+/* Narrow ledger: each row becomes a compact stacked record.
+   Explicit ARIA roles in the markup keep table semantics when display changes. */
+@container ledger (max-width: 619px) {
+  .transactions-table,
+  .transactions-table tbody {
+    display: block;
+  }
+
+  .transactions-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .tx-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "desc desc amount"
+      "date account review"
+      "cat cat cat";
+    align-items: center;
+    column-gap: var(--space-sm);
+    padding: 10px var(--space-md) 12px;
+    border-bottom: 1px solid var(--table-border);
+  }
+
+  .tx-row:last-child {
+    border-bottom: 0;
+  }
+
+  .transactions-table .tx-row td {
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+
+  .tx-row:hover,
+  .tx-row:focus-within {
+    background: var(--table-hover);
+  }
+
+  .date-cell { grid-area: date; font-size: var(--font-size-xs); }
+  .desc-cell { grid-area: desc; align-self: start; }
+  .transactions-table .account-col {
+    visibility: visible;
+  }
+
+  .transactions-table .account-cell {
+    display: block;
+    visibility: visible;
+    width: auto;
+    overflow: visible;
+    grid-area: account;
+    min-width: 0;
+    font-size: var(--font-size-xs);
+  }
+  .category-cell { grid-area: cat; padding-top: 6px !important; }
+  .amount-cell { grid-area: amount; align-self: start; font-size: var(--type-body-size); }
+  .status-cell { grid-area: review; text-align: right; }
+
+  .account-inline {
+    display: none;
+  }
+
+  .merchant-name {
+    font-size: var(--type-body-size);
+  }
+
+  .review-toggle-btn {
+    width: auto;
+    height: 32px;
+    padding: 0 8px 0 6px;
+    margin-right: -6px;
+  }
+
+  .review-toggle-btn .status-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+  }
+
+  .category-select,
+  .btn-split-trigger,
+  .btn-split-badge {
+    height: 36px;
+  }
+
+  .category-select-row { grid-template-columns: minmax(0, 1fr) 68px; }
+  .btn-split-trigger { padding: 0 6px; }
+  .split-trigger-text {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+  }
+
+  .category-select {
+    font-size: 1rem; /* avoids iOS zoom on focus */
+  }
+
+  .btn-edit-merchant {
+    width: 32px;
+    height: 32px;
+  }
+
+  .empty-tr {
+    display: block;
+  }
+
+  .empty-tr .empty-row {
+    display: block;
+  }
+
+  .pagination {
+    padding: 8px var(--space-md);
+  }
+
+  .page-buttons .btn {
+    min-height: 36px;
+  }
 }
 
-.amount-type-hint {
-  font-size: 11px;
-  color: var(--color-text-muted);
-  margin-left: 4px;
-}
+/* Split dialog --------------------------------------------------------------- */
 
-.status-pill {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  font-size: 11px;
-  font-weight: var(--font-weight-semibold);
-  text-transform: capitalize;
-}
-
-.status-pill.confirmed {
-  background: #dcfce7;
-  color: #15803d;
-  border: 1px solid #86efac;
-}
-
-.status-pill.detected {
-  background: #fef9c3;
-  color: #a16207;
-  border: 1px solid #fde047;
-}
-
-.status-pill.dismissed {
-  background: #f1f5f9;
-  color: #64748b;
-  border: 1px solid #cbd5e1;
-}
-
-.rec-actions-cell {
-  white-space: nowrap;
-}
-
-.rec-actions-cell .confirm-btn,
-.rec-actions-cell .dismiss-btn {
-  margin-right: 6px;
-}
-
-/* Transaction Ledger Recurring Tag */
-.recurring-tag {
-  display: inline-block;
-  margin-left: var(--space-xs);
-  padding: 1px 6px;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-radius: var(--radius-sm);
-  font-size: 10px;
-  font-weight: var(--font-weight-semibold);
-  color: #166534;
-  letter-spacing: 0.02em;
-}
-
-/* Split Transactions Ledger Elements */
-.split-cell-content {
-  display: flex;
-  align-items: center;
-}
-
-.btn-split-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  background: #f0fdf4;
-  border: 1px solid #86efac;
-  border-radius: var(--radius-full);
-  color: #166534;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-split-badge:hover {
-  background: #dcfce7;
-  border-color: #4ade80;
-  box-shadow: var(--shadow-sm);
-}
-
-.split-badge-icon {
-  font-size: 13px;
-  line-height: 1;
-}
-
-.category-select-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.btn-split-trigger {
-  padding: 5px 8px;
-  background: transparent;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
-  font-size: 11px;
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.btn-split-trigger:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: var(--color-primary-bg, #f0f7ff);
-}
-
-/* Split Transaction Modal */
 .split-dialog-body {
   display: flex;
   flex-direction: column;
@@ -2570,299 +2842,227 @@ const handleUnsplit = async () => {
 }
 
 .split-parent-summary {
+  margin: 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-sm);
-  background: #f8fafc;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
+  grid-template-columns: auto minmax(0, 1.6fr) minmax(0, 1fr) auto;
+  gap: var(--space-sm) var(--space-md);
+  padding: 10px var(--space-md);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
 }
 
 .summary-col {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+}
+
+.summary-col--num {
+  text-align: right;
 }
 
 .summary-label {
-  font-size: 11px;
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
 }
 
 .summary-val {
+  margin: 0;
   font-size: var(--font-size-sm);
-  color: var(--color-text);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 
-.summary-val.inflow {
-  color: var(--color-success);
+.summary-val--strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+@media (max-width: 560px) {
+  .split-parent-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .summary-col--wide {
+    grid-column: 1 / -1;
+    order: -1;
+  }
 }
 
 .split-error-alert {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 10px 14px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: var(--radius-sm);
-  color: #dc2626;
-  font-size: var(--font-size-sm);
-}
-
-.split-error-alert .alert-dismiss {
-  background: none;
-  border: none;
-  color: #dc2626;
-  font-size: 14px;
-  cursor: pointer;
-  padding: 0 4px;
-}
-
-.split-allocations-section {
-  display: flex;
-  flex-direction: column;
+  justify-content: space-between;
   gap: var(--space-sm);
+  padding: 6px 6px 6px var(--space-md);
+  font-size: var(--font-size-sm);
+  color: var(--status-error);
+  background: var(--status-error-bg);
+  border-left: 3px solid var(--status-error);
+}
+
+.alert-dismiss {
+  flex-shrink: 0;
+  color: var(--status-error);
 }
 
 .split-allocations-header {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--space-sm);
 }
 
-.section-title {
-  font-size: var(--font-size-sm);
+.split-section-title {
+  margin: 0;
+  font-size: var(--type-subheading-size);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
+  color: var(--text-primary);
 }
 
 .split-rule-hint {
-  font-size: 11px;
-  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
 }
 
 .split-lines-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .split-line-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
-.line-category-col {
-  flex: 1;
-}
-
-.split-select {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
-.split-select:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-focus);
-}
-
-.line-amount-col {
-  width: 150px;
+.split-select,
+.split-amount-input {
+  height: 36px;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .amount-input-wrapper {
   position: relative;
-  display: flex;
-  align-items: center;
 }
 
 .currency-prefix {
   position: absolute;
   left: 10px;
-  color: var(--color-text-muted);
+  top: 50%;
+  transform: translateY(-50%);
   font-size: var(--font-size-sm);
+  color: var(--text-muted);
   pointer-events: none;
 }
 
 .split-amount-input {
-  width: 100%;
-  padding: 7px 10px 7px 24px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
+  padding-left: 28px;
   text-align: right;
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
-.split-amount-input:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-focus);
-}
-
-.line-actions-col {
-  width: 68px;
-  display: flex;
-  justify-content: flex-end;
 }
 
 .btn-remove-line {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: var(--font-weight-medium);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-remove-line:hover:not(:disabled) {
-  background: #fef2f2;
-  border-color: #fecaca;
-  color: #dc2626;
-}
-
-.btn-remove-line:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
+  color: var(--text-secondary);
 }
 
 .split-add-line-row {
-  margin-top: 4px;
+  margin-top: var(--space-sm);
 }
 
 .btn-add-split-line {
-  background: none;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 6px 12px;
-  color: var(--color-primary);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all 0.15s ease;
+  color: var(--accent-text);
 }
 
-.btn-add-split-line:hover {
-  background: var(--color-primary-bg, #f0f7ff);
-  border-color: var(--color-primary);
+@media (max-width: 480px) {
+  .split-line-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .line-category-col {
+    grid-column: 1 / -1;
+  }
 }
 
-/* Allocation Math Bar */
 .split-math-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  border: 1px solid var(--color-border);
-  background: #f8fafc;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+  padding: 10px var(--space-md);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-subtle);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
 }
 
-.split-math-bar.status-balanced {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
-}
-
-.split-math-bar.status-remaining {
-  background: #fffbeb;
-  border-color: #fde68a;
-}
-
-.split-math-bar.status-over {
-  background: #fef2f2;
-  border-color: #fecaca;
-}
+.split-math-bar.status-balanced { border-left-color: var(--status-success); }
+.split-math-bar.status-remaining { border-left-color: var(--status-warning); }
+.split-math-bar.status-over { border-left-color: var(--status-error); }
 
 .math-item {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .math-label {
-  font-size: 11px;
-  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
 }
 
 .math-val {
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+}
+
+.math-val--strong {
   font-weight: var(--font-weight-semibold);
 }
 
 .math-operator {
-  color: var(--color-text-muted);
-  font-weight: bold;
+  font-size: var(--font-size-lg);
+  color: var(--text-muted);
 }
 
 .math-status-badge {
   margin-left: auto;
+  font-size: var(--type-meta-size);
+  font-weight: var(--font-weight-semibold);
 }
 
 .badge-balanced {
-  font-size: 11px;
-  font-weight: var(--font-weight-bold);
-  color: #15803d;
-  background: #dcfce7;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--status-success);
 }
 
 .badge-remaining {
-  font-size: 11px;
-  font-weight: var(--font-weight-semibold);
-  color: #b45309;
-  background: #fef3c7;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
+  color: var(--status-warning);
 }
 
 .badge-over {
-  font-size: 11px;
-  font-weight: var(--font-weight-semibold);
-  color: #b91c1c;
-  background: #fee2e2;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
+  color: var(--status-error);
 }
 
 .split-warning-msg {
-  padding: 6px 12px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  color: #92400e;
+  padding: 6px var(--space-md);
+  font-size: var(--type-meta-size);
+  color: var(--text-primary);
+  background: var(--status-warning-bg);
+  border-left: 3px solid var(--status-warning);
 }
 
-/* Unsplit Section */
 .unsplit-collapse-box {
-  margin-top: var(--space-xs);
-  padding: 12px;
-  background: #f8fafc;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .unsplit-header {
@@ -2872,91 +3072,32 @@ const handleUnsplit = async () => {
 }
 
 .unsplit-title {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
+  color: var(--text-primary);
 }
 
 .unsplit-subtitle {
-  font-size: 11px;
-  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
 }
 
 .unsplit-controls {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .unsplit-category-select {
-  flex: 1;
-  padding: 6px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  background: var(--color-surface);
-  color: var(--color-text);
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
-.btn-unsplit-action {
-  padding: 6px 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: var(--radius-sm);
-  background: #fff;
-  color: #475569;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-unsplit-action:hover:not(:disabled) {
-  background: #f1f5f9;
-  border-color: #94a3b8;
-  color: #1e293b;
-}
-
-/* Dialog Footer */
 .split-dialog-footer {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-sm);
-  width: 100%;
-}
-
-.btn-dialog-cancel {
-  padding: 8px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: #fff;
-  color: var(--color-text);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-dialog-cancel:hover:not(:disabled) {
-  background: #f8fafc;
-}
-
-.btn-dialog-save {
-  padding: 8px 18px;
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-sm);
-  background: var(--color-primary);
-  color: #fff;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn-dialog-save:hover:not(:disabled) {
-  background: var(--color-primary-hover, #2563eb);
-}
-
-.btn-dialog-save:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>

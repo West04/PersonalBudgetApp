@@ -9,6 +9,7 @@ Verifies:
 5. Search input placeholder and accessible label indicate merchant and description searchability.
 """
 
+import re
 from pathlib import Path
 import pytest
 
@@ -16,16 +17,21 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TX_VUE = REPO_ROOT / "frontend" / "app" / "pages" / "transactions.vue"
 
 
+def has_class(content: str, name: str) -> bool:
+    """True when a static class attribute contains `name` as a whole token."""
+    return re.search(r'\bclass="[^"]*(?<![\w-])' + re.escape(name) + r'(?![\w-])[^"]*"', content) is not None
+
+
 def test_transactions_table_header_has_merchant_and_description():
     content = TX_VUE.read_text(encoding="utf-8")
-    assert '<th scope="col" class="desc-col">Merchant / Description</th>' in content
+    assert re.search(r'<th scope="col" class="desc-col"[^>]*>Merchant / Description</th>', content)
 
 
 def test_transactions_row_renders_merchant_and_edit_button():
     content = TX_VUE.read_text(encoding="utf-8")
     assert 'class="merchant-row"' in content
     assert 'class="merchant-name"' in content
-    assert 'class="btn-edit-merchant"' in content
+    assert has_class(content, "btn-edit-merchant")
     assert ':aria-label="`Edit merchant for ${tx.merchant || tx.description}`"' in content
 
 
@@ -41,8 +47,8 @@ def test_transactions_inline_merchant_editing_form():
     assert 'class="merchant-edit-form"' in content
     assert 'class="merchant-edit-input"' in content
     assert '@keydown.esc="cancelEditingMerchant"' in content
-    assert 'class="btn-save-merchant"' in content
-    assert 'class="btn-cancel-merchant"' in content
+    assert has_class(content, "btn-save-merchant")
+    assert has_class(content, "btn-cancel-merchant")
     assert 'const startEditingMerchant' in content
     assert 'const cancelEditingMerchant' in content
     assert 'const saveMerchant' in content

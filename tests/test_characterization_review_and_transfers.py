@@ -665,10 +665,10 @@ def test_frontend_transactions_page_elements(require_node):
 
     const checks = {
         hasReviewFilterSelect: txCode.includes('id="tx-review-select"') && txCode.includes('v-model="reviewFilter"'),
-        hasReviewTableHeader: txCode.includes('<th scope="col" class="status-col">Review</th>'),
+        hasReviewTableHeader: /<th scope="col" class="status-col"[^>]*>Review<\\/th>/.test(txCode),
         hasReviewToggleButton: txCode.includes('class="review-toggle-btn"') && txCode.includes('toggleReviewStatus'),
         hasTransferMatchesBtn: txCode.includes('btn-transfer-matches') && txCode.includes('toggleTransfersPanel'),
-        hasTransferPanel: txCode.includes('class="transfer-panel') && txCode.includes('confirmTransfer') && txCode.includes('dismissTransfer'),
+        hasTransferPanel: /class="[^"]*\\btransfer-panel\\b/.test(txCode) && txCode.includes('confirmTransfer') && txCode.includes('dismissTransfer'),
         composableHasReviewFilter: composableCode.includes('reviewFilter') && composableCode.includes("tx_filter_review', () => 'all')"),
         composableClearResetsReview: composableCode.includes("reviewFilter.value = 'all'"),
         sidebarRemovesCreditCards: !appCode.includes('to="{ path: \\'/credit-cards\\'') && !appCode.includes('title="Credit Cards"'),

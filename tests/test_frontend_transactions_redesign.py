@@ -445,14 +445,17 @@ def test_interactive_browser_workflow_simulation(require_node):
         failures.push({ step: '(7) combined filters query payload', actual: combinedQuery });
     }
 
-    // --- (8) Narrow-viewport table scrolling CSS contract ---
+    // --- (8) Narrow-viewport ledger CSS contract ---
+    // The ledger no longer relies on a fixed min-width + horizontal scroll: it sizes
+    // to its container and narrow containers restack each row (see redesign tests).
     const vueCode = fs.readFileSync(path.resolve('./frontend/app/pages/transactions.vue'), 'utf-8');
     const hasResponsiveWrapper = vueCode.includes('.table-responsive') &&
                                 vueCode.includes('overflow-x: auto') &&
                                 vueCode.includes('-webkit-overflow-scrolling: touch');
-    const hasTableMinWidth = vueCode.includes('.transactions-table') && vueCode.includes('min-width: 640px');
-    if (!hasResponsiveWrapper || !hasTableMinWidth) {
-        failures.push({ step: '(8) responsive table CSS contract', actual: { hasResponsiveWrapper, hasTableMinWidth } });
+    const hasLedgerContainer = vueCode.includes('container: ledger / inline-size') &&
+                               /@container ledger \\(max-width: \\d+px\\)/.test(vueCode);
+    if (!hasResponsiveWrapper || !hasLedgerContainer) {
+        failures.push({ step: '(8) responsive ledger CSS contract', actual: { hasResponsiveWrapper, hasLedgerContainer } });
     }
 
     // --- (9) Date-only rendering in negative UTC offset ---
@@ -469,3 +472,162 @@ def test_interactive_browser_workflow_simulation(require_node):
     proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
     res = json.loads(proc.stdout)
     assert res["passed"] is True, f"Interactive browser workflow simulation failures: {res['failures']}"
+
+
+# ---------------------------------------------------------------------------
+# Transactions page redesign (Instrument / Ledger) contracts.
+# Source-level checks of stable structure and semantics, not exact CSS values.
+# ---------------------------------------------------------------------------
+
+import re
+
+TX_VUE = REPO_ROOT / "frontend" / "app" / "pages" / "transactions.vue"
+
+
+def _tx_source():
+    code = TX_VUE.read_text(encoding="utf-8")
+    template = code.split("<script setup")[0]
+    style = code.split("<style scoped>")[1]
+    return code, template, style
+
+
+def _css_block(style, selector):
+    """Body of the first top-level rule whose selector list is exactly `selector`."""
+    match = re.search(r"(?m)^" + re.escape(selector) + r"\s*\{([^}]*)\}", style)
+    assert match, f"missing CSS rule for {selector}"
+    return match.group(1)
+
+
+def test_ledger_keeps_semantic_table_with_explicit_roles():
+    _, template, _ = _tx_source()
+    assert re.search(r'<table class="transactions-table"[^>]*role="table"', template)
+    headers = re.findall(r'<th scope="col" class="([\w-]+)" role="columnheader">([^<]+)</th>', template)
+    assert [h[1] for h in headers] == [
+        "Date", "Merchant / Description", "Account", "Category", "Amount", "Review",
+    ]
+    # Roles are explicit so the narrow (display: grid) layout keeps table semantics
+    assert 'role="row"' in template and template.count('role="cell"') >= 6
+    assert template.count('role="rowgroup"') == 2
+
+
+def test_narrow_ledger_restacks_rows_without_hiding_headers_from_assistive_tech():
+    _, _, style = _tx_source()
+    assert "container: ledger / inline-size" in style
+    narrow = style.split("@container ledger (max-width: 619px)")[1]
+    assert "grid-template-areas" in narrow
+    # Header row is visually hidden, never display: none
+    thead = re.search(r"\.transactions-table thead \{([^}]*)\}", narrow).group(1)
+    assert "clip:" in thead and "display: none" not in thead
+    # The ledger no longer forces horizontal scrolling with a fixed minimum width
+    assert "min-width: 640px" not in _css_block(style, ".transactions-table")
+
+
+def test_amount_tone_follows_existing_inflow_semantics():
+    _, template, style = _tx_source()
+    # Explicit + for inflows (negative amounts) is preserved
+    assert "{{ tx.amount < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(tx.amount))) }}" in template
+    # Tone uses financial tokens via the shared money classes, not status colors
+    assert ":class=\"tx.amount < 0 ? 'money--inflow' : 'money--outflow'\"" in template
+    amount = _css_block(style, ".amount-cell")
+    assert "status-" not in amount and "color-success" not in amount and "color-danger" not in amount
+    assert "text-align: right" in _css_block(style, ".amount-col,\n.amount-cell")
+
+
+def test_uncategorized_is_an_incomplete_state_not_an_error():
+    _, template, style = _tx_source()
+    assert "'uncategorized': !tx.category_id" in template
+    rule = _css_block(style, ".category-select.uncategorized")
+    assert "status-error" not in rule and "danger" not in rule
+    assert "dashed" in rule
+
+
+def test_review_toggle_communicates_state_with_text_and_shape():
+    _, template, _ = _tx_source()
+    toggle = template.split('class="review-toggle-btn"')[1].split("</button>")[0]
+    assert "toggleReviewStatus(tx)" in toggle
+    assert "'check-circle' : 'circle'" in toggle
+    assert "tx.is_reviewed ? 'Reviewed' : 'Needs review'" in toggle
+    assert "`Mark transaction ${tx.description} as reviewed`" in toggle
+    assert "`Mark transaction ${tx.description} as needs review`" in toggle
+
+
+def test_pending_is_surfaced_quietly_without_changing_split_guard():
+    _, template, style = _tx_source()
+    assert re.search(r'v-if="tx\.pending"\s+class="tx-flag tx-flag--pending"', template)
+    assert 'v-if="!tx.is_transfer && !tx.pending"' in template
+    assert "status-error" not in _css_block(style, ".tx-flag")
+
+
+def test_category_cell_keeps_suggestion_select_and_split_actions():
+    _, template, _ = _tx_source()
+    for marker in (
+        'class="ml-suggestion-box"',
+        'class="btn-accept-suggestion"',
+        "acceptSuggestion(tx, suggestions[tx.transaction_id])",
+        'class="category-select"',
+        "updateTransactionCategory(tx.transaction_id",
+        'class="btn-split-trigger"',
+        'class="btn-split-badge"',
+        "openSplitDialog(tx)",
+    ):
+        assert marker in template, marker
+    # Suggestion stays ahead of the selector in reading order ("Or choose another category")
+    assert template.index('class="ml-suggestion-box"') < template.index('class="category-select"')
+
+
+def test_mobile_filter_disclosure_is_presentation_only():
+    code, template, _ = _tx_source()
+    assert 'aria-controls="tx-filter-fields"' in template and 'id="tx-filter-fields"' in template
+    assert ':aria-expanded="filtersOpen"' in template
+    # Filters stay bound to the shared composable / route-backed refs
+    for model in ('v-model="searchQuery"', 'v-model="selectedAccount"', 'v-model="selectedCategory"',
+                  'v-model="reviewFilter"', 'v-model="uncategorizedOnly"'):
+        assert model in template, model
+    assert "} = useTransactionFilters()" in code
+    assert "filtersOpen" not in code.split("const queryParams = computed")[1].split("})")[0]
+
+
+def test_secondary_panels_and_recurring_tabs_are_wired():
+    _, template, _ = _tx_source()
+    assert 'aria-controls="recurring-tabpanel"' in template
+    assert 'id="recurring-tabpanel"' in template and 'role="tabpanel"' in template
+    assert ':aria-expanded="showTransfersPanel"' in template
+    assert ':aria-expanded="showRecurringPanel"' in template
+
+
+def test_split_dialog_contract_preserved():
+    code, template, _ = _tx_source()
+    for marker in ("hasDuplicateCategories", "canSaveSplit", "addSplitLine", "removeSplitLine(idx)",
+                   'class="split-math-bar"', 'class="badge-balanced"', "handleUnsplit"):
+        assert marker in code, marker
+    assert ':disabled="splitLines.length <= 2"' in template
+    assert "if (splitLines.value.length < 2) return false" in code
+    assert "remainingCents.value === 0" in code
+
+
+def test_merchant_editor_receives_focus_from_v_for_ref():
+    code, _, _ = _tx_source()
+    assert "Array.isArray(merchantInputRef.value)" in code
+
+
+def test_transactions_template_has_no_emoji_action_glyphs():
+    _, template, _ = _tx_source()
+    for glyph in ("🔍", "✎", "✓ Confirm", "✕ Dismiss", ">\n                          ✓", ">\n                          ✕"):
+        assert glyph not in template, glyph
+
+
+def test_amount_track_stays_stable_through_medium_ledger():
+    """The amount column keeps one width from desktop through the medium layouts,
+    so right-aligned figures share an edge (no narrower override at <= 760px)."""
+    _, _, style = _tx_source()
+    width = lambda css: re.search(r"\.amount-col \{[^}]*?width: (\d+)px", css)
+    desktop = width(style.split("@container")[0])
+    medium = width(style.split("@container ledger (max-width: 999px)")[1].split("@container")[0])
+    compact = style.split("@container ledger (max-width: 760px)")[1].split("@container")[0]
+    assert desktop and medium and int(medium.group(1)) >= int(desktop.group(1))
+    assert ".amount-col" not in compact
+    # State flags keep their width (descriptions truncate first) and only end in an
+    # ellipsis when a flag alone is wider than the line
+    flag = _css_block(style, ".tx-flag")
+    assert "flex-shrink: 0" in flag and "max-width: 100%" in flag
+    assert "text-overflow: ellipsis" in flag
