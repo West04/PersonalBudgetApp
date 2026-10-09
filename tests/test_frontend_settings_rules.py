@@ -32,7 +32,7 @@ def test_settings_rules_table_accessibility_contract(require_node):
     Verifies that the rules table has proper semantic structure, table headers,
     scope attributes, and accessible action buttons.
     """
-    script = """
+    script = r"""
     import fs from 'node:fs';
     import path from 'node:path';
 
@@ -41,11 +41,12 @@ def test_settings_rules_table_accessibility_contract(require_node):
     const hasTable = code.includes('<table class="rules-table"');
     const hasAriaLabel = code.includes('aria-label="Categorization rules table"');
     const hasThScope = code.includes('scope="col"') && code.includes('Merchant') && code.includes('Target Category');
-    const hasActionsHeader = code.includes('scope="col" class="th-actions">Actions</th>');
+    // Actions column keeps an accessible header name (visually hidden is fine)
+    const hasActionsHeader = /<th scope="col"[^>]*class="th-actions"[^>]*>(<span class="sr-only">)?Actions/.test(code);
 
-    const hasApplyBtn = code.includes('class="btn-action btn-apply"') && code.includes(':aria-label="`Apply rule for ${rule.merchant}');
-    const hasEditBtn = code.includes('class="btn-action btn-edit"') && code.includes(':aria-label="`Edit rule for ${rule.merchant}`"');
-    const hasDeleteBtn = code.includes('class="btn-action btn-delete"') && code.includes(':aria-label="`Delete rule for ${rule.merchant}`"');
+    const hasApplyBtn = /class="[^"]*\bbtn-apply\b[^"]*"/.test(code) && code.includes(':aria-label="`Apply rule for ${rule.merchant}');
+    const hasEditBtn = /class="[^"]*\bbtn-edit\b[^"]*"/.test(code) && code.includes(':aria-label="`Edit rule for ${rule.merchant}`"');
+    const hasDeleteBtn = /class="[^"]*\bbtn-delete\b[^"]*"/.test(code) && code.includes(':aria-label="`Delete rule for ${rule.merchant}`"');
 
     const passed = hasTable && hasAriaLabel && hasThScope && hasActionsHeader && hasApplyBtn && hasEditBtn && hasDeleteBtn;
 
@@ -77,7 +78,7 @@ def test_settings_rules_dialogs_contract(require_node):
     Verifies that the Add, Edit, Delete, and Apply modals adhere to AppDialog,
     FormField, and accessible confirmation standards.
     """
-    script = """
+    script = r"""
     import fs from 'node:fs';
     import path from 'node:path';
 
@@ -134,17 +135,20 @@ def test_settings_rules_dialogs_contract(require_node):
 
 def test_settings_rules_responsive_styles(require_node):
     """
-    Verifies that responsive media queries adapt the layout for narrow viewports.
+    Verifies that the rules table adapts for narrow widths: a container-query
+    narrow tier stacks each rule while actions stay reachable, and the table
+    surface never forces horizontal overflow.
     """
-    script = """
+    script = r"""
     import fs from 'node:fs';
     import path from 'node:path';
 
     const code = fs.readFileSync(path.resolve('./app/pages/settings.vue'), 'utf-8');
 
-    const hasMediaQuery = code.includes('@media (max-width: 640px)');
-    const hasActionButtonsStack = code.includes('.action-buttons') && code.includes('flex-direction: column');
-    const hasOverflowControl = code.includes('overflow-x: auto');
+    const hasMediaQuery = /@container rules \(width < \d+px\)/.test(code);
+    const narrow = code.slice(code.search(/@container rules \(width </));
+    const hasActionButtonsStack = code.includes('.action-buttons') && narrow.includes('grid-template-areas') && narrow.includes('"merchant actions"');
+    const hasOverflowControl = /\.table-container \{[^}]*overflow: hidden/.test(code) && code.includes('overflow-wrap: anywhere');
 
     const passed = hasMediaQuery && hasActionButtonsStack && hasOverflowControl;
 

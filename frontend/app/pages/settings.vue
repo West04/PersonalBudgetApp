@@ -1,154 +1,155 @@
 <template>
-  <div class="settings-page">
+  <div class="settings-page page-container page-container--narrow">
     <PageHeader
       title="Settings"
-      subtitle="Manage application settings and transaction automation rules"
-    >
-      <template #actions>
-        <button
-          type="button"
-          class="btn btn-primary"
-          @click="openAddModal"
-          aria-label="Create new categorization rule"
-        >
-          + Add Rule
-        </button>
-      </template>
-    </PageHeader>
+      subtitle="Transaction categorization rules and the suggestion model"
+    />
 
-    <!-- Error Banner -->
     <ErrorBanner
       v-if="pageError"
       :error="pageError"
       @dismiss="pageError = null"
     />
 
-    <!-- Success Feedback Banner -->
+    <!-- Inline confirmation: icon and text, not color alone -->
     <div
       v-if="successMessage"
       class="success-banner"
       role="status"
       aria-live="polite"
     >
-      <span class="success-icon" aria-hidden="true">✓</span>
+      <AppIcon name="check-circle" :size="18" class="success-icon" />
       <span class="success-text">{{ successMessage }}</span>
       <button
         type="button"
-        class="success-dismiss"
+        class="btn-icon success-dismiss"
         @click="successMessage = null"
         aria-label="Dismiss success message"
       >
-        ✕
+        <AppIcon name="close" :size="16" />
       </button>
     </div>
 
-    <!-- Main Card -->
-    <div class="rules-card surface-card">
-      <div class="card-header-row">
-        <div>
-          <h2 class="section-title">Categorization Rules</h2>
-          <p class="section-desc">
+    <!-- Categorization rules -->
+    <section class="settings-section" aria-labelledby="heading-rules">
+      <div class="section-head">
+        <div class="section-titles">
+          <h2 id="heading-rules" class="section-heading">Categorization rules</h2>
+          <p class="section-meta">
             Rules automatically assign categories to new transactions from normalized merchant identity.
             Existing manual categories are always preserved.
           </p>
         </div>
-        <div v-if="rules && rules.length > 0" class="rules-count-badge">
-          {{ rules.length }} {{ rules.length === 1 ? 'rule' : 'rules' }}
+        <div class="section-actions">
+          <span v-if="rules && rules.length > 0" class="rules-count num">
+            {{ rules.length }} {{ rules.length === 1 ? 'rule' : 'rules' }}
+          </span>
+          <button
+            type="button"
+            class="btn btn-primary"
+            @click="openAddModal"
+            aria-label="Create new categorization rule"
+          >
+            <AppIcon name="plus" :size="16" />
+            Add rule
+          </button>
         </div>
       </div>
 
-      <!-- Loading State -->
       <LoadingState v-if="pending" message="Loading categorization rules..." />
 
-      <template v-else>
-        <!-- Empty State -->
-        <EmptyState
-          v-if="!rules || rules.length === 0"
-          title="No categorization rules yet"
-          description="Create deterministic rules to categorize transactions automatically when imported or added."
-        >
-          <template #actions>
-            <button
-              type="button"
-              class="btn btn-primary"
-              @click="openAddModal"
-            >
-              + Add First Rule
-            </button>
-          </template>
-        </EmptyState>
+      <!-- A failed load shows only the error, never "No categorization rules yet" -->
+      <ErrorBanner
+        v-else-if="fetchError && !rules"
+        error="Couldn't load categorization rules. Reload the page to try again."
+        :dismissible="false"
+      />
 
-        <!-- Rules Table -->
-        <div v-else class="table-container">
-          <table class="rules-table" aria-label="Categorization rules table">
-            <thead>
-              <tr>
-                <th scope="col" class="th-merchant">Merchant</th>
-                <th scope="col" class="th-category">Target Category</th>
-                <th scope="col" class="th-actions">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="rule in rules" :key="rule.id" class="rule-row">
-                <td class="td-merchant">
-                  <span class="merchant-badge">{{ rule.merchant }}</span>
-                </td>
-                <td class="td-category">
-                  <div class="category-info">
-                    <span class="category-name">{{ rule.category?.name || 'Unknown Category' }}</span>
-                    <span v-if="getCategoryGroupName(rule.category_id)" class="group-name-tag">
-                      {{ getCategoryGroupName(rule.category_id) }}
-                    </span>
-                  </div>
-                </td>
-                <td class="td-actions">
-                  <div class="action-buttons">
-                    <button
-                      type="button"
-                      class="btn-action btn-apply"
-                      @click="openApplyModal(rule)"
-                      :aria-label="`Apply rule for ${rule.merchant} to existing uncategorized transactions`"
-                      title="Apply to matching uncategorized transactions"
-                    >
-                      Apply
-                    </button>
-                    <button
-                      type="button"
-                      class="btn-action btn-edit"
-                      @click="openEditModal(rule)"
-                      :aria-label="`Edit rule for ${rule.merchant}`"
-                      title="Edit rule"
-                    >
-                      ✎ Edit
-                    </button>
-                    <button
-                      type="button"
-                      class="btn-action btn-delete"
-                      @click="openDeleteModal(rule)"
-                      :aria-label="`Delete rule for ${rule.merchant}`"
-                      title="Delete rule"
-                    >
-                      ✕ Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </template>
-    </div>
+      <EmptyState
+        v-else-if="!rules || rules.length === 0"
+        title="No categorization rules yet"
+        description="Create deterministic rules to categorize transactions automatically when imported or added."
+      >
+        <template #actions>
+          <button
+            type="button"
+            class="btn btn-primary"
+            @click="openAddModal"
+          >
+            <AppIcon name="plus" :size="16" />
+            Add first rule
+          </button>
+        </template>
+      </EmptyState>
 
-    <!-- ML Categorization Card -->
-    <div class="ml-card surface-card">
-      <div class="card-header-row">
-        <div>
-          <h2 class="section-title">ML Categorization</h2>
-          <p class="section-desc">
+      <!-- Explicit ARIA roles keep table semantics when the narrow tier changes display -->
+      <div v-else class="table-container surface-card">
+        <table class="rules-table" role="table" aria-label="Categorization rules table">
+          <thead>
+            <tr role="row">
+              <th scope="col" role="columnheader" class="th-merchant">Merchant</th>
+              <th scope="col" role="columnheader" class="th-category">Target Category</th>
+              <th scope="col" role="columnheader" class="th-actions"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="rule in rules" :key="rule.id" role="row" class="rule-row">
+              <td role="cell" class="td-merchant">
+                <span class="merchant-name">{{ rule.merchant }}</span>
+              </td>
+              <td role="cell" class="td-category">
+                <span class="category-name">{{ rule.category?.name || 'Unknown Category' }}</span>
+                <span v-if="getCategoryGroupName(rule.category_id)" class="group-name">
+                  {{ getCategoryGroupName(rule.category_id) }}
+                </span>
+              </td>
+              <td role="cell" class="td-actions">
+                <div class="action-buttons">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm btn-apply"
+                    @click="openApplyModal(rule)"
+                    :aria-label="`Apply rule for ${rule.merchant} to existing uncategorized transactions`"
+                    title="Apply to matching uncategorized transactions"
+                  >
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-icon btn-edit"
+                    @click="openEditModal(rule)"
+                    :aria-label="`Edit rule for ${rule.merchant}`"
+                    title="Edit rule"
+                  >
+                    <AppIcon name="edit" :size="16" />
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-icon btn-icon-danger btn-delete"
+                    @click="openDeleteModal(rule)"
+                    :aria-label="`Delete rule for ${rule.merchant}`"
+                    title="Delete rule"
+                  >
+                    <AppIcon name="trash" :size="16" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ML categorization -->
+    <section class="settings-section" aria-labelledby="heading-ml">
+      <div class="section-head">
+        <div class="section-titles">
+          <h2 id="heading-ml" class="section-heading">ML categorization</h2>
+          <p class="section-meta">
             Local supervised model that learns from historical manual categorizations to suggest categories for transactions that remain uncategorized after deterministic rules.
           </p>
         </div>
-        <div class="ml-header-actions">
+        <div class="section-actions">
           <button
             type="button"
             class="btn btn-secondary"
@@ -157,43 +158,53 @@
             aria-label="Retrain categorization model"
           >
             <span v-if="retraining">Retraining...</span>
-            <span v-else>Retrain Model</span>
+            <span v-else>Retrain model</span>
           </button>
         </div>
       </div>
 
-      <div class="ml-status-grid">
-        <div class="ml-status-item">
-          <span class="status-label">Model Status</span>
-          <span class="status-value status-badge" :class="statusBadgeClass">{{ mlStatus?.status || 'Unknown' }}</span>
-        </div>
-        <div class="ml-status-item">
-          <span class="status-label">Training Examples</span>
-          <span class="status-value font-mono">{{ mlStatus?.training_example_count ?? 0 }}</span>
-        </div>
-        <div class="ml-status-item">
-          <span class="status-label">New Labels Since Training</span>
-          <span class="status-value font-mono">{{ mlStatus?.new_labels_since_training ?? 0 }}</span>
-        </div>
-        <div class="ml-status-item">
-          <span class="status-label">Last Trained</span>
-          <span class="status-value font-mono">{{ formatTrainedDate(mlStatus?.trained_at) }}</span>
-        </div>
-        <div v-if="mlStatus?.accuracy !== null && mlStatus?.accuracy !== undefined" class="ml-status-item">
-          <span class="status-label">Test Accuracy</span>
-          <span class="status-value font-mono">{{ Math.round((mlStatus?.accuracy || 0) * 100) }}%</span>
-        </div>
-        <div v-if="mlStatus?.macro_f1 !== null && mlStatus?.macro_f1 !== undefined" class="ml-status-item">
-          <span class="status-label">Macro F1</span>
-          <span class="status-value font-mono">{{ mlStatus?.macro_f1 }}</span>
-        </div>
-      </div>
+      <!-- A failed status load never shows "0 examples / Never" as if it were real -->
+      <ErrorBanner
+        v-if="mlStatusError && !mlStatus"
+        error="Couldn't load model status. Reload the page to try again."
+        :dismissible="false"
+      />
 
-      <div v-if="mlStatus?.status_message" class="ml-status-message">
-        {{ mlStatus.status_message }}
-      </div>
-    </div>
+      <template v-else>
+        <dl class="model-facts">
+          <div class="fact">
+            <dt class="fact-label">Model status</dt>
+            <dd class="fact-value">
+              <span class="status-badge" :class="statusBadgeClass">{{ mlStatus?.status || 'Unknown' }}</span>
+            </dd>
+          </div>
+          <div class="fact">
+            <dt class="fact-label">Training examples</dt>
+            <dd class="fact-value num">{{ mlStatus?.training_example_count ?? 0 }}</dd>
+          </div>
+          <div class="fact">
+            <dt class="fact-label">New labels since training</dt>
+            <dd class="fact-value num">{{ mlStatus?.new_labels_since_training ?? 0 }}</dd>
+          </div>
+          <div class="fact">
+            <dt class="fact-label">Last trained</dt>
+            <dd class="fact-value num">{{ formatTrainedDate(mlStatus?.trained_at) }}</dd>
+          </div>
+          <div v-if="mlStatus?.accuracy !== null && mlStatus?.accuracy !== undefined" class="fact">
+            <dt class="fact-label">Test accuracy</dt>
+            <dd class="fact-value num">{{ Math.round((mlStatus?.accuracy || 0) * 100) }}%</dd>
+          </div>
+          <div v-if="mlStatus?.macro_f1 !== null && mlStatus?.macro_f1 !== undefined" class="fact">
+            <dt class="fact-label">Macro F1</dt>
+            <dd class="fact-value num">{{ mlStatus?.macro_f1 }}</dd>
+          </div>
+        </dl>
 
+        <p v-if="mlStatus?.status_message" class="model-message">
+          {{ mlStatus.status_message }}
+        </p>
+      </template>
+    </section>
     <!-- Dialog: Add Rule -->
     <AppDialog
       :open="isAddOpen"
@@ -319,12 +330,10 @@
           Are you sure you want to delete the categorization rule for
           <strong>{{ selectedRule.merchant }}</strong>?
         </p>
-        <div class="callout-box">
-          <p class="callout-text">
-            • Future transactions will no longer be automatically categorized by this rule.<br />
-            • Previously categorized transactions will remain unchanged.
-          </p>
-        </div>
+        <ul class="callout-box callout-list">
+          <li>Future transactions will no longer be automatically categorized by this rule.</li>
+          <li>Previously categorized transactions will remain unchanged.</li>
+        </ul>
 
         <ErrorBanner v-if="modalError" :error="modalError" :dismissible="false" />
       </div>
@@ -371,7 +380,6 @@
           </div>
 
           <div v-else class="preview-zero-box">
-            <div class="zero-icon">ℹ️</div>
             <div class="zero-title">No matching uncategorized transactions</div>
             <p class="zero-desc">
               All transactions matching <strong>{{ selectedRule.merchant }}</strong> already have a category assigned, or no transactions match this merchant yet.
@@ -399,7 +407,6 @@
     </AppDialog>
   </div>
 </template>
-
 <script setup lang="ts">
 import { ref, computed, reactive } from 'vue'
 
@@ -420,6 +427,7 @@ const {
 // ML Model Status Fetching
 const {
   data: mlStatus,
+  error: mlStatusError,
   refresh: refreshMLStatus,
 } = await useFetch<any>(`${API_BASE}/ml/status`)
 
@@ -713,96 +721,97 @@ const submitApplyRule = async () => {
 </script>
 
 <style scoped>
-.settings-page {
-  max-width: var(--page-max-width);
-  margin: 0 auto;
-  padding: var(--space-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
+/* Sections sit on the page: a heading row, then content. One rule between them. */
+.settings-section {
+  min-width: 0;
 }
+
+.settings-section + .settings-section {
+  margin-top: var(--space-xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-lg);
+  margin-bottom: var(--space-md);
+}
+
+.section-titles {
+  flex: 1 1 22rem;
+  min-width: 0;
+  max-width: 62ch;
+}
+
+.section-heading {
+  margin: 0;
+  font-size: var(--type-heading-size);
+  font-weight: var(--type-heading-weight);
+  line-height: var(--line-height-tight);
+  color: var(--text-primary);
+}
+
+.section-meta {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--type-meta-size);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.rules-count {
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Feedback ------------------------------------------------------------------ */
 
 .success-banner {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  background-color: var(--color-success-bg);
-  border: 1px solid var(--color-success-border);
-  color: var(--color-success-hover);
+  margin-bottom: var(--space-lg);
+  padding: 8px 8px 8px var(--space-md);
+  background-color: var(--status-success-bg);
+  border: 1px solid var(--status-success-border);
   border-radius: var(--radius-md);
+  color: var(--text-primary);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
 }
 
 .success-icon {
-  font-weight: var(--font-weight-bold);
+  color: var(--status-success);
 }
 
 .success-text {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .success-dismiss {
-  background: none;
-  border: none;
-  color: currentColor;
-  cursor: pointer;
-  padding: var(--space-2xs) var(--space-xs);
-  font-size: var(--font-size-base);
-  opacity: 0.8;
-  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
 }
 
-.success-dismiss:hover {
-  opacity: 1;
-}
-
-.rules-card {
-  padding: var(--space-lg);
-  border-radius: var(--radius-lg);
-}
-
-.card-header-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--space-md);
-  margin-bottom: var(--space-lg);
-  padding-bottom: var(--space-md);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.section-title {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-  margin: 0 0 var(--space-xs) 0;
-}
-
-.section-desc {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  margin: 0;
-  max-width: 650px;
-  line-height: 1.45;
-}
-
-.rules-count-badge {
-  padding: var(--space-2xs) var(--space-sm);
-  background: var(--color-surface-hover);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
+/* Rules table ---------------------------------------------------------------
+   One bounded surface. Wide by default; a single narrow tier below 520px
+   (no adjacent ranges, so no fractional gaps). */
 
 .table-container {
-  overflow-x: auto;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  container: rules / inline-size;
+  overflow: hidden;
 }
 
 .rules-table {
@@ -813,161 +822,242 @@ const submitApplyRule = async () => {
 
 .rules-table th {
   padding: var(--space-sm) var(--space-md);
-  background: var(--color-background);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border-bottom: 1px solid var(--color-border);
+  background: var(--table-header);
+  color: var(--text-muted);
+  font-size: var(--type-meta-size);
+  font-weight: var(--font-weight-medium);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .rules-table td {
-  padding: var(--space-md);
-  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 10px var(--space-md);
   vertical-align: middle;
 }
 
-.rule-row:last-child td {
-  border-bottom: none;
+.rule-row + .rule-row td {
+  border-top: 1px solid var(--table-border);
 }
 
 .rule-row:hover {
-  background: var(--color-surface-hover);
+  background: var(--table-hover);
 }
 
-.merchant-badge {
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-  font-size: var(--font-size-base);
+.th-merchant,
+.td-merchant {
+  width: 38%;
 }
 
-.category-info {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
+.th-actions,
+.td-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.merchant-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.td-category {
+  overflow-wrap: anywhere;
 }
 
 .category-name {
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text);
+  color: var(--text-primary);
 }
 
-.group-name-tag {
-  font-size: var(--font-size-2xs);
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-hover);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+.group-name {
+  margin-left: var(--space-sm);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
 }
 
 .action-buttons {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
-  flex-wrap: wrap;
-}
-
-.btn-action {
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2xs);
-  transition: all 0.15s ease;
-  min-height: 32px;
-}
-
-.btn-action:hover {
-  background: var(--color-surface-hover);
-  border-color: var(--color-border-hover);
+  justify-content: flex-end;
+  gap: 2px;
 }
 
 .btn-apply {
-  color: var(--color-primary);
-  border-color: rgba(37, 99, 235, 0.3);
-  background: var(--color-primary-light);
+  margin-right: var(--space-xs);
 }
 
-.btn-apply:hover {
-  background: #dbeafe;
-  border-color: var(--color-primary);
+.action-buttons .btn-icon {
+  min-width: 32px;
+  min-height: 32px;
+  color: var(--text-muted);
 }
 
-.btn-delete:hover {
-  color: var(--color-danger);
-  border-color: var(--color-danger-border);
-  background: var(--color-danger-bg);
+.action-buttons .btn-icon:hover:not(:disabled) {
+  color: var(--text-primary);
 }
 
-.modal-form {
+.action-buttons .btn-icon-danger:hover:not(:disabled),
+.action-buttons .btn-icon-danger:focus-visible {
+  color: var(--status-error);
+}
+
+/* Narrow tier: merchant over category, actions held on the right */
+@container rules (width < 520px) {
+  .rules-table,
+  .rules-table tbody {
+    display: block;
+  }
+
+  .rules-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .rule-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "merchant actions"
+      "category actions";
+    column-gap: var(--space-sm);
+    align-items: center;
+    padding: 10px var(--space-sm) 10px var(--space-md);
+  }
+
+  .rule-row + .rule-row {
+    border-top: 1px solid var(--table-border);
+  }
+
+  .rule-row + .rule-row td {
+    border-top: none;
+  }
+
+  .rules-table td {
+    padding: 0;
+    width: auto;
+  }
+
+  .td-merchant { grid-area: merchant; }
+  .td-category { grid-area: category; font-size: var(--type-meta-size); }
+  .td-actions { grid-area: actions; }
+
+  .action-buttons .btn-icon {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+
+/* Model facts --------------------------------------------------------------- */
+
+.model-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: var(--space-md) var(--space-lg);
+  margin: 0;
+}
+
+.fact {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: var(--space-xs);
+  min-width: 0;
 }
 
-.form-input,
-.form-select {
-  width: 100%;
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-base);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-family: inherit;
-  transition: border-color 0.15s ease;
-  min-height: 42px;
+.fact-label {
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  color: var(--text-muted);
 }
 
-.form-input:focus,
-.form-select:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-focus);
-}
-
-.modal-content-delete {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-}
-
-.delete-warning {
+.fact-value {
   margin: 0;
-  font-size: var(--font-size-base);
-  color: var(--color-text);
-  line-height: 1.5;
+  font-size: var(--type-subheading-size);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 
-.callout-box {
-  padding: var(--space-sm) var(--space-md);
-  background: var(--color-background);
-  border-left: 3px solid var(--color-primary);
-  border-radius: var(--radius-xs);
+/* Status is named in text; tone only reinforces it */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--type-meta-size);
+  font-weight: var(--font-weight-medium);
 }
 
-.callout-text {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  line-height: 1.5;
+.status-ready {
+  background: var(--status-success-bg);
+  border-color: var(--status-success-border);
+  color: var(--status-success);
 }
 
+.status-stale {
+  background: var(--status-warning-bg);
+  border-color: var(--status-warning-border);
+  color: var(--status-warning);
+}
+
+.status-needs-data {
+  background: var(--bg-subtle);
+  border-color: var(--border-default);
+  color: var(--text-secondary);
+}
+
+.model-message {
+  margin: var(--space-md) 0 0;
+  max-width: 62ch;
+  font-size: var(--type-meta-size);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* Dialogs ------------------------------------------------------------------- */
+
+.modal-form,
+.modal-content-delete,
 .modal-content-apply {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
+}
+
+.modal-form :deep(.form-field) {
+  margin-bottom: 0;
+}
+
+.delete-warning {
+  margin: 0;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.callout-box {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.callout-list {
+  padding-left: calc(var(--space-md) + 1.1em);
+}
+
+.callout-list li,
+.callout-text {
+  margin: 0;
+  font-size: var(--type-meta-size);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.callout-list li + li {
+  margin-top: var(--space-2xs);
 }
 
 .preview-match-box {
@@ -976,26 +1066,29 @@ const submitApplyRule = async () => {
   align-items: center;
   text-align: center;
   gap: var(--space-sm);
-  padding: var(--space-md);
+  padding: var(--space-sm) 0;
 }
 
 .match-count-number {
-  font-size: 2.5rem;
-  font-weight: var(--font-weight-bold);
-  color: var(--color-primary);
+  font-family: var(--font-numeric);
+  font-variant-numeric: var(--font-numeric-features);
+  font-size: var(--type-metric-size);
+  font-weight: var(--type-metric-weight);
+  letter-spacing: var(--type-metric-tracking);
   line-height: 1;
+  color: var(--text-primary);
 }
 
 .match-count-label {
-  font-size: var(--font-size-base);
-  color: var(--color-text);
+  color: var(--text-primary);
 }
 
-.preview-explanation {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
+.preview-explanation,
+.zero-desc {
   margin: 0;
   max-width: 420px;
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
 }
 
 .preview-zero-box {
@@ -1004,125 +1097,11 @@ const submitApplyRule = async () => {
   align-items: center;
   text-align: center;
   gap: var(--space-xs);
-  padding: var(--space-lg) var(--space-md);
-}
-
-.zero-icon {
-  font-size: 2rem;
-  margin-bottom: var(--space-xs);
+  padding: var(--space-md) 0;
 }
 
 .zero-title {
-  font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-md);
-  color: var(--color-text);
-}
-
-.zero-desc {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  margin: 0;
-  max-width: 400px;
-}
-
-@media (max-width: 640px) {
-  .settings-page {
-    padding: var(--space-sm);
-  }
-
-  .card-header-row {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .rules-table th,
-  .rules-table td {
-    padding: var(--space-sm);
-  }
-
-  .action-buttons {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .btn-action {
-    justify-content: center;
-  }
-}
-
-/* ML Categorization Card */
-.ml-card {
-  margin-top: var(--space-xl);
-}
-
-.ml-header-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.ml-status-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--space-md);
-  margin-top: var(--space-lg);
-  padding: var(--space-md);
-  background: var(--color-surface-subtle);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-}
-
-.ml-status-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.ml-status-item .status-label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: var(--font-weight-medium);
-}
-
-.ml-status-item .status-value {
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-}
-
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 2px 10px;
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-xs) !important;
-}
-
-.status-ready {
-  background: #dcfce7;
-  color: #15803d;
-  border: 1px solid #bbf7d0;
-}
-
-.status-stale {
-  background: #fef9c3;
-  color: #854d0e;
-  border: 1px solid #fde047;
-}
-
-.status-needs-data {
-  background: var(--color-surface-hover);
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
-}
-
-.ml-status-message {
-  margin-top: var(--space-md);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  font-style: italic;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
 }
 </style>
