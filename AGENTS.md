@@ -72,9 +72,12 @@ docs/                         # In-depth architectural & API documentation
 ├── session_handoffs/         # Multi-session handoff logs
 ├── PRODUCT_REDESIGN_PLAN.md  # Product redesign strategy & completed phases
 ├── TODO.md                   # Canonical TODO and active roadmap
+├── correctness_backlog.md    # Canonical post-redesign correctness backlog
 └── old_architecture/         # Foundational guides (ARCHITECTURE, API_REFERENCE,
                               # DATA_MODEL, CSV_IMPORT_GUIDE, DEVELOPMENT)
 ```
+
+For confirmed post-redesign correctness issues and execution priority, see `docs/correctness_backlog.md`.
 
 ## Key Commands
 
