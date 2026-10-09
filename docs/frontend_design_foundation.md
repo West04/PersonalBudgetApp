@@ -95,7 +95,8 @@ Page containers (opt-in per page slice): `.page-container` (1200px),
 
 ## Known issues deferred to page slices
 
-- Budget group header crushes the group name at ~700px content width (pre-existing).
+- ~~Budget group header crushes the group name at ~700px content width~~ (fixed in the Budget slice:
+  the ledger uses fixed numeric tracks and stacked/compact/full container-query tiers).
 - Hydration mismatch warnings on Dashboard/Transactions `server: false` loading
   states (pre-existing).
 - Undefined custom properties referenced by pages: `--color-primary-bg`,

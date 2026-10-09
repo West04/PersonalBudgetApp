@@ -1,12 +1,13 @@
 <template>
-  <div class="categories-page">
-    <PageHeader title="Budget" subtitle="Plan and track monthly spending across category groups">
+  <div class="categories-page page-container">
+    <PageHeader title="Budget" subtitle="Assign planned income to categories and track activity against the plan">
       <template #controls>
         <MonthNavigator />
       </template>
       <template #actions>
         <button type="button" class="btn btn-primary" @click="openAddGroupModal">
-          + Add Group
+          <AppIcon name="plus" :size="16" />
+          Add group
         </button>
       </template>
     </PageHeader>
@@ -17,28 +18,51 @@
     <!-- Loading State -->
     <LoadingState v-if="pending" message="Loading budget..." />
 
+    <!-- First load failed: no budget data to show, so do not render a $0.00 budget -->
+    <EmptyState
+      v-else-if="loadFailed"
+      title="Budget not loaded"
+      description="The budget for this month could not be loaded. Try again, or pick another month."
+    >
+      <template #actions>
+        <button type="button" class="btn btn-secondary" @click="fetchData">Try again</button>
+      </template>
+    </EmptyState>
+
     <template v-else>
-      <!-- Summary Cards -->
-      <section class="summary-cards" aria-label="Monthly budget summary">
-        <div class="surface-card summary-card income">
-          <div class="card-label">Planned Income</div>
-          <div class="card-value font-mono">{{ formatCurrency(totalIncomePlanned) }}</div>
-          <div class="card-sub font-mono">Actual: {{ formatCurrency(totalIncomeActual) }}</div>
-        </div>
+      <!-- Summary: the zero-based equation, income - expenses = to be assigned.
+           Every figure comes straight from /summary/budget. -->
+      <section class="budget-summary" aria-labelledby="heading-budget-summary">
+        <h2 id="heading-budget-summary" class="sr-only">Monthly budget summary</h2>
+        <dl class="budget-equation">
+          <div class="eq-term eq-term--income">
+            <dt class="eq-label">Planned income</dt>
+            <dd class="eq-value"><Money :amount="totalIncomePlanned" /></dd>
+            <dd class="eq-note">Received <Money :amount="totalIncomeActual" /></dd>
+          </div>
 
-        <div class="surface-card summary-card expense">
-          <div class="card-label">Planned Expenses</div>
-          <div class="card-value font-mono">{{ formatCurrency(totalExpensePlanned) }}</div>
-          <div class="card-sub font-mono">Actual: {{ formatCurrency(totalExpenseActual) }}</div>
-        </div>
+          <div class="eq-term eq-term--expense">
+            <dt class="eq-label">Planned expenses</dt>
+            <dd class="eq-value"><Money :amount="totalExpensePlanned" /></dd>
+            <dd class="eq-note">Spent <Money :amount="totalExpenseActual" /></dd>
+          </div>
 
-        <div class="surface-card summary-card assign" :class="{ 'warning': toBeAssigned < 0 }">
-          <div class="card-label">To Be Assigned</div>
-          <div class="card-value font-mono">{{ formatCurrency(toBeAssigned) }}</div>
-          <div class="card-sub" v-if="toBeAssigned === 0">Every dollar has a job!</div>
-          <div class="card-sub" v-else-if="toBeAssigned > 0">You have money to budget</div>
-          <div class="card-sub" v-else>You are over-budgeted!</div>
-        </div>
+          <div class="eq-term eq-term--assign" :class="`tba--${tbaState}`">
+            <dt class="eq-label">To be assigned</dt>
+            <dd class="eq-value eq-value--lead">
+              <Money
+                :amount="toBeAssigned"
+                sign="never"
+                :tone="tbaState === 'over' ? 'overspent' : tbaState === 'unassigned' ? 'available' : 'neutral'"
+              />
+            </dd>
+            <dd class="eq-note tba-status">
+              <template v-if="tbaState === 'over'">Over-assigned: planned expenses exceed planned income</template>
+              <template v-else-if="tbaState === 'unassigned'">Left to assign to categories</template>
+              <template v-else>Every dollar has a job</template>
+            </dd>
+          </div>
+        </dl>
       </section>
 
       <!-- Empty State -->
@@ -49,248 +73,258 @@
       >
         <template #actions>
           <button type="button" class="btn btn-primary" @click="openAddGroupModal">
-            + Add Group
+            <AppIcon name="plus" :size="16" />
+            Add group
           </button>
         </template>
       </EmptyState>
 
-      <!-- Draggable Group List -->
-      <draggable
-        v-else
-        v-model="categoryGroups"
-        item-key="category_group_id"
-        handle=".group-drag-handle"
-        ghost-class="ghost"
-        @end="onGroupDragEnd"
-        class="groups-list"
-      >
-        <template #item="{ element: group }">
-          <section
-            class="group-section surface-card"
-            :class="{ 'is-collapsed': isGroupCollapsed(group.category_group_id) }"
-            :aria-label="group.name"
-          >
-            <!-- Group Header -->
-            <div class="group-header">
-              <span
-                class="drag-handle group-drag-handle"
-                title="Drag to reorder group"
-                aria-label="Drag group to reorder"
-                tabindex="-1"
-              >⋮⋮</span>
+      <!-- Budget ledger: one surface, fixed numeric tracks so every group aligns -->
+      <div v-else class="ledger surface-card">
+        <div class="ledger-head ledger-grid" aria-hidden="true">
+          <span class="col-name">Category</span>
+          <span class="col-planned">Planned</span>
+          <span class="col-activity">Activity</span>
+          <span class="col-remaining">Remaining</span>
+          <span class="col-status">Progress</span>
+        </div>
 
-              <!-- Entire reasonable non-interactive area toggles expand/collapse -->
-              <button
-                type="button"
-                class="group-toggle-btn"
-                :aria-expanded="!isGroupCollapsed(group.category_group_id)"
-                :aria-controls="`group-categories-${group.category_group_id}`"
-                :aria-label="`${group.name} group, ${isGroupCollapsed(group.category_group_id) ? 'collapsed' : 'expanded'}`"
-                @click="toggleGroupCollapse(group.category_group_id)"
-              >
-                <div class="group-identity">
-                  <svg
-                    class="group-chevron"
-                    :class="{ 'collapsed': isGroupCollapsed(group.category_group_id) }"
-                    viewBox="0 0 24 24"
-                    width="18"
-                    height="18"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <polyline points="6 9 12 15 18 9"></polyline>
-                  </svg>
-                  <h2 class="group-title">{{ group.name }}</h2>
-                  <span class="group-count text-muted">({{ group.categories.length }})</span>
-                </div>
-
-                <div class="group-totals font-mono">
-                  <span class="group-metric">
-                    <span class="metric-label">Planned:</span>
-                    <span class="metric-val">{{ formatCurrency(getGroupTotalPlanned(group)) }}</span>
-                  </span>
-                  <span class="group-metric">
-                    <span class="metric-label">Activity:</span>
-                    <span class="metric-val text-muted">{{ formatCurrency(getGroupTotalActual(group)) }}</span>
-                  </span>
-                  <span
-                    class="group-metric"
-                    :class="{ 'negative': getGroupTotalRemaining(group) < 0 }"
-                  >
-                    <span class="metric-label">Remaining:</span>
-                    <span class="metric-val">{{ formatCurrency(getGroupTotalRemaining(group)) }}</span>
-                  </span>
-                </div>
-              </button>
-
-              <!-- Group Actions -->
-              <div class="group-actions">
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  @click="openAddCategoryModal(group)"
-                  :aria-label="`Add category to ${group.name}`"
-                  title="Add Category"
-                >
-                  + Add Category
-                </button>
-                <button
-                  type="button"
-                  class="btn-icon"
-                  @click="openEditGroupModal(group)"
-                  :aria-label="`Edit ${group.name} group`"
-                  title="Edit Group"
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  class="btn-icon btn-icon-danger"
-                  @click="confirmDeleteGroup(group)"
-                  :aria-label="`Delete ${group.name} group`"
-                  title="Delete Group"
-                >
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <polyline points="3 6 5 6 21 6"></polyline>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <!-- Categories Container -->
-            <div
-              :id="`group-categories-${group.category_group_id}`"
-              v-show="!isGroupCollapsed(group.category_group_id)"
-              class="group-body"
+        <!-- Draggable Group List -->
+        <draggable
+          v-model="categoryGroups"
+          item-key="category_group_id"
+          handle=".group-drag-handle"
+          ghost-class="ghost"
+          @end="onGroupDragEnd"
+          class="groups-list"
+        >
+          <template #item="{ element: group }">
+            <section
+              class="group-section"
+              :class="{ 'is-collapsed': isGroupCollapsed(group.category_group_id) }"
+              :aria-label="group.name"
             >
-              <!-- Empty state inside group -->
-              <div v-if="!group.categories.length" class="empty-group-body">
-                <p class="text-muted">No categories in this group yet.</p>
-                <button
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  @click="openAddCategoryModal(group)"
-                >
-                  + Add First Category
-                </button>
+              <!-- Group Header -->
+              <div class="group-header ledger-grid">
+                <span
+                  class="drag-handle group-drag-handle"
+                  title="Drag to reorder group"
+                  aria-label="Drag group to reorder"
+                  tabindex="-1"
+                ><AppIcon name="grip" :size="16" /></span>
+
+                <div class="group-name-cell">
+                  <h2 class="group-heading">
+                    <button
+                      type="button"
+                      class="group-toggle-btn"
+                      :aria-expanded="!isGroupCollapsed(group.category_group_id)"
+                      :aria-controls="`group-categories-${group.category_group_id}`"
+                      :aria-label="`${group.name} group, ${isGroupCollapsed(group.category_group_id) ? 'collapsed' : 'expanded'}`"
+                      @click="toggleGroupCollapse(group.category_group_id)"
+                    >
+                      <AppIcon
+                        name="chevron"
+                        :size="16"
+                        class="group-chevron"
+                        :class="{ 'collapsed': isGroupCollapsed(group.category_group_id) }"
+                      />
+                      <span class="group-title" :title="group.name">{{ group.name }}</span>
+                    </button>
+                  </h2>
+                  <p class="group-meta" :title="groupKind(group) === 'mixed' ? 'Group totals add every category in the group, whatever its type' : undefined">
+                    {{ groupMetaLabel(group) }}
+                  </p>
+                </div>
+
+                <!-- Group totals: existing per-category sums, aligned under the category columns.
+                     Pointer convenience only; the heading button is the keyboard toggle. -->
+                <div class="group-totals row-figures" @click="toggleGroupCollapse(group.category_group_id)">
+                  <span class="cell cell-planned">
+                    <span class="cell-label">Planned</span>
+                    <Money :amount="getGroupTotalPlanned(group)" />
+                  </span>
+                  <span class="cell cell-activity">
+                    <span class="cell-label">Activity</span>
+                    <Money :amount="getGroupTotalActual(group)" />
+                  </span>
+                  <span class="cell cell-remaining">
+                    <span class="cell-label">Remaining</span>
+                    <Money
+                      :amount="getGroupTotalRemaining(group)"
+                      :tone="groupRemainingTone(group)"
+                    />
+                  </span>
+                </div>
+
+                <!-- Group Actions -->
+                <div class="group-actions">
+                  <button
+                    type="button"
+                    class="btn-icon add-category-btn"
+                    @click="openAddCategoryModal(group)"
+                    :aria-label="`Add category to ${group.name}`"
+                    title="Add category"
+                  >
+                    <AppIcon name="plus" :size="16" />
+                    <span class="add-category-text" aria-hidden="true">Add category</span>
+                  </button>
+                  <span class="icon-actions">
+                    <button
+                      type="button"
+                      class="btn-icon"
+                      @click="openEditGroupModal(group)"
+                      :aria-label="`Edit ${group.name} group`"
+                      title="Edit group"
+                    >
+                      <AppIcon name="edit" :size="16" />
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-icon btn-icon-danger"
+                      @click="confirmDeleteGroup(group)"
+                      :aria-label="`Delete ${group.name} group`"
+                      title="Delete group"
+                    >
+                      <AppIcon name="trash" :size="16" />
+                    </button>
+                  </span>
+                </div>
               </div>
 
-              <!-- Categories Draggable List -->
-              <draggable
-                v-else
-                v-model="group.categories"
-                item-key="category_id"
-                handle=".category-drag-handle"
-                ghost-class="ghost"
-                @end="onCategoryDragEnd(group)"
-                class="category-list"
+              <!-- Categories Container -->
+              <div
+                :id="`group-categories-${group.category_group_id}`"
+                v-show="!isGroupCollapsed(group.category_group_id)"
+                class="group-body"
               >
-                <template #item="{ element: category }">
-                  <div class="category-row">
-                    <span
-                      class="drag-handle category-drag-handle"
-                      title="Drag to reorder category"
-                      aria-label="Drag category to reorder"
-                      tabindex="-1"
-                    >⋮⋮</span>
+                <!-- Empty state inside group -->
+                <div v-if="!group.categories.length" class="empty-group-body">
+                  <p>No categories in this group yet.</p>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="openAddCategoryModal(group)"
+                  >
+                    <AppIcon name="plus" :size="14" />
+                    Add first category
+                  </button>
+                </div>
 
-                    <!-- Info: Name & badges -->
-                    <div class="category-info">
-                      <span class="category-name">{{ category.name }}</span>
-                      <span :class="['type-badge', category.type]">{{ category.type }}</span>
-                      <span v-if="!category.is_active" class="inactive-badge">Inactive</span>
-                    </div>
-
-                    <!-- Planned Amount Input -->
-                    <div class="category-planned">
-                      <label :for="`planned-${category.category_id}`" class="sr-only">
-                        Planned amount for {{ category.name }}
-                      </label>
-                      <div class="amount-input-box">
-                        <span class="currency-symbol" aria-hidden="true">$</span>
-                        <input
-                          :id="`planned-${category.category_id}`"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          :value="getCategoryPlanned(category)"
-                          @change="onPlannedAmountChange(category, ($event.target as HTMLInputElement).value)"
-                          @keydown.enter="($event.target as HTMLInputElement).blur()"
-                          @keydown.escape="revertPlannedAmount(category, $event.target as HTMLInputElement)"
-                          class="form-input font-mono amount-input"
-                          placeholder="0.00"
-                        />
-                      </div>
-                    </div>
-
-                    <!-- Activity / Actual -->
-                    <div class="category-metric category-actual font-mono text-muted">
-                      <span class="metric-mobile-label">Activity: </span>
-                      <span>{{ formatCurrency(getCategoryActual(category)) }}</span>
-                    </div>
-
-                    <!-- Remaining -->
+                <!-- Categories Draggable List -->
+                <draggable
+                  v-else
+                  v-model="group.categories"
+                  item-key="category_id"
+                  handle=".category-drag-handle"
+                  ghost-class="ghost"
+                  @end="onCategoryDragEnd(group)"
+                  class="category-list"
+                >
+                  <template #item="{ element: category }">
                     <div
-                      class="category-metric category-remaining font-mono"
-                      :class="{ 'negative': getCategoryRemaining(category) < 0 }"
+                      class="category-row ledger-grid"
+                      :class="[
+                        `is-${categoryStatus(category).kind}`,
+                        { 'is-inactive': !category.is_active }
+                      ]"
                     >
-                      <span class="metric-mobile-label">Remaining: </span>
-                      <span>{{ formatCurrency(getCategoryRemaining(category)) }}</span>
-                    </div>
+                      <span
+                        class="drag-handle category-drag-handle"
+                        title="Drag to reorder category"
+                        aria-label="Drag category to reorder"
+                        tabindex="-1"
+                      ><AppIcon name="grip" :size="16" /></span>
 
-                    <!-- Progress Bar -->
-                    <div class="category-progress" :title="`${Math.round(calculateProgress(category))}% of planned`" aria-hidden="true">
-                      <div class="progress-bar-bg">
+                      <!-- Info: name, plus type/inactive as quiet text (expense is the default) -->
+                      <div class="category-info">
+                        <span class="category-name" :title="category.name">{{ category.name }}</span>
+                        <span v-if="categoryMetaLabel(category)" class="category-meta">{{ categoryMetaLabel(category) }}</span>
+                      </div>
+
+                      <div class="row-figures">
+                        <!-- Planned Amount Input -->
+                        <div class="cell cell-planned category-planned">
+                          <span class="cell-label" aria-hidden="true">Planned</span>
+                          <label :for="`planned-${category.category_id}`" class="sr-only">
+                            Planned amount for {{ category.name }}
+                          </label>
+                          <div class="amount-input-box">
+                            <span class="currency-symbol" aria-hidden="true">$</span>
+                            <input
+                              :id="`planned-${category.category_id}`"
+                              type="number"
+                              inputmode="decimal"
+                              min="0"
+                              step="0.01"
+                              :value="formatPlannedInput(getCategoryPlanned(category))"
+                              @change="onPlannedAmountChange(category, ($event.target as HTMLInputElement).value)"
+                              @keydown.enter="($event.target as HTMLInputElement).blur()"
+                              @keydown.escape="revertPlannedAmount(category, $event.target as HTMLInputElement)"
+                              class="form-input num amount-input"
+                              placeholder="0.00"
+                            />
+                          </div>
+                        </div>
+
+                        <!-- Activity / Actual -->
+                        <span class="cell cell-activity category-actual" :class="{ 'is-zero': getCategoryActual(category) === 0 }">
+                          <span class="cell-label">Activity</span>
+                          <Money :amount="getCategoryActual(category)" :tone="categoryActivityTone(category)" />
+                        </span>
+
+                        <!-- Remaining -->
+                        <span class="cell cell-remaining category-remaining" :class="{ 'is-zero': getCategoryRemaining(category) === 0 }">
+                          <span class="cell-label">Remaining</span>
+                          <Money :amount="getCategoryRemaining(category)" :tone="categoryRemainingTone(category)" />
+                        </span>
+                      </div>
+
+                      <!-- Progress: text carries the meaning; the bar is a visual aid -->
+                      <div class="category-progress">
                         <div
-                          class="progress-bar-fill"
-                          :class="{ 'over-budget': getCategoryRemaining(category) < 0 }"
-                          :style="{ width: calculateProgress(category) + '%' }"
-                        ></div>
+                          v-if="categoryStatus(category).showBar"
+                          class="progress-track"
+                          aria-hidden="true"
+                        >
+                          <div
+                            class="progress-fill"
+                            :class="{ 'over-budget': categoryStatus(category).kind === 'over' }"
+                            :style="{ width: calculateProgress(category) + '%' }"
+                          ></div>
+                        </div>
+                        <span class="status-text">{{ categoryStatus(category).label }}</span>
+                      </div>
+
+                      <!-- Actions -->
+                      <div class="category-actions">
+                        <button
+                          type="button"
+                          class="btn-icon"
+                          @click="openEditCategoryModal(category)"
+                          :aria-label="`Edit ${category.name}`"
+                          title="Edit category"
+                        >
+                          <AppIcon name="edit" :size="16" />
+                        </button>
+                        <button
+                          type="button"
+                          class="btn-icon btn-icon-danger"
+                          @click="confirmDeleteCategory(category)"
+                          :aria-label="`Delete ${category.name}`"
+                          title="Delete category"
+                        >
+                          <AppIcon name="trash" :size="16" />
+                        </button>
                       </div>
                     </div>
-
-                    <!-- Actions -->
-                    <div class="category-actions">
-                      <button
-                        type="button"
-                        class="btn-icon"
-                        @click="openEditCategoryModal(category)"
-                        :aria-label="`Edit ${category.name}`"
-                        title="Edit Category"
-                      >
-                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        class="btn-icon btn-icon-danger"
-                        @click="confirmDeleteCategory(category)"
-                        :aria-label="`Delete ${category.name}`"
-                        title="Delete Category"
-                      >
-                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                          <polyline points="3 6 5 6 21 6"></polyline>
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                </template>
-              </draggable>
-            </div>
-          </section>
-        </template>
-      </draggable>
+                  </template>
+                </draggable>
+              </div>
+            </section>
+          </template>
+        </draggable>
+      </div>
     </template>
 
     <!-- Dialog: Add Group -->
@@ -411,7 +445,7 @@
             type="number"
             min="0"
             step="0.01"
-            class="form-input font-mono"
+            class="form-input num"
             placeholder="0.00"
             @keydown.enter.prevent="submitAddCategory"
           />
@@ -489,7 +523,7 @@
             type="number"
             min="0"
             step="0.01"
-            class="form-input font-mono"
+            class="form-input num"
             placeholder="0.00"
             @keydown.enter.prevent="submitEditCategory"
           />
@@ -524,6 +558,7 @@
 import { ref, computed, watch } from 'vue'
 import draggable from 'vuedraggable'
 import { useBudgetMonth } from '~/composables/useBudgetMonth'
+import type { MoneyTone } from '~/utils/money'
 
 const API_BASE = '/api'
 
@@ -720,6 +755,9 @@ const totalIncomeActual = computed(() => budgetSummary.value?.total_income_actua
 const totalExpensePlanned = computed(() => budgetSummary.value?.total_expense_planned ?? 0)
 const totalExpenseActual = computed(() => budgetSummary.value?.total_expense_actual ?? 0)
 const toBeAssigned = computed(() => budgetSummary.value?.to_be_assigned ?? 0)
+
+// After loading, a missing summary means the fetch failed; later save errors keep the page visible
+const loadFailed = computed(() => !budgetSummary.value)
 
 // --- Group Collapse Toggle ---
 const toggleGroupCollapse = (groupId: string) => {
@@ -1067,157 +1105,352 @@ const onPlannedAmountChange = async (category: Category, rawValue: string) => {
 }
 
 const revertPlannedAmount = (category: Category, inputEl: HTMLInputElement) => {
-  inputEl.value = String(getCategoryPlanned(category))
+  inputEl.value = formatPlannedInput(getCategoryPlanned(category))
   inputEl.blur()
 }
 
-// --- Helpers ---
-const formatCurrency = (amount: number | string) => {
-  const val = parseFloat(String(amount)) || 0
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD'
-  }).format(val)
+// Shows the stored planned amount with cents so the input scans like the other figures.
+// Display only: parsing and saving above are unchanged.
+const formatPlannedInput = (amount: number): string => amount.toFixed(2)
+
+// --- Presentation states ---
+// These only choose wording and tone for values the API already supplied
+// (planned, actual, remaining, is_over_budget). Nothing here recalculates a figure.
+
+const tbaState = computed<'unassigned' | 'over' | 'assigned'>(() => {
+  if (toBeAssigned.value > 0) return 'unassigned'
+  if (toBeAssigned.value < 0) return 'over'
+  return 'assigned'
+})
+
+type GroupKind = 'expense' | 'income' | 'transfer' | 'mixed' | 'empty'
+
+const groupKind = (group: CategoryGroup): GroupKind => {
+  const types = new Set(group.categories.map(c => c.type))
+  if (types.size === 0) return 'empty'
+  if (types.size > 1) return 'mixed'
+  return [...types][0] as GroupKind
+}
+
+const groupMetaLabel = (group: CategoryGroup): string => {
+  const count = group.categories.length
+  const noun = count === 1 ? 'category' : 'categories'
+  switch (groupKind(group)) {
+    case 'empty': return 'No categories'
+    case 'income': return `${count} income ${noun}`
+    case 'transfer': return `${count} transfer ${noun}`
+    case 'mixed': return `${count} ${noun}, mixed types`
+    default: return `${count} ${noun}`
+  }
+}
+
+// Group totals add every category regardless of type, so a negative sum only means
+// "over plan" when the group holds spending categories alone.
+const groupRemainingTone = (group: CategoryGroup): MoneyTone => {
+  const kind = groupKind(group)
+  if ((kind === 'expense' || kind === 'transfer') && getGroupTotalRemaining(group) < 0) return 'overspent'
+  return 'neutral'
+}
+
+const categoryMetaLabel = (category: Category): string => {
+  const parts: string[] = []
+  if (category.type === 'income') parts.push('Income')
+  if (category.type === 'transfer') parts.push('Transfer')
+  if (!category.is_active) parts.push(parts.length ? 'inactive' : 'Inactive')
+  return parts.join(', ')
+}
+
+const isCategoryOverBudget = (category: Category): boolean =>
+  !!getBudgetCategory(category.category_id)?.is_over_budget
+
+type CategoryStatusKind = 'over' | 'unplanned' | 'refund' | 'full' | 'within' | 'received' | 'none'
+
+const categoryStatus = (category: Category): { kind: CategoryStatusKind; label: string; showBar: boolean } => {
+  const planned = getCategoryPlanned(category)
+  const actual = getCategoryActual(category)
+  const remaining = getCategoryRemaining(category)
+  const pct = Math.round(calculateProgress(category))
+  const refundLabel = category.type === 'transfer' ? 'Net inflow' : 'Net refund'
+
+  if (category.type === 'income') {
+    // Income: actual is money received; remaining is what is still expected
+    if (planned === 0) return actual > 0
+      ? { kind: 'received', label: 'Unplanned', showBar: false }
+      : { kind: 'none', label: 'No plan', showBar: false }
+    if (remaining < 0) return { kind: 'received', label: 'Above plan', showBar: true }
+    if (remaining === 0) return { kind: 'received', label: 'Received', showBar: true }
+    return { kind: 'within', label: `${pct}% received`, showBar: true }
+  }
+
+  if (planned === 0) {
+    if (isCategoryOverBudget(category)) return { kind: 'unplanned', label: 'Unplanned', showBar: false }
+    if (actual < 0) return { kind: 'refund', label: refundLabel, showBar: false }
+    return { kind: 'none', label: 'No plan', showBar: false }
+  }
+  if (isCategoryOverBudget(category)) return { kind: 'over', label: 'Over plan', showBar: true }
+  if (actual < 0) return { kind: 'refund', label: refundLabel, showBar: false }
+  if (remaining === 0) return { kind: 'full', label: 'Fully spent', showBar: true }
+  return { kind: 'within', label: `${pct}% spent`, showBar: true }
+}
+
+const categoryActivityTone = (category: Category): MoneyTone => {
+  const actual = getCategoryActual(category)
+  if (category.type === 'income') return actual === 0 ? 'neutral' : 'inflow'
+  // A negative expense actual is a net refund: money coming back, not an error
+  if (category.type === 'expense' && actual < 0) return 'inflow'
+  return 'neutral'
+}
+
+const categoryRemainingTone = (category: Category): MoneyTone => {
+  // Income remaining is money still expected, not money available to spend
+  if (category.type === 'income') return 'neutral'
+  if (isCategoryOverBudget(category)) return 'overspent'
+  return getCategoryRemaining(category) > 0 ? 'available' : 'neutral'
 }
 </script>
 
 <style scoped>
-.categories-page {
-  padding: var(--space-lg);
-  max-width: var(--page-max-width);
-  margin: 0 auto;
+/* Summary: the zero-based equation ------------------------------------------ */
+
+.budget-summary {
+  container: summary / inline-size;
+  margin-bottom: var(--space-lg);
 }
 
-/* Summary Cards */
-.summary-cards {
+.budget-equation {
+  margin: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--space-md);
-  margin-bottom: var(--space-xl);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr);
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
 }
 
-.summary-card {
-  padding: var(--space-lg);
+.eq-term {
+  position: relative;
   display: flex;
   flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--space-md) var(--space-lg);
+  border-left: 1px solid var(--border-subtle);
 }
 
-.card-label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: var(--font-weight-semibold);
+.eq-term dd {
+  margin: 0;
 }
 
-.card-value {
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-  margin-bottom: var(--space-2xs);
+.eq-term--income {
+  padding-left: 0;
+  border-left: 0;
 }
 
-.card-sub {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
+/* The operators sit on the dividers: income - expenses = to be assigned */
+.eq-term--expense::before,
+.eq-term--assign::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  background: var(--bg-page);
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
 }
 
-.summary-card.income .card-value { color: var(--color-success); }
-.summary-card.expense .card-value { color: var(--color-warning); }
-.summary-card.assign .card-value { color: var(--color-primary); }
-.summary-card.assign.warning .card-value { color: var(--color-danger); }
+.eq-term--expense::before {
+  content: "\2212" / "";
+}
 
-/* Groups List */
+.eq-term--assign::before {
+  content: "=" / "";
+}
+
+.eq-term--assign {
+  padding-left: calc(var(--space-lg) + 4px);
+  background: var(--bg-surface);
+  border-left-color: var(--border-default);
+  box-shadow: inset 0 3px 0 var(--border-strong);
+}
+
+.eq-term--assign.tba--unassigned {
+  box-shadow: inset 0 3px 0 var(--financial-available);
+}
+
+.eq-term--assign.tba--over {
+  box-shadow: inset 0 3px 0 var(--financial-overspent);
+}
+
+.eq-label {
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  color: var(--text-secondary);
+}
+
+.eq-term .eq-value {
+  margin-top: var(--space-xs);
+  font-size: 1.375rem;
+  font-weight: var(--type-metric-weight);
+  letter-spacing: -0.015em;
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+}
+
+.eq-term .eq-value--lead {
+  font-size: clamp(1.625rem, 1.2rem + 2cqi, 2.125rem);
+  letter-spacing: -0.025em;
+}
+
+.eq-note {
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+.eq-note .money {
+  color: var(--text-secondary);
+}
+
+.tba--unassigned .tba-status {
+  color: var(--financial-available);
+  font-weight: var(--font-weight-medium);
+}
+
+.tba--over .tba-status {
+  color: var(--financial-overspent);
+  font-weight: var(--font-weight-medium);
+}
+
+@container summary (max-width: 560px) {
+  .budget-equation {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .eq-term {
+    padding: var(--space-sm) 0 var(--space-sm) var(--space-md);
+  }
+
+  .eq-term--income {
+    padding-left: 0;
+  }
+
+  .eq-term--assign {
+    grid-column: 1 / -1;
+    padding: var(--space-md);
+    border-left: 0;
+    border-top: 1px solid var(--border-default);
+  }
+
+  .eq-term--assign::before {
+    top: 0;
+    left: 50%;
+  }
+}
+
+/* Ledger -------------------------------------------------------------------- */
+/* One surface. Every row uses the same fixed numeric tracks, so group headers
+   and category rows line up across groups. Three tiers by ledger width:
+   stacked (< 660px), compact (660-779px), full (>= 780px).
+   Tracks: handle 1.5rem, planned 7.25rem, activity/remaining 6.5rem,
+   progress 9rem, actions 4.25rem (6.25rem compact, where group actions merge). */
+
+.ledger {
+  container: ledger / inline-size;
+  overflow: hidden;
+}
+
+.ledger-grid {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  column-gap: 10px;
+  row-gap: 6px;
+  align-items: center;
+  padding: 10px var(--space-sm) 10px var(--space-xs);
+}
+
+.ledger-head {
+  display: none;
+  padding-top: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.ledger-head .col-planned,
+.ledger-head .col-activity,
+.ledger-head .col-remaining {
+  text-align: right;
+}
+
 .groups-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
 }
 
-.group-section {
-  overflow: hidden;
-  transition: box-shadow 0.15s ease;
-}
+/* Group header -------------------------------------------------------------- */
 
-.group-section:hover {
-  box-shadow: var(--shadow-md);
+.group-section + .group-section .group-header {
+  border-top: 1px solid var(--border-default);
 }
 
 .group-header {
-  display: flex;
-  align-items: center;
-  padding: var(--space-xs) var(--space-sm);
-  background-color: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  min-height: 56px;
-  gap: var(--space-xs);
+  grid-template-areas:
+    "handle name actions"
+    "handle figures figures";
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .group-section.is-collapsed .group-header {
-  border-bottom: none;
+  border-bottom: 0;
 }
 
-.drag-handle {
-  cursor: grab;
-  color: var(--color-text-light);
-  font-size: 1.1rem;
-  padding: var(--space-xs) var(--space-sm);
-  user-select: none;
+.group-drag-handle { grid-area: handle; }
+.group-name-cell { grid-area: name; }
+.group-actions { grid-area: actions; }
+
+.group-name-cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.group-heading {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+}
+
+.group-toggle-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  transition: color 0.15s ease;
-  flex-shrink: 0;
-}
-
-.drag-handle:hover {
-  color: var(--color-text);
-}
-
-.drag-handle:active {
-  cursor: grabbing;
-}
-
-/* Group toggle button spans entire non-interactive middle area */
-.group-toggle-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
+  gap: 6px;
+  max-width: 100%;
+  margin-left: -4px;
+  padding: 2px 6px 2px 4px;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border: 0;
+  border-radius: var(--radius-xs);
   cursor: pointer;
+  font-family: var(--font-display);
+  font-size: var(--type-subheading-size);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  color: var(--text-primary);
   text-align: left;
-  font-family: inherit;
-  color: inherit;
-  transition: background-color 0.15s ease;
-  min-width: 0;
 }
 
 .group-toggle-btn:hover {
-  background-color: var(--color-surface-hover);
-}
-
-.group-toggle-btn:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
-}
-
-.group-identity {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  min-width: 0;
+  background: var(--bg-subtle);
 }
 
 .group-chevron {
-  color: var(--color-text-muted);
-  transition: transform 0.2s ease;
-  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
 }
 
 .group-chevron.collapsed {
@@ -1225,241 +1458,480 @@ const formatCurrency = (amount: number | string) => {
 }
 
 .group-title {
-  margin: 0;
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-  white-space: nowrap;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.group-count {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-normal);
-  flex-shrink: 0;
+.group-meta {
+  margin: 1px 0 0 22px;
+  font-size: var(--type-meta-size);
+  line-height: var(--line-height-tight);
+  color: var(--text-muted);
 }
 
 .group-totals {
-  display: flex;
-  align-items: center;
-  gap: var(--space-lg);
-  font-size: var(--font-size-sm);
-  flex-shrink: 0;
+  cursor: pointer;
 }
 
-.group-metric {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.metric-label {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.metric-val {
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text);
-}
-
-.group-metric.negative .metric-val {
-  color: var(--color-danger);
+.group-totals .money {
   font-weight: var(--font-weight-semibold);
 }
 
 .group-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
-  padding-right: var(--space-xs);
-  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 2px;
 }
 
-.btn-sm {
-  padding: 4px 10px;
-  font-size: var(--font-size-sm);
-  border-radius: var(--radius-sm);
-}
-
-/* Category List Container */
-.group-body {
-  background-color: var(--color-surface);
-}
-
-.empty-group-body {
-  display: flex;
+.icon-actions {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--space-md) var(--space-lg);
-  font-size: var(--font-size-sm);
+  gap: 2px;
 }
 
-.category-list {
-  display: flex;
-  flex-direction: column;
+.add-category-text {
+  display: none;
 }
+
+/* Category rows ------------------------------------------------------------- */
 
 .category-row {
-  display: flex;
-  align-items: center;
-  padding: var(--space-sm) var(--space-md);
-  border-bottom: 1px solid var(--color-border-subtle);
-  gap: var(--space-sm);
-  min-height: 48px;
+  grid-template-areas:
+    "handle name actions"
+    "handle figures figures"
+    "handle status status";
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
   transition: background-color 0.12s ease;
 }
 
-.category-row:hover {
-  background-color: var(--color-surface-hover);
+.category-list > .category-row:last-child {
+  border-bottom: 0;
 }
 
-.category-row:last-child {
-  border-bottom: none;
+.category-row:hover {
+  background: var(--table-hover);
 }
+
+/* Over plan or unplanned spending: a quiet rule on the leading edge, named in text */
+.category-row.is-over,
+.category-row.is-unplanned {
+  box-shadow: inset 2px 0 0 var(--financial-overspent);
+}
+
+.category-drag-handle { grid-area: handle; }
+.category-info { grid-area: name; }
+.category-actions { grid-area: actions; }
+.category-progress { grid-area: status; }
 
 .category-info {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-sm);
-  flex: 1;
-  min-width: 140px;
+  min-width: 0;
 }
 
 .category-name {
+  min-width: 0;
   font-weight: var(--font-weight-medium);
-  font-size: var(--font-size-base);
-  color: var(--color-text);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.type-badge {
-  font-size: var(--font-size-2xs);
-  text-transform: uppercase;
-  font-weight: var(--font-weight-bold);
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
+.category-meta {
   flex-shrink: 0;
-  letter-spacing: 0.03em;
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
 }
 
-.type-badge.income {
-  background-color: var(--color-success-bg);
-  color: var(--color-success);
+/* Inactive is a quieter state, not an error */
+.category-row.is-inactive .category-name {
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-regular);
 }
 
-.type-badge.expense {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
+.category-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
 }
 
-.type-badge.transfer {
-  background-color: var(--color-warning-bg);
-  color: var(--color-warning);
+.category-actions .btn-icon,
+.group-actions .btn-icon {
+  color: var(--text-muted);
 }
 
-.inactive-badge {
-  font-size: var(--font-size-2xs);
-  background-color: var(--color-danger-bg);
-  color: var(--color-danger);
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
-  font-weight: var(--font-weight-semibold);
-  flex-shrink: 0;
+.category-actions .btn-icon:hover:not(:disabled),
+.group-actions .btn-icon:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.category-actions .btn-icon-danger:hover:not(:disabled),
+.group-actions .btn-icon-danger:hover:not(:disabled),
+.btn-icon-danger:focus-visible {
+  color: var(--status-error);
+}
+
+/* Figures -------------------------------------------------------------------- */
+
+.row-figures {
+  grid-area: figures;
+  display: grid;
+  /* Planned gets a little extra room for the input; group totals use the same tracks */
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 10px;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+  text-align: right;
+}
+
+.cell .money {
+  font-size: var(--type-body-size);
+}
+
+.category-remaining .money {
+  font-weight: var(--font-weight-medium);
+}
+
+.cell.is-zero .money {
+  color: var(--text-muted);
+}
+
+/* Labels show in the stacked layout; elsewhere the ledger head names the column */
+.cell-label {
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+  line-height: var(--line-height-tight);
+  margin-bottom: 2px;
 }
 
 .category-planned {
-  width: 110px;
-  flex-shrink: 0;
+  align-items: stretch;
+}
+
+.category-planned .cell-label {
+  text-align: right;
 }
 
 .amount-input-box {
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
 }
 
 .currency-symbol {
   position: absolute;
   left: 8px;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-size: var(--type-meta-size);
   pointer-events: none;
-  font-family: var(--font-family-mono);
 }
 
+/* Reads as a figure at rest; the border firms up on hover and focus */
 .amount-input {
-  padding: 5px 8px 5px 18px;
   height: 32px;
-  font-size: var(--font-size-sm);
+  padding: 4px 8px 4px 20px;
+  font-size: var(--type-body-size);
+  font-weight: var(--font-weight-medium);
   text-align: right;
+  background-color: transparent;
+  border-color: var(--border-subtle);
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
-.category-metric {
-  width: 100px;
-  text-align: right;
-  font-size: var(--font-size-sm);
-  flex-shrink: 0;
+.amount-input::-webkit-outer-spin-button,
+.amount-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
-.category-remaining.negative {
-  color: var(--color-danger);
-  font-weight: var(--font-weight-semibold);
+.category-row:hover .amount-input,
+.amount-input:hover:not(:disabled) {
+  background-color: var(--input-bg);
+  border-color: var(--border-strong);
 }
 
-.metric-mobile-label {
-  display: none;
+.amount-input:focus {
+  background-color: var(--input-bg);
+  border-color: var(--accent-primary);
 }
+
+/* Progress -------------------------------------------------------------------- */
 
 .category-progress {
-  width: 80px;
-  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
 }
 
-.progress-bar-bg {
-  background: var(--color-border);
-  height: 4px;
+.progress-track {
+  flex: 1;
+  min-width: 2rem;
+  height: 6px;
+  background: var(--bg-subtle);
   border-radius: var(--radius-full);
-  width: 100%;
   overflow: hidden;
 }
 
-.progress-bar-fill {
-  background: var(--color-success);
+.progress-fill {
   height: 100%;
+  max-width: 100%;
+  background: var(--text-muted);
   border-radius: var(--radius-full);
-  transition: width 0.25s ease;
 }
 
-.progress-bar-fill.over-budget {
-  background: var(--color-danger);
+.progress-fill.over-budget {
+  background: var(--financial-overspent);
 }
 
-.category-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+.status-text {
   flex-shrink: 0;
-  margin-left: var(--space-xs);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
-/* Modals & Dialogs */
-.target-group-badge {
+.category-row.is-over .status-text,
+.category-row.is-unplanned .status-text {
+  color: var(--financial-overspent);
+  font-weight: var(--font-weight-medium);
+}
+
+.category-row.is-refund .status-text {
+  color: var(--financial-inflow);
+}
+
+.category-row.is-full .status-text,
+.category-row.is-received .status-text {
+  color: var(--text-secondary);
+}
+
+/* Drag handles ---------------------------------------------------------------- */
+
+.drag-handle {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  color: var(--text-disabled);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  border-radius: var(--radius-xs);
+}
+
+.drag-handle:hover {
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.ghost {
+  opacity: 0.5;
+  background: var(--accent-subtle) !important;
+}
+
+/* Empty group ------------------------------------------------------------------ */
+
+.empty-group-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  padding: var(--space-md) var(--space-md) var(--space-md) calc(1.5rem + 10px + var(--space-xs));
+  background: var(--bg-surface);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+.empty-group-body p {
+  margin: 0;
+}
+
+/* Stacked tier: touch-sized controls */
+@container ledger (max-width: 659px) {
+  .category-actions .btn-icon,
+  .group-actions .btn-icon {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .ledger-grid {
+    padding-top: var(--space-sm);
+    padding-bottom: var(--space-sm);
+  }
+
+  .amount-input {
+    padding-left: 16px;
+    padding-right: 6px;
+  }
+
+  .currency-symbol {
+    left: 6px;
+  }
+}
+
+/* Compact tier ------------------------------------------------------------------ */
+@container ledger (min-width: 660px) {
+  .ledger-grid {
+    grid-template-columns:
+      1.5rem
+      minmax(8.5rem, 1fr)
+      7.25rem
+      6.5rem
+      6.5rem
+      6.25rem;
+    padding: 8px var(--space-sm) 8px var(--space-xs);
+  }
+
+  .ledger-head {
+    display: grid;
+  }
+
+  .ledger-head .col-name { grid-column: 2; }
+  .ledger-head .col-status { display: none; }
+
+  .row-figures {
+    display: contents;
+  }
+
+  .cell-planned { grid-area: planned; }
+  .cell-activity { grid-area: activity; }
+  .cell-remaining { grid-area: remaining; }
+
+  .cell-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .group-header {
+    grid-template-areas: "handle name planned activity remaining actions";
+  }
+
+  /* Status moves under the category name; the bar returns at full width */
+  .category-row {
+    grid-template-areas:
+      "handle name planned activity remaining actions"
+      "handle status planned activity remaining actions";
+    row-gap: 0;
+  }
+
+  .category-progress {
+    align-self: start;
+  }
+
+  .category-progress .progress-track {
+    display: none;
+  }
+}
+
+/* Full tier --------------------------------------------------------------------- */
+@container ledger (min-width: 780px) {
+  .ledger-grid {
+    grid-template-columns:
+      1.5rem
+      minmax(8.5rem, 1fr)
+      7.25rem
+      6.5rem
+      6.5rem
+      9rem
+      4.25rem;
+    column-gap: 12px;
+  }
+
+  .ledger-head .col-status { display: block; }
+
+  .group-header {
+    grid-template-areas: "handle name planned activity remaining status actions";
+  }
+
+  .category-row {
+    grid-template-areas: "handle name planned activity remaining status actions";
+    min-height: 48px;
+  }
+
+  .category-progress {
+    align-self: center;
+  }
+
+  .category-progress .progress-track {
+    display: block;
+  }
+
+  .status-text {
+    min-width: 5.25rem;
+  }
+
+  /* Group actions split: "Add category" sits in the progress column,
+     edit and delete line up with the category row actions */
+  .group-actions {
+    display: contents;
+  }
+
+  .add-category-btn {
+    grid-area: status;
+    justify-self: start;
+    gap: 6px;
+    padding: 4px 8px 4px 6px;
+    font-size: var(--type-meta-size);
+    font-weight: var(--font-weight-medium);
+  }
+
+  .group-actions .add-category-btn {
+    color: var(--accent-text);
+  }
+
+  .group-actions .add-category-btn:hover:not(:disabled) {
+    color: var(--accent-hover);
+    background: var(--accent-subtle);
+  }
+
+  .add-category-text {
+    display: inline;
+  }
+
+  .icon-actions {
+    grid-area: actions;
+    justify-self: end;
+  }
+}
+
+/* Dialogs ------------------------------------------------------------------------- */
+
+.target-group-badge {
+  display: flex;
+  align-items: baseline;
   gap: var(--space-xs);
-  background-color: var(--color-primary-light);
-  color: var(--color-primary);
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-sm);
   margin-bottom: var(--space-md);
+  font-size: var(--type-meta-size);
+  color: var(--text-secondary);
+}
+
+.target-group-name {
+  color: var(--text-primary);
 }
 
 .field-row {
@@ -1472,52 +1944,10 @@ const formatCurrency = (amount: number | string) => {
   margin-bottom: var(--space-md);
 }
 
-.ghost {
-  opacity: 0.4;
-  background: var(--color-primary-light);
-}
-
-/* Responsive Adaptations */
-@media (max-width: 850px) {
-  .group-totals {
-    gap: var(--space-sm);
-  }
-  .category-progress {
-    display: none;
-  }
-}
-
-@media (max-width: 680px) {
-  .group-header {
-    flex-wrap: wrap;
-    padding: var(--space-sm);
-  }
-  .group-toggle-btn {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-xs);
-    padding: var(--space-xs);
-  }
-  .group-totals {
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-  }
-  .category-row {
-    flex-wrap: wrap;
-    gap: var(--space-xs);
-    padding: var(--space-sm);
-  }
-  .category-info {
-    width: 100%;
-    flex: none;
-  }
-  .category-planned {
-    width: 100px;
-  }
-  .metric-mobile-label {
-    display: inline;
-    color: var(--color-text-muted);
-    font-size: var(--font-size-xs);
+@media (max-width: 480px) {
+  .field-row {
+    grid-template-columns: 1fr;
+    gap: 0;
   }
 }
 </style>

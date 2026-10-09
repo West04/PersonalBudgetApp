@@ -49,7 +49,7 @@ def test_categories_group_toggle_accessibility_contract(require_node):
 
     // 3. Action buttons are isolated in .group-actions outside the toggle button
     const hasGroupActionsAfterBtn = code.indexOf('class="group-actions"') > code.indexOf('group-toggle-btn');
-    const hasAddCategoryTrigger = code.includes('+ Add Category');
+    const hasAddCategoryTrigger = code.includes('openAddCategoryModal(group)') && code.includes('`Add category to ${group.name}`');
     const hasEditGroupTrigger = code.includes('openEditGroupModal(group)');
     const hasDeleteGroupTrigger = code.includes('confirmDeleteGroup(group)');
 
