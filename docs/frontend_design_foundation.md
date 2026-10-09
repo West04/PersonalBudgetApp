@@ -13,8 +13,8 @@ Three layers:
 
 1. **Semantic tokens**: `--bg-*`, `--text-*`, `--border-*`, `--accent-*`, `--focus-*`,
    `--status-*`, `--financial-*`, `--table-*`, `--input-*`, `--button-*`, `--nav-*`,
-   `--overlay-scrim`. New code uses only these. Future themes (Light, Dark, Pink,
-   Tech, System) replace these values and nothing else.
+   `--overlay-scrim`. New code uses only these. The `:root` values are the Light
+   theme; `themes.css` overrides them for the other themes (see Themes below).
 2. **Scales**: spacing, radius, type roles, layout widths.
 3. **Legacy aliases**: `--color-*`, `--bg-color`, `--text-color`, and the rest. Legacy
    `--color-*` names continue to resolve through compatibility aliases; their values now
@@ -24,6 +24,51 @@ Three layers:
 
 Contrast floor: `--text-muted` is the lightest token allowed for readable text
 (≥ 5.3:1 on page and surface). `--text-disabled` is only for disabled controls.
+
+## Themes (`frontend/app/assets/css/themes.css`)
+
+| Preference | Rendering |
+| --- | --- |
+| `system` (default) | Light, or the Dark palette when `prefers-color-scheme: dark` |
+| `light` | the `:root` baseline in `tokens.css` |
+| `dark` | layered charcoal; surfaces get lighter as they rise (page < surface < elevated) |
+| `pink` | Light structure on a faintly warm neutral, berry-rose accent |
+| `tech` | deep blue-slate, crisper borders, cyan accent |
+
+- **Contract:** the values are exactly `system`, `light`, `dark`, `pink`, `tech`
+  (`utils/theme.ts`). Anything else (missing, old or hand-edited) falls back to `system`.
+- **Persistence:** the `theme` cookie (one year, `SameSite=Lax`), the same convention
+  as `nav_collapsed`. No cookie is written until the user picks a theme. There is no
+  backend setting.
+- **Rendering:** `useTheme()` seeds shared state from the sanitized cookie; `app.vue`
+  renders it as `<html data-theme="...">` through `useHead`. The server sends the
+  attribute and the stylesheets in `<head>`, so the first paint already uses the right
+  theme, with or without JavaScript, and hydration sees the same value.
+- **System** is resolved in CSS by a `prefers-color-scheme: dark` block that repeats
+  the Dark tokens (a test keeps the two identical). It follows OS changes live, with
+  no reload and no JavaScript. System only ever maps to Light or Dark.
+- Each theme sets `color-scheme`, so native selects, date and file inputs, checkboxes
+  and scrollbars match. `html { accent-color }` makes native checkboxes and radios use
+  the theme accent.
+- **Themes change color tokens only.** Spacing, radius, type and layout tokens are
+  shared, so switching themes never changes geometry. Switching is immediate, with no
+  palette animation.
+- Pages and components never branch on the theme. They consume semantic tokens.
+- The selector lives in Settings, under Appearance: a native radio group, applied
+  immediately.
+
+### Accent vs meaning
+
+The accent (`--accent-*`, `--focus-*`, active navigation, primary buttons, selection)
+is the only thing that carries a theme's personality. Financial and status tokens never
+reference it and keep their meaning in every theme: favorable (inflow, credit,
+available) is green, overspent and error are red, warning is amber, info is blue, and
+outflow and ordinary card debt are neutral ink. Pink inherits Light's financial and
+status values unchanged, so overspending is red, not pink. Tech's green is kept clearly
+green, so it never reads as the cyan accent. Danger buttons use `--button-danger` and
+`--button-danger-text`, never the accent. Tests check that the accent hue stays at
+least 30° away from every financial and status hue, and that each theme meets the
+contrast floor (AA text, 3:1 focus rings and control edges).
 
 ## Financial semantics
 
@@ -106,7 +151,8 @@ Page containers (opt-in per page slice): `.page-container` (1200px),
   states (pre-existing).
 - Undefined custom properties referenced by pages: `--color-primary-bg`,
   `--color-surface-subtle`, `--font-mono`, `--font-weight-normal` (pre-existing).
-- The calendar emoji in `MonthNavigator` and the warning emoji in `ErrorBanner`.
+- The calendar emoji in `MonthNavigator` and the warning emoji in `ErrorBanner`
+  (the banner's last hardcoded hover color now uses `--status-error-border`).
   Page-local hardcoded colors are gone: Credit Cards and Accounts (Accounts/Credit
   Cards slice), Transactions (its own slice) and Import plus the reconcile dialog
   (Import/Reconciliation slice). Import keeps its existing four-step sequence

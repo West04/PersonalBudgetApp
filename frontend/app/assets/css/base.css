@@ -6,6 +6,8 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* Native checkboxes, radios and range/progress follow the theme accent */
+  accent-color: var(--accent-primary);
 }
 
 body {
@@ -231,7 +233,7 @@ body {
 
 .btn-danger {
   background-color: var(--button-danger);
-  color: var(--text-on-accent);
+  color: var(--button-danger-text);
   border-color: var(--button-danger);
 }
 

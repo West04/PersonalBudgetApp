@@ -135,6 +135,12 @@ const primaryItems = computed<NavItem[]>(() => [
   { label: 'Import', icon: 'import', to: '/upload' },
 ])
 
+// --- Theme: the server renders data-theme on <html>; CSS resolves it (themes.css) ---
+const { preference: themePreference } = useTheme()
+useHead({
+  htmlAttrs: { 'data-theme': themePreference },
+})
+
 // --- Desktop collapse (persisted in a cookie so SSR renders the right width) ---
 const navCollapsedCookie = useCookie<boolean>('nav_collapsed', {
   default: () => false,

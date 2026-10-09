@@ -7,7 +7,8 @@ Contract tests for the Settings redesign slice.
 3. Failed loads are distinct from empty/default state: a failed rules fetch never
    shows "No categorization rules yet", a failed model-status fetch never shows
    placeholder counts as if they were real.
-4. Page hierarchy: narrow page container, one h1 (PageHeader), labelled sections,
+4. Page hierarchy: narrow page container, one h1 (PageHeader), labelled sections
+   (rules, ML, appearance),
    rule actions inside the rules section, not the page header.
 5. Shared primitives (.btn, .btn-icon, AppIcon, AppDialog, FormField, ErrorBanner);
    no page-local input styling, hardcoded colors, emoji or all-caps labels.
@@ -42,7 +43,12 @@ def test_settings_endpoints_and_payloads_unchanged():
         assert fragment in SCRIPT, fragment
     # No autosave: no watchers or change handlers that issue requests
     assert "watch(" not in SCRIPT
-    assert "@change" not in TEMPLATE and "@input" not in TEMPLATE
+    # The only change handler is the local theme preference, which issues no request
+    start = TEMPLATE.index('aria-labelledby="heading-appearance"')
+    appearance = TEMPLATE[start: TEMPLATE.index("</section>", start)]
+    assert re.findall(r'@change="[^"]*"', appearance) == ['@change="setThemePreference(option.value)"']
+    rest = TEMPLATE.replace(appearance, "")
+    assert "@change" not in rest and "@input" not in rest
 
 
 def test_settings_validation_and_refresh_preserved():
@@ -79,6 +85,7 @@ def test_settings_hierarchy_and_sections():
     assert re.findall(r'<section class="settings-section" aria-labelledby="([^"]+)"', TEMPLATE) == [
         "heading-rules",
         "heading-ml",
+        "heading-appearance",
     ]
     assert '<h2 id="heading-rules"' in TEMPLATE
     assert '<h2 id="heading-ml"' in TEMPLATE

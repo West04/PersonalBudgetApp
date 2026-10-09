@@ -3,8 +3,9 @@
  *
  * Three layers:
  *   1. Semantic tokens (--bg-*, --text-*, --accent-*, --status-*, --financial-*, ...)
- *      Components and pages should consume these. A future theme (Light, Dark,
- *      Pink, Tech) swaps these values without touching component code.
+ *      Components and pages should consume these. The values here are the
+ *      Light theme; themes.css overrides them for Dark, Pink, Tech and System
+ *      without touching component code.
  *   2. Scales (spacing, radius, type, layout) shared by every theme.
  *   3. Legacy aliases (--color-*, --bg-color, ...) kept so existing pages keep
  *      rendering while they are migrated slice by slice. Do not use in new code.
@@ -59,7 +60,7 @@
   /* Status (system feedback)                                                 */
   /* ------------------------------------------------------------------------ */
   --status-success: #15803d;
-  --status-success-bg: #e8f6ed;
+  --status-success-bg: #eaf7ee;
   --status-success-border: #b7e2c6;
 
   --status-warning: #b45309;
@@ -113,6 +114,7 @@
   --button-secondary-border: var(--border-default);
   --button-danger: var(--status-error);
   --button-danger-hover: #912018;
+  --button-danger-text: #ffffff;
 
   --overlay-scrim: rgba(17, 24, 39, 0.48);
 

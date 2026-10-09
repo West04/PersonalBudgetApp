@@ -2,7 +2,7 @@
   <div class="settings-page page-container page-container--narrow">
     <PageHeader
       title="Settings"
-      subtitle="Transaction categorization rules and the suggestion model"
+      subtitle="Transaction categorization rules, the suggestion model and appearance"
     />
 
     <ErrorBanner
@@ -205,6 +205,46 @@
         </p>
       </template>
     </section>
+
+    <!-- Appearance: a local display preference, applied immediately; no API call -->
+    <section class="settings-section" aria-labelledby="heading-appearance">
+      <div class="section-head">
+        <div class="section-titles">
+          <h2 id="heading-appearance" class="section-heading">Appearance</h2>
+          <p class="section-meta">
+            Changes colors only. Amounts, budget states and warnings keep the same meaning in every theme.
+            Saved in this browser.
+          </p>
+        </div>
+      </div>
+
+      <fieldset class="theme-fieldset">
+        <legend class="theme-legend">Theme</legend>
+        <div class="theme-options">
+          <label
+            v-for="option in themeOptions"
+            :key="option.value"
+            class="theme-option"
+            :class="{ 'is-selected': themePreference === option.value }"
+          >
+            <input
+              type="radio"
+              name="theme"
+              class="theme-radio"
+              :value="option.value"
+              :checked="themePreference === option.value"
+              :aria-describedby="`theme-desc-${option.value}`"
+              @change="setThemePreference(option.value)"
+            />
+            <span class="theme-option-text">
+              <span class="theme-option-label">{{ option.label }}</span>
+              <span :id="`theme-desc-${option.value}`" class="theme-option-desc">{{ option.description }}</span>
+            </span>
+          </label>
+        </div>
+      </fieldset>
+    </section>
+
     <!-- Dialog: Add Rule -->
     <AppDialog
       :open="isAddOpen"
@@ -409,6 +449,8 @@
 </template>
 <script setup lang="ts">
 import { ref, computed, reactive } from 'vue'
+
+const { preference: themePreference, setPreference: setThemePreference, options: themeOptions } = useTheme()
 
 const config = useRuntimeConfig()
 const API_BASE = config.public.apiBase || '/api'
@@ -1013,6 +1055,85 @@ const submitApplyRule = async () => {
   max-width: 62ch;
   font-size: var(--type-meta-size);
   line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* Appearance ---------------------------------------------------------------- */
+
+.theme-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.theme-legend {
+  padding: 0;
+  margin-bottom: var(--space-sm);
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  color: var(--text-secondary);
+}
+
+/* One bounded list of rows, like the rules table; the selected row carries */
+/* the native radio state plus an accent tint and edge, never color alone.  */
+.theme-options {
+  max-width: 34rem;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.theme-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: 10px var(--space-md);
+  cursor: pointer;
+  box-shadow: inset 3px 0 0 transparent;
+}
+
+.theme-option + .theme-option {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.theme-option:hover {
+  background-color: var(--table-hover);
+}
+
+.theme-option.is-selected {
+  background-color: var(--accent-subtle);
+  box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
+.theme-radio {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  cursor: pointer;
+}
+
+.theme-option-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-sm);
+  min-width: 0;
+}
+
+.theme-option-label {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+.theme-option.is-selected .theme-option-label {
+  font-weight: var(--font-weight-semibold);
+}
+
+.theme-option-desc {
+  font-size: var(--type-meta-size);
   color: var(--text-muted);
 }
 

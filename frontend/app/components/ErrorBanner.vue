@@ -86,7 +86,7 @@ defineEmits<{
 
 .dismiss-btn:hover {
   opacity: 1;
-  background-color: rgba(220, 38, 38, 0.1);
+  background-color: var(--status-error-border);
 }
 
 .dismiss-btn:focus-visible {

@@ -1,0 +1,287 @@
+/*
+ * Themes
+ *
+ * The preference is rendered on <html data-theme="..."> by the server
+ * (app.vue + composables/useTheme.ts), so the first paint already uses it.
+ *
+ *   light   the :root baseline in tokens.css (nothing to override)
+ *   dark    block below
+ *   pink    block below (light base, rose accent)
+ *   tech    block below (dark slate base, cyan accent)
+ *   system  light, or the dark block when the OS prefers dark. Resolved by
+ *           the media query here, so it is correct on first paint and follows
+ *           OS changes live without JavaScript.
+ *
+ * Rules:
+ *   - Themes override semantic color tokens only. Scales (spacing, radius,
+ *     type, layout) are shared, so a theme never changes geometry.
+ *   - Accent tokens (--accent-*, --focus-*, --nav-*-active) carry the theme's
+ *     personality. Financial and status tokens keep the same meaning in every
+ *     theme: favorable = green, overspent/error = red, warning = amber,
+ *     outflow and ordinary debt = neutral ink. A theme accent never stands in
+ *     for a financial or status meaning.
+ *   - The dark block and the system-dark block must stay identical
+ *     (tests/test_frontend_themes.py enforces it).
+ */
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Dark: layered charcoal with a cool cast. Surfaces step up in lightness     */
+/* (page < surface < elevated) instead of relying on shadows.                 */
+/* -------------------------------------------------------------------------- */
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-page: #12161c;
+  --bg-surface: #181d25;
+  --bg-elevated: #1f252f;
+  --bg-subtle: #242b36;
+  --bg-sunken: #151a21;
+
+  --text-primary: #e7ebf1;
+  --text-secondary: #bcc4cf;
+  --text-muted: #969fad;
+  --text-disabled: #646e7e;
+  --text-on-accent: #0c1424;
+
+  --border-subtle: #262d38;
+  --border-default: #323b48;
+  --border-strong: #6d7889;
+
+  --accent-primary: #6d9cf7;
+  --accent-hover: #8db2fa;
+  --accent-subtle: #1d2a44;
+  --accent-text: #93b7fb;
+
+  --focus-ring: #93b7fb;
+  --focus-halo: rgba(147, 183, 251, 0.24);
+
+  --status-success: #5cc995;
+  --status-success-bg: #14271e;
+  --status-success-border: #27503d;
+  --status-warning: #e9aa4c;
+  --status-warning-bg: #2a2214;
+  --status-warning-border: #5c4620;
+  --status-error: #f27d74;
+  --status-error-bg: #2e1819;
+  --status-error-border: #62302e;
+  --status-info: #93b7fb;
+  --status-info-bg: #172238;
+  --status-info-border: #2c4269;
+
+  --financial-inflow: #5cc995;
+  --financial-debt: #ee8f76;
+  --financial-credit: #5cc995;
+  --financial-available: #5cc995;
+  --financial-overspent: #f27d74;
+  --financial-overspent-bg: #2e1819;
+
+  --table-header: #1c222b;
+  --table-hover: #1e242e;
+
+  --input-bg: #13181f;
+  --input-border-hover: #8a95a6;
+
+  --button-danger: #c7433a;
+  --button-danger-hover: #ad362e;
+  --button-danger-text: #ffffff;
+
+  --overlay-scrim: rgba(4, 7, 12, 0.66);
+
+  --nav-bg: #151a21;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.45);
+  --shadow-modal: 0 24px 48px -12px rgba(0, 0, 0, 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"] {
+    color-scheme: dark;
+
+    --bg-page: #12161c;
+    --bg-surface: #181d25;
+    --bg-elevated: #1f252f;
+    --bg-subtle: #242b36;
+    --bg-sunken: #151a21;
+
+    --text-primary: #e7ebf1;
+    --text-secondary: #bcc4cf;
+    --text-muted: #969fad;
+    --text-disabled: #646e7e;
+    --text-on-accent: #0c1424;
+
+    --border-subtle: #262d38;
+    --border-default: #323b48;
+    --border-strong: #6d7889;
+
+    --accent-primary: #6d9cf7;
+    --accent-hover: #8db2fa;
+    --accent-subtle: #1d2a44;
+    --accent-text: #93b7fb;
+
+    --focus-ring: #93b7fb;
+    --focus-halo: rgba(147, 183, 251, 0.24);
+
+    --status-success: #5cc995;
+    --status-success-bg: #14271e;
+    --status-success-border: #27503d;
+    --status-warning: #e9aa4c;
+    --status-warning-bg: #2a2214;
+    --status-warning-border: #5c4620;
+    --status-error: #f27d74;
+    --status-error-bg: #2e1819;
+    --status-error-border: #62302e;
+    --status-info: #93b7fb;
+    --status-info-bg: #172238;
+    --status-info-border: #2c4269;
+
+    --financial-inflow: #5cc995;
+    --financial-debt: #ee8f76;
+    --financial-credit: #5cc995;
+    --financial-available: #5cc995;
+    --financial-overspent: #f27d74;
+    --financial-overspent-bg: #2e1819;
+
+    --table-header: #1c222b;
+    --table-hover: #1e242e;
+
+    --input-bg: #13181f;
+    --input-border-hover: #8a95a6;
+
+    --button-danger: #c7433a;
+    --button-danger-hover: #ad362e;
+    --button-danger-text: #ffffff;
+
+    --overlay-scrim: rgba(4, 7, 12, 0.66);
+
+    --nav-bg: #151a21;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
+    --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.45);
+    --shadow-modal: 0 24px 48px -12px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Pink: the Light structure on a faintly warm neutral, with a berry-rose     */
+/* accent for navigation, selection, focus and primary actions. Status and    */
+/* financial tokens are inherited from Light unchanged, so overspending and   */
+/* errors stay red and are never confused with the accent.                    */
+/* -------------------------------------------------------------------------- */
+
+:root[data-theme="pink"] {
+  color-scheme: light;
+
+  --bg-page: #f8f4f6;
+  --bg-surface: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f3ebef;
+  --bg-sunken: #fbf8f9;
+
+  --text-primary: #241a20;
+  --text-secondary: #4c3f47;
+  --text-muted: #6a5b64;
+  --text-disabled: #9b8d96;
+  --text-on-accent: #ffffff;
+
+  --border-subtle: #eee4e9;
+  --border-default: #e1d5dc;
+  --border-strong: #968792;
+
+  --accent-primary: #b0246f;
+  --accent-hover: #8f1c5a;
+  --accent-subtle: #fae9f2;
+  --accent-text: #9a1f61;
+
+  --focus-ring: #b0246f;
+  --focus-halo: rgba(176, 36, 111, 0.18);
+
+  --table-header: #f7f1f4;
+  --table-hover: #fbf7f9;
+
+  --input-border-hover: #76666f;
+
+  --overlay-scrim: rgba(36, 20, 30, 0.48);
+
+  --nav-bg: #fcf9fa;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tech: deep blue-slate with crisper borders and a cyan accent. Same layout  */
+/* and type as every other theme; no glow, no monospace, no decoration.       */
+/* Financial green stays clearly green so it never reads as the cyan accent.  */
+/* -------------------------------------------------------------------------- */
+
+:root[data-theme="tech"] {
+  color-scheme: dark;
+
+  --bg-page: #0b1016;
+  --bg-surface: #111821;
+  --bg-elevated: #17202b;
+  --bg-subtle: #1b2632;
+  --bg-sunken: #0e141b;
+
+  --text-primary: #e4edf5;
+  --text-secondary: #b4c2d0;
+  --text-muted: #8e9eaf;
+  --text-disabled: #586779;
+  --text-on-accent: #03141c;
+
+  --border-subtle: #1d2834;
+  --border-default: #2a3848;
+  --border-strong: #627487;
+
+  --accent-primary: #3cc0e8;
+  --accent-hover: #6dd2f0;
+  --accent-subtle: #0f2a36;
+  --accent-text: #6dd0ef;
+
+  --focus-ring: #6dd0ef;
+  --focus-halo: rgba(109, 208, 239, 0.24);
+
+  --status-success: #55cf8c;
+  --status-success-bg: #10261b;
+  --status-success-border: #22503a;
+  --status-warning: #f0b14c;
+  --status-warning-bg: #282012;
+  --status-warning-border: #5a4520;
+  --status-error: #ff7f76;
+  --status-error-bg: #2e1517;
+  --status-error-border: #632c2c;
+  --status-info: #9bb2ff;
+  --status-info-bg: #161f3a;
+  --status-info-border: #2e3f6e;
+
+  --financial-inflow: #55cf8c;
+  --financial-debt: #f2917a;
+  --financial-credit: #55cf8c;
+  --financial-available: #55cf8c;
+  --financial-overspent: #ff7f76;
+  --financial-overspent-bg: #2e1517;
+
+  --table-header: #142030;
+  --table-hover: #162230;
+
+  --input-bg: #0c1218;
+  --input-border-hover: #8496aa;
+
+  --button-danger: #c7433a;
+  --button-danger-hover: #ad362e;
+  --button-danger-text: #ffffff;
+
+  --overlay-scrim: rgba(2, 6, 10, 0.7);
+
+  --nav-bg: #0e141b;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.36);
+  --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  --shadow-modal: 0 24px 48px -12px rgba(0, 0, 0, 0.65);
+}
