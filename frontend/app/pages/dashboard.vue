@@ -1,285 +1,282 @@
 <template>
-  <div class="dashboard-page">
-    <!-- Header -->
+  <div class="dashboard-page page-container">
     <PageHeader
       title="Dashboard"
-      subtitle="Current financial position and monthly spending overview"
+      subtitle="Financial position and this month's spending"
     >
       <template #controls>
         <MonthNavigator />
       </template>
     </PageHeader>
 
-    <!-- Error Banner -->
     <ErrorBanner
       v-if="error"
       :error="errorMsg"
       @dismiss="dismissError"
     />
 
-    <!-- Loading State -->
     <LoadingState
       v-if="pending && !dashboardData"
       message="Loading financial overview..."
     />
 
-    <!-- Dashboard Content -->
     <div v-else-if="dashboardData" class="dashboard-content">
-      <!-- 1. Financial Position Section -->
-      <section class="dashboard-section" aria-labelledby="heading-financial-position">
-        <div class="section-header">
-          <div>
-            <h2 id="heading-financial-position" class="section-title">Current Financial Position</h2>
-            <p class="section-sub">Current balances across active accounts</p>
+      <!-- 1. Financial position: Net leads, Cash and card balance support it -->
+      <section class="dash-section" aria-labelledby="heading-financial-position">
+        <div class="section-head">
+          <div class="section-titles">
+            <h2 id="heading-financial-position" class="section-heading">Financial position</h2>
+            <p class="section-meta">Current balances across active accounts</p>
           </div>
         </div>
 
-        <div class="position-grid">
-          <!-- Cash / Depository -->
-          <div class="position-card">
-            <div class="card-meta">
-              <span class="card-label">Cash / Depository</span>
-              <span class="card-hint">Checking & Savings</span>
-            </div>
-            <div class="card-value font-mono">
-              {{ formatCurrency(position?.depositoryBalance) }}
-            </div>
-            <div class="card-footer-info">
-              {{ position?.depositoryCount }} {{ position?.depositoryCount === 1 ? 'account' : 'accounts' }}
-            </div>
+        <dl class="position-strip">
+          <div class="position-figure position-figure--lead">
+            <dt class="position-label">Net position</dt>
+            <dd class="position-value position-value--lead">
+              <Money
+                :amount="position?.netPosition"
+                :tone="(position?.netPosition ?? 0) < 0 ? 'debt' : 'neutral'"
+              />
+            </dd>
+            <dd class="position-note">Cash minus credit card debt</dd>
           </div>
 
-          <!-- Credit Card Debt -->
-          <div class="position-card" :class="{ 'has-credit': position?.hasCreditBalance }">
-            <div class="card-meta">
-              <span class="card-label">{{ position?.hasCreditBalance ? 'Credit Card Balance' : 'Credit Card Debt' }}</span>
-              <span class="card-hint">{{ position?.hasCreditBalance ? 'Overpayment credit' : 'Total owed' }}</span>
-            </div>
-            <div
-              class="card-value font-mono"
-              :class="{
-                'debt-val': !position?.hasCreditBalance && (position?.creditCardDebt ?? 0) > 0,
-                'credit-val': position?.hasCreditBalance
-              }"
-            >
-              {{ position?.creditDisplayLabel }}
-            </div>
-            <div class="card-footer-info">
-              {{ position?.creditCardCount }} {{ position?.creditCardCount === 1 ? 'card' : 'cards' }}
-            </div>
+          <div class="position-figure">
+            <dt class="position-label">Cash</dt>
+            <dd class="position-value">
+              <Money :amount="position?.depositoryBalance" />
+            </dd>
+            <dd class="position-note">
+              {{ position?.depositoryCount }} depository {{ position?.depositoryCount === 1 ? 'account' : 'accounts' }}
+            </dd>
           </div>
 
-          <!-- Net Position -->
-          <div class="position-card highlight-card">
-            <div class="card-meta">
-              <span class="card-label">Net Position</span>
-              <span class="card-hint">Cash minus credit debt</span>
-            </div>
-            <div
-              class="card-value font-mono"
-              :class="(position?.netPosition ?? 0) >= 0 ? 'positive-net' : 'negative-net'"
-            >
-              {{ formatCurrency(position?.netPosition) }}
-            </div>
-            <div class="card-footer-info">
-              Depository cash − credit debt
-            </div>
+          <div class="position-figure">
+            <dt class="position-label">
+              {{ position?.hasCreditBalance ? 'Credit card balance' : 'Credit card debt' }}
+            </dt>
+            <dd class="position-value">
+              <!-- creditDisplayLabel carries the "credit" wording; tone is chosen explicitly -->
+              <span
+                class="money"
+                :class="position?.hasCreditBalance ? 'money--credit' : 'money--neutral'"
+              >{{ position?.creditDisplayLabel }}</span>
+            </dd>
+            <dd class="position-note">
+              {{ position?.hasCreditBalance ? 'Overpayment credit' : 'Total owed' }}
+              on {{ position?.creditCardCount }} {{ position?.creditCardCount === 1 ? 'card' : 'cards' }}
+            </dd>
           </div>
-        </div>
+        </dl>
       </section>
 
-      <!-- 2. Budget Attention Section (derivable, if any) -->
+      <!-- 2. Budget attention (derivable, only when present) -->
       <section
         v-if="attentionItems.length > 0"
-        class="attention-section"
-        aria-label="Budget items requiring attention"
+        class="attention"
+        aria-labelledby="heading-attention"
       >
-        <div class="attention-header">
-          <span class="attention-tag">Attention</span>
-          <span class="attention-summary">
-            Budget notices for {{ formatMonthDisplay(selectedMonth) }}
+        <div class="attention-head">
+          <svg class="attention-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M10.3 4.2 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z" />
+            <path d="M12 9.5v4" />
+            <path d="M12 17h.01" />
+          </svg>
+          <h2 id="heading-attention" class="attention-title">Needs attention</h2>
+          <span class="attention-meta">
+            {{ attentionItems.length }} budget {{ attentionItems.length === 1 ? 'notice' : 'notices' }}
+            for {{ formatMonthDisplay(selectedMonth) }}
           </span>
         </div>
-        <div class="attention-list">
-          <div
+        <ul class="attention-list">
+          <li
             v-for="item in attentionItems"
             :key="item.id"
             class="attention-row"
-            :class="item.type"
+            :class="`attention-row--${item.type}`"
           >
-            <div class="attention-content">
-              <span class="attention-bullet" aria-hidden="true">•</span>
-              <span class="attention-msg">{{ item.message }}</span>
-            </div>
+            <span :id="`attention-msg-${item.id}`" class="attention-msg">{{ item.message }}</span>
             <NuxtLink
               :to="{ path: '/categories', query: { month: selectedMonth } }"
-              class="attention-action-link"
+              class="attention-link"
+              :aria-describedby="`attention-msg-${item.id}`"
             >
-              Adjust in Budget →
+              Adjust in budget
             </NuxtLink>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
 
-      <!-- 3. Spending by Group Section -->
-      <section class="dashboard-section" aria-labelledby="heading-spending-by-group">
-        <div class="section-header">
-          <div>
-            <h2 id="heading-spending-by-group" class="section-title">Spending by Group</h2>
-            <p class="section-sub">
-              Spending activity vs planned budget for {{ formatMonthDisplay(selectedMonth) }}
-            </p>
+      <!-- 3. This month's budget: To Be Assigned + spending by group -->
+      <section class="dash-section" aria-labelledby="heading-spending-by-group">
+        <div class="section-head">
+          <div class="section-titles">
+            <h2 id="heading-spending-by-group" class="section-heading">Spending by group</h2>
+            <p class="section-meta">Spent against plan for {{ formatMonthDisplay(selectedMonth) }}</p>
           </div>
           <NuxtLink
             :to="{ path: '/categories', query: { month: selectedMonth } }"
-            class="section-action-link"
+            class="section-link"
           >
-            View Full Budget →
+            View full budget
           </NuxtLink>
         </div>
 
-        <div v-if="groupSpendingList.length === 0" class="empty-section-box">
-          <p>No budget groups configured for this month.</p>
-          <NuxtLink :to="{ path: '/categories', query: { month: selectedMonth } }" class="btn-link">
-            Configure Budget Groups
-          </NuxtLink>
-        </div>
+        <div class="budget-panel surface-card">
+          <!-- To Be Assigned: value comes straight from the API; only presentation here -->
+          <p class="tba" :class="`tba--${tbaState}`">
+            <span class="tba-label">To be assigned</span>
+            <Money
+              class="tba-amount"
+              :amount="toBeAssigned"
+              sign="never"
+              :tone="tbaState === 'over' ? 'overspent' : tbaState === 'unassigned' ? 'available' : 'neutral'"
+            />
+            <span class="tba-status">
+              <template v-if="tbaState === 'over'">over-assigned</template>
+              <template v-else-if="tbaState === 'unassigned'">left to assign</template>
+              <template v-else>Every dollar has a job</template>
+            </span>
+          </p>
 
-        <div v-else class="spending-list">
-          <div
-            v-for="{ group, spending } in groupSpendingList"
-            :key="group.group_id"
-            class="spending-row"
-          >
-            <div class="spending-info">
-              <span class="group-name">{{ group.name }}</span>
-              <div class="spending-metrics">
-                <span class="spending-actual font-mono">{{ formatCurrency(spending.actual) }}</span>
-                <span class="spending-separator">/</span>
-                <span class="spending-planned font-mono">{{ formatCurrency(spending.planned) }}</span>
-                <span
-                  class="spending-status"
-                  :class="{
-                    'status-over': spending.isOverBudget,
-                    'status-remaining': !spending.isOverBudget && spending.planned > 0,
-                    'status-unbudgeted': spending.planned === 0
-                  }"
+          <div v-if="groupSpendingList.length === 0" class="panel-empty">
+            <p>No budget groups configured for this month.</p>
+            <NuxtLink :to="{ path: '/categories', query: { month: selectedMonth } }" class="inline-link">
+              Configure budget groups
+            </NuxtLink>
+          </div>
+
+          <div v-else class="spending-table">
+            <div class="spending-columns" aria-hidden="true">
+              <span>Group</span>
+              <span></span>
+              <span class="col-num">Spent</span>
+              <span class="col-num">Planned</span>
+              <span class="col-num">Remaining</span>
+            </div>
+            <ul class="spending-list">
+              <li
+                v-for="{ group, spending } in groupSpendingList"
+                :key="group.group_id"
+                class="spending-row"
+                :class="`is-${spendingState(spending)}`"
+              >
+                <span class="group-name">{{ group.name }}</span>
+
+                <div
+                  class="progress-track"
+                  role="progressbar"
+                  :aria-valuenow="Math.round(spending.percentage)"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  :aria-valuetext="spendingValueText(spending)"
+                  :aria-label="group.name + ' spending progress'"
                 >
-                  {{ spending.statusLabel }}
-                </span>
-              </div>
-            </div>
+                  <div
+                    class="progress-fill"
+                    :style="{ width: spending.percentage + '%' }"
+                    :class="{ 'is-over': spending.isOverBudget }"
+                  ></div>
+                </div>
 
-            <!-- Progress Bar -->
-            <div
-              class="progress-track"
-              role="progressbar"
-              :aria-valuenow="Math.round(spending.percentage)"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              :aria-label="group.name + ' spending progress'"
-            >
-              <div
-                class="progress-fill"
-                :style="{ width: spending.percentage + '%' }"
-                :class="{ 'is-over': spending.isOverBudget }"
-              ></div>
-            </div>
+                <span class="spending-actual">
+                  <span class="fig-label">Spent </span><Money :amount="spending.actual" tone="outflow" />
+                </span>
+                <span class="spending-planned">
+                  <span class="fig-label">of </span><Money :amount="spending.planned" /><span class="fig-label"> planned</span>
+                </span>
+
+                <span class="spending-status">
+                  <template v-if="spendingState(spending) === 'over'">
+                    <Money :amount="spending.overAmount" tone="overspent" /> <span class="status-word status-word--over">over</span>
+                  </template>
+                  <template v-else-if="spendingState(spending) === 'within'">
+                    <Money :amount="spending.remaining" tone="available" /><span class="sr-only"> remaining</span>
+                  </template>
+                  <span v-else-if="spendingState(spending) === 'unbudgeted'" class="status-word">Unbudgeted</span>
+                  <span v-else class="status-word status-word--quiet">No budget</span>
+                </span>
+              </li>
+            </ul>
           </div>
         </div>
       </section>
 
-      <!-- 4. Supporting Context: Current Accounts & Recent Activity -->
+      <!-- 4. Supporting context: accounts and recent activity -->
       <div class="supporting-grid">
-        <!-- Current Accounts Column -->
-        <section class="dashboard-card supporting-card" aria-labelledby="heading-current-accounts">
-          <div class="card-inner-header">
-            <div>
-              <h2 id="heading-current-accounts" class="card-inner-title">Current Accounts</h2>
-              <p class="card-inner-sub">Active accounts and balances</p>
+        <section class="dash-section" aria-labelledby="heading-current-accounts">
+          <div class="section-head">
+            <div class="section-titles">
+              <h2 id="heading-current-accounts" class="section-heading">Current accounts</h2>
+              <p class="section-meta">Active accounts and balances</p>
             </div>
+            <NuxtLink to="/accounts" class="section-link">Manage accounts</NuxtLink>
           </div>
 
-          <div v-if="activeAccounts.length === 0" class="empty-list-note">
+          <div v-if="activeAccounts.length === 0" class="list-empty">
             <p>No active accounts found.</p>
-            <NuxtLink to="/accounts" class="btn-link">Add Account</NuxtLink>
+            <NuxtLink to="/accounts" class="inline-link">Add account</NuxtLink>
           </div>
 
-          <div v-else class="account-items">
-            <div
+          <ul v-else class="ledger-list">
+            <li
               v-for="acc in activeAccounts"
               :key="acc.account_id"
               class="account-row"
             >
-              <div class="account-meta">
+              <span class="row-main">
                 <span class="account-name">{{ acc.name }}</span>
-                <span class="account-subtype-badge">
-                  {{ formatAccountTypeLabel(acc) }}
-                </span>
-              </div>
-              <div
-                class="account-balance font-mono"
-                :class="{
-                  'debt-text': getAccountBalanceDisplay(acc).isOwed,
-                  'credit-text': getAccountBalanceDisplay(acc).isCredit
-                }"
-              >
-                {{ getAccountBalanceDisplay(acc).displayLabel }}
-              </div>
-            </div>
-          </div>
-
-          <div class="card-inner-footer">
-            <NuxtLink to="/accounts" class="footer-link">
-              Manage Accounts →
-            </NuxtLink>
-          </div>
+                <span class="row-meta">{{ formatAccountTypeLabel(acc) }}</span>
+              </span>
+              <!-- Card balances keep formatCardBalance wording ("$X owed" / "$X credit");
+                   the word is set on its own line so the figures align -->
+              <span class="account-balance">
+                <span
+                  class="money"
+                  :class="getAccountBalanceDisplay(acc).isCredit ? 'money--credit' : 'money--neutral'"
+                >{{ getAccountBalanceDisplay(acc).formatted }}</span> <span v-if="balanceWord(acc)" class="balance-word">{{ balanceWord(acc) }}</span>
+              </span>
+            </li>
+          </ul>
         </section>
 
-        <!-- Recent Activity Column -->
-        <section class="dashboard-card supporting-card" aria-labelledby="heading-recent-activity">
-          <div class="card-inner-header">
-            <div>
-              <h2 id="heading-recent-activity" class="card-inner-title">Recent Activity</h2>
-              <p class="card-inner-sub">
-                Latest transactions in {{ formatMonthDisplay(selectedMonth) }}
-              </p>
+        <section class="dash-section" aria-labelledby="heading-recent-activity">
+          <div class="section-head">
+            <div class="section-titles">
+              <h2 id="heading-recent-activity" class="section-heading">Recent activity</h2>
+              <p class="section-meta">Latest transactions in {{ formatMonthDisplay(selectedMonth) }}</p>
             </div>
+            <NuxtLink
+              :to="{ path: '/transactions', query: { month: selectedMonth } }"
+              class="section-link"
+            >
+              View all transactions
+            </NuxtLink>
           </div>
 
-          <div v-if="recentTransactions.length === 0" class="empty-list-note">
+          <div v-if="recentTransactions.length === 0" class="list-empty">
             <p>No transactions in {{ formatMonthDisplay(selectedMonth) }}.</p>
-            <NuxtLink to="/upload" class="btn-link">Import Statement</NuxtLink>
+            <NuxtLink to="/upload" class="inline-link">Import statement</NuxtLink>
           </div>
 
-          <div v-else class="transaction-items">
-            <div
+          <ul v-else class="ledger-list">
+            <li
               v-for="tx in recentTransactions"
               :key="tx.transaction_id"
               class="tx-row"
             >
-              <div class="tx-date font-mono">{{ formatDate(tx.date) }}</div>
-              <div class="tx-details">
-                <div class="tx-desc" :title="tx.description">{{ tx.description }}</div>
-                <div v-if="tx.account?.name" class="tx-account-name">{{ tx.account.name }}</div>
-              </div>
-              <div
-                class="tx-amount font-mono"
-                :class="{ 'inflow': tx.amount < 0 }"
-              >
-                {{ tx.amount < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(tx.amount))) }}
-              </div>
-            </div>
-          </div>
-
-          <div class="card-inner-footer">
-            <NuxtLink
-              :to="{ path: '/transactions', query: { month: selectedMonth } }"
-              class="footer-link"
-            >
-              View All Transactions →
-            </NuxtLink>
-          </div>
+              <time class="tx-date num" :datetime="tx.date">{{ formatDate(tx.date) }}</time>
+              <span class="row-main">
+                <span class="tx-desc" :title="tx.description">{{ tx.description }}</span>
+                <span v-if="tx.account?.name" class="row-meta">{{ tx.account.name }}</span>
+              </span>
+              <span
+                class="tx-amount money"
+                :class="tx.amount < 0 ? 'money--inflow' : 'money--outflow'"
+              >{{ tx.amount < 0 ? '+' : '' }}{{ formatCurrency(Math.abs(Number(tx.amount))) }}</span>
+            </li>
+          </ul>
         </section>
       </div>
     </div>
@@ -299,6 +296,7 @@ import {
   calculateGroupSpending,
   getDerivableBudgetAttention,
   type DashboardAccount,
+  type GroupSpendingSummary,
 } from '~/utils/dashboardMath'
 
 const API_BASE = '/api'
@@ -416,512 +414,589 @@ const recentTransactions = computed(() => {
 })
 
 const formatDate = (dateStr: string) => formatDateOnly(dateStr)
+
+// --- Presentation states ---
+// These only choose wording and tone for values already supplied by the API
+// or computed in dashboardMath; nothing here recalculates a financial figure.
+
+const toBeAssigned = computed(() => Number(dashboardData.value?.to_be_assigned) || 0)
+
+const tbaState = computed<'unassigned' | 'over' | 'assigned'>(() => {
+  if (toBeAssigned.value > 0) return 'unassigned'
+  if (toBeAssigned.value < 0) return 'over'
+  return 'assigned'
+})
+
+type SpendingState = 'over' | 'within' | 'unbudgeted' | 'none'
+
+// Mirrors the statusLabel branches in calculateGroupSpending
+const spendingState = (s: GroupSpendingSummary): SpendingState => {
+  if (s.planned > 0) return s.isOverBudget ? 'over' : 'within'
+  return s.actual > 0 ? 'unbudgeted' : 'none'
+}
+
+const spendingValueText = (s: GroupSpendingSummary): string =>
+  `${formatCurrency(s.actual)} spent of ${formatCurrency(s.planned)} planned. ${s.statusLabel}`
+
+const balanceWord = (acc: DashboardAccount): string => {
+  const display = getAccountBalanceDisplay(acc)
+  if (display.isOwed) return 'owed'
+  if (display.isCredit) return 'credit'
+  return ''
+}
 </script>
 
 <style scoped>
-.dashboard-page {
-  padding: var(--space-lg);
-  max-width: var(--page-max-width);
-  margin: 0 auto;
-}
+/* Layout ------------------------------------------------------------------ */
 
 .dashboard-content {
+  container: dash / inline-size;
   display: flex;
   flex-direction: column;
   gap: var(--space-xl);
 }
 
-.dashboard-section {
+.dash-section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  min-width: 0;
 }
 
-.section-header {
+.section-head {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
-  gap: var(--space-md);
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+  margin-bottom: var(--space-sm);
 }
 
-.section-title {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
+.section-titles {
+  min-width: 0;
+}
+
+.section-heading {
   margin: 0;
-  letter-spacing: -0.01em;
+  font-family: var(--font-display);
+  font-size: var(--type-heading-size);
+  font-weight: var(--type-heading-weight);
+  line-height: var(--line-height-tight);
+  color: var(--text-primary);
 }
 
-.section-sub {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  margin: 2px 0 0 0;
+.section-meta {
+  margin: 2px 0 0;
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
 }
 
-.section-action-link {
-  font-size: var(--font-size-sm);
+.section-link,
+.inline-link,
+.attention-link {
+  color: var(--accent-text);
   font-weight: var(--font-weight-medium);
-  color: var(--color-primary);
   text-decoration: none;
-  white-space: nowrap;
-}
-
-.section-action-link:hover {
-  text-decoration: underline;
-}
-
-/* 1. Financial Position Grid */
-.position-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--space-md);
-}
-
-.position-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease;
-}
-
-.position-card.highlight-card {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-  border-color: var(--color-border-hover);
-}
-
-.card-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.card-label {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.card-hint {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-light);
-}
-
-.card-value {
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-  line-height: 1.15;
-  margin: var(--space-2xs) 0;
-}
-
-.card-value.debt-val {
-  color: var(--color-text);
-}
-
-.card-value.credit-val {
-  color: var(--color-success);
-}
-
-.card-value.positive-net {
-  color: var(--color-text);
-}
-
-.card-value.negative-net {
-  color: var(--color-danger);
-}
-
-.card-footer-info {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-}
-
-/* 2. Budget Attention Callout */
-.attention-section {
-  background: var(--color-warning-bg);
-  border: 1px solid var(--color-warning-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md) var(--space-lg);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.attention-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.attention-tag {
-  background: var(--color-warning);
-  color: white;
-  font-size: var(--font-size-2xs);
-  font-weight: var(--font-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px 6px;
   border-radius: var(--radius-xs);
 }
 
-.attention-summary {
-  font-size: var(--font-size-xs);
+.section-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  font-size: var(--type-meta-size);
+  white-space: nowrap;
+}
+
+.inline-link {
+  font-size: var(--type-meta-size);
+}
+
+.section-link:hover,
+.inline-link:hover,
+.attention-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 1. Financial position -------------------------------------------------- */
+
+.position-strip {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.position-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--space-md) var(--space-lg);
+  border-left: 1px solid var(--border-subtle);
+}
+
+.position-figure--lead {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.position-figure dd {
+  margin: 0;
+}
+
+.position-label {
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  color: var(--text-secondary);
+}
+
+.position-figure .position-value {
+  margin-top: var(--space-xs);
+}
+
+.position-value {
+  font-size: 1.375rem;
+  font-weight: var(--type-metric-weight);
+  letter-spacing: -0.015em;
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+}
+
+.position-value--lead {
+  font-size: clamp(1.875rem, 1.25rem + 2.2cqi, 2.5rem);
+  letter-spacing: -0.025em;
+}
+
+.position-note {
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+@container dash (max-width: 560px) {
+  .position-strip {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .position-figure {
+    padding: var(--space-md) 0 var(--space-md) var(--space-md);
+  }
+
+  .position-figure--lead {
+    grid-column: 1 / -1;
+    padding-left: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .position-figure--lead + .position-figure {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+/* 2. Attention ----------------------------------------------------------- */
+
+.attention {
+  /* sits closer to the position summary it qualifies */
+  margin-top: calc(var(--space-md) - var(--space-xl));
+  padding: var(--space-sm) var(--space-md) var(--space-sm) var(--space-md);
+  background: var(--status-warning-bg);
+  border-left: 3px solid var(--status-warning);
+}
+
+.attention-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-sm);
+}
+
+.attention-icon {
+  flex-shrink: 0;
+  color: var(--status-warning);
+}
+
+.attention-title {
+  margin: 0;
+  font-size: var(--type-subheading-size);
   font-weight: var(--font-weight-semibold);
-  color: var(--color-warning-hover);
+  color: var(--text-primary);
+}
+
+.attention-meta {
+  font-size: var(--type-meta-size);
+  color: var(--text-secondary);
 }
 
 .attention-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
+  list-style: none;
+  margin: var(--space-2xs) 0 0;
+  padding: 0 0 0 26px;
 }
 
 .attention-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-2xs) 0;
-  font-size: var(--font-size-sm);
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-md);
+  padding: 6px 0;
 }
 
-.attention-content {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.attention-bullet {
-  color: var(--color-warning);
-  font-size: 1.2rem;
-  line-height: 0;
+.attention-row + .attention-row {
+  border-top: 1px solid var(--status-warning-border);
 }
 
 .attention-msg {
-  color: #78350f;
-  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  font-variant-numeric: var(--font-numeric-features);
 }
 
-.attention-action-link {
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-primary);
-  text-decoration: none;
+.attention-link {
+  font-size: var(--type-meta-size);
   white-space: nowrap;
 }
 
-.attention-action-link:hover {
-  text-decoration: underline;
+/* 3. Budget panel -------------------------------------------------------- */
+
+.tba {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-sm);
+  padding: 12px var(--space-md);
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
 }
 
-/* 3. Spending by Group List */
-.spending-list {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-md) var(--space-lg);
+.tba-label {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+}
+
+.tba-amount {
+  font-size: 1.0625rem;
+  font-weight: var(--font-weight-semibold);
+}
+
+.tba-status {
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+.tba--over .tba-status {
+  color: var(--financial-overspent);
+  font-weight: var(--font-weight-medium);
+}
+
+.tba--unassigned .tba-status {
+  color: var(--financial-available);
+  font-weight: var(--font-weight-medium);
+}
+
+.panel-empty {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
-  box-shadow: var(--shadow-sm);
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding: var(--space-lg) var(--space-md);
+  color: var(--text-muted);
+}
+
+.panel-empty p,
+.list-empty p {
+  margin: 0;
+}
+
+.spending-table {
+  padding: 0 var(--space-md);
+}
+
+.spending-columns,
+.spending-row {
+  display: grid;
+  grid-template-columns:
+    minmax(9rem, 1.5fr)
+    minmax(3rem, 1.2fr)
+    minmax(5.5rem, auto)
+    minmax(5.5rem, auto)
+    minmax(7.5rem, auto);
+  column-gap: clamp(var(--space-sm), 2.5cqi, var(--space-lg));
+  align-items: center;
+}
+
+.spending-columns {
+  padding: 10px 0 6px;
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.col-num {
+  text-align: right;
+}
+
+.spending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .spending-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  padding: var(--space-xs) 0;
-  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .spending-row:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.spending-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-md);
-  flex-wrap: wrap;
+  border-bottom: 0;
 }
 
 .group-name {
-  font-size: var(--font-size-base);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-}
-
-.spending-metrics {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  font-size: var(--font-size-sm);
-}
-
-.spending-actual {
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-}
-
-.spending-separator {
-  color: var(--color-text-light);
-}
-
-.spending-planned {
-  color: var(--color-text-muted);
-}
-
-.spending-status {
-  margin-left: var(--space-sm);
-  font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-}
-
-.status-remaining {
-  background: var(--color-success-bg);
-  color: var(--color-success-hover);
-  border: 1px solid var(--color-success-border);
-}
-
-.status-over {
-  background: var(--color-danger-bg);
-  color: var(--color-danger-hover);
-  border: 1px solid var(--color-danger-border);
-  font-weight: var(--font-weight-semibold);
-}
-
-.status-unbudgeted {
-  background: var(--color-surface-hover);
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 
 .progress-track {
-  height: 8px;
-  background: var(--color-surface-hover);
+  height: 6px;
+  background: var(--bg-subtle);
   border-radius: var(--radius-full);
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
-  background: var(--color-primary);
+  background: var(--text-muted);
   border-radius: var(--radius-full);
-  transition: width 0.3s ease;
 }
 
 .progress-fill.is-over {
-  background: var(--color-danger);
+  background: var(--financial-overspent);
 }
 
-.empty-section-box {
-  background: var(--color-surface);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-xl);
-  text-align: center;
-  color: var(--color-text-muted);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-  align-items: center;
+/* Spending with no plan is not "over budget": a quiet fill, named in text */
+.spending-row.is-unbudgeted .progress-fill {
+  background: var(--border-strong);
 }
 
-/* 4. Supporting Grid (Accounts & Recent Activity) */
-.supporting-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-lg);
-}
-
-@media (max-width: 860px) {
-  .supporting-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.dashboard-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--shadow-sm);
-}
-
-.card-inner-header {
-  margin-bottom: var(--space-md);
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding-bottom: var(--space-sm);
-}
-
-.card-inner-title {
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-  margin: 0;
-}
-
-.card-inner-sub {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  margin: 2px 0 0 0;
-}
-
-.account-items,
-.transaction-items {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
-.account-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.account-row:last-child {
-  border-bottom: none;
-}
-
-.account-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.account-name {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-}
-
-.account-subtype-badge {
-  font-size: var(--font-size-2xs);
-  color: var(--color-text-muted);
-  background: var(--color-surface-hover);
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
-  text-transform: capitalize;
-}
-
-.account-balance {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-}
-
-.account-balance.debt-text {
-  color: var(--color-text);
-}
-
-.account-balance.credit-text {
-  color: var(--color-success);
-}
-
-/* Recent Transaction Rows */
-.tx-row {
-  display: flex;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-  gap: var(--space-sm);
-}
-
-.tx-row:last-child {
-  border-bottom: none;
-}
-
-.tx-date {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  width: 54px;
-  flex-shrink: 0;
-}
-
-.tx-details {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.tx-desc {
-  font-size: var(--font-size-sm);
-  color: var(--color-text);
+.spending-actual,
+.spending-planned,
+.spending-status {
+  text-align: right;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.tx-account-name {
-  font-size: var(--font-size-2xs);
-  color: var(--color-text-light);
-}
-
-.tx-amount {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-  flex-shrink: 0;
-}
-
-.tx-amount.inflow {
-  color: var(--color-success);
-}
-
-.empty-list-note {
-  padding: var(--space-lg);
-  text-align: center;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  align-items: center;
-}
-
-.card-inner-footer {
-  margin-top: var(--space-md);
-  padding-top: var(--space-sm);
-  border-top: 1px solid var(--color-border-subtle);
-  display: flex;
-  justify-content: flex-end;
-}
-
-.footer-link {
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-primary);
-  text-decoration: none;
-}
-
-.footer-link:hover {
-  text-decoration: underline;
-}
-
-.btn-link {
-  font-size: var(--font-size-sm);
-  color: var(--color-primary);
-  text-decoration: none;
+.spending-actual {
   font-weight: var(--font-weight-medium);
 }
 
-.btn-link:hover {
-  text-decoration: underline;
+.spending-planned .money {
+  color: var(--text-secondary);
+}
+
+.status-word {
+  font-size: var(--type-meta-size);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+}
+
+.status-word--over {
+  color: var(--financial-overspent);
+}
+
+.status-word--quiet {
+  font-weight: var(--font-weight-regular);
+  color: var(--text-muted);
+}
+
+/* Inline words that only appear in the stacked layout */
+.fig-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@container dash (max-width: 640px) {
+  .spending-table {
+    padding: 0 var(--space-md);
+  }
+
+  .spending-columns {
+    display: none;
+  }
+
+  .spending-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name name status"
+      "bar bar bar"
+      "actual planned planned";
+    column-gap: 0.3em;
+    row-gap: 6px;
+    padding: 12px 0;
+  }
+
+  .group-name { grid-area: name; }
+  .progress-track { grid-area: bar; }
+  .spending-status { grid-area: status; padding-left: var(--space-md); }
+
+  .spending-actual,
+  .spending-planned {
+    text-align: left;
+    font-size: var(--type-meta-size);
+    color: var(--text-secondary);
+  }
+
+  .spending-actual { grid-area: actual; }
+  .spending-planned { grid-area: planned; }
+
+  .fig-label {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+  }
+}
+
+/* 4. Accounts and recent activity ---------------------------------------- */
+
+.supporting-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-xl);
+}
+
+@container dash (min-width: 680px) {
+  .supporting-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: var(--space-2xl);
+  }
+
+  /* Share the heading row so both lists start on the same line,
+     even when one heading's link wraps */
+  .supporting-grid > .dash-section {
+    display: grid;
+    grid-row: span 2;
+    grid-template-rows: subgrid;
+    row-gap: 0;
+  }
+
+  .supporting-grid .section-head {
+    align-content: flex-end;
+  }
+}
+
+.ledger-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-default);
+}
+
+.ledger-list > li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.row-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.row-meta {
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-md);
+}
+
+.account-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.account-balance {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-weight: var(--font-weight-medium);
+}
+
+/* "owed" / "credit" sits under the figure so amounts stay flush right */
+.balance-word {
+  font-size: var(--type-meta-size);
+  font-weight: var(--font-weight-regular);
+  color: var(--text-muted);
+}
+
+.tx-row {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: var(--space-sm);
+}
+
+.tx-date {
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+.tx-desc {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tx-amount {
+  font-weight: var(--font-weight-medium);
+  text-align: right;
+}
+
+.list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--border-default);
+  color: var(--text-muted);
+  font-size: var(--type-meta-size);
+}
+
+@media (max-width: 767px) {
+  .attention-list {
+    padding-left: 0;
+  }
+
+  .section-link {
+    min-height: 44px;
+  }
+
+  .attention-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
 }
 </style>

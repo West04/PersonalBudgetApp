@@ -9,6 +9,9 @@ Verifies:
 5. Current Accounts and Recent Activity supporting context contracts.
 6. Date-only transaction formatting contract (preserves formatDateOnly usage).
 7. Month navigation link synchronization contract (passes month query param).
+8. Dashboard visual redesign contracts: Money adoption with caller-chosen tone,
+   To Be Assigned shown from the existing API value (no new fetches), and an
+   attention state whose meaning does not rely on color alone.
 """
 
 import json
@@ -67,13 +70,15 @@ def test_dashboard_financial_position_contract(require_node):
     import path from 'node:path';
 
     const code = fs.readFileSync(path.resolve('./frontend/app/pages/dashboard.vue'), 'utf-8');
+    const template = code.slice(0, code.indexOf('<script'));
+    const lower = template.toLowerCase();
 
     const checks = {
-        hasFinancialPositionHeading: code.includes('id="heading-financial-position"') && code.includes('Financial Position'),
-        hasCashDepositoryLabel: code.includes('Cash / Depository'),
-        hasCreditDebtLabel: code.includes('Credit Card Debt') && code.includes('Credit Card Balance'),
-        hasNetPositionLabel: code.includes('Net Position'),
-        hasPositionGrid: code.includes('class="position-grid"'),
+        hasFinancialPositionHeading: /id="heading-financial-position"[^>]*>\\s*Financial position/i.test(template),
+        hasCashLabel: />\\s*Cash\\s*</.test(template),
+        hasCreditDebtLabel: lower.includes('credit card debt') && lower.includes('credit card balance'),
+        hasNetPositionLabel: lower.includes('net position'),
+        netUsesMoneyWithExplicitTone: /<Money\\s+:amount="position\\?\\.netPosition"\\s+:tone=/.test(template),
         hasDepositoryBalanceBinding: code.includes('position?.depositoryBalance'),
         hasCreditDisplayBinding: code.includes('position?.creditDisplayLabel'),
         hasNetPositionBinding: code.includes('position?.netPosition'),
@@ -100,7 +105,8 @@ def test_dashboard_spending_by_group_and_progress_accessibility(require_node):
     const code = fs.readFileSync(path.resolve('./frontend/app/pages/dashboard.vue'), 'utf-8');
 
     const checks = {
-        hasSpendingHeading: code.includes('Spending by Group'),
+        hasSpendingHeading: /id="heading-spending-by-group"[^>]*>\\s*Spending by group/i.test(code),
+        hasAriaValueText: code.includes(':aria-valuetext="spendingValueText(spending)"'),
         hasRoleProgressBar: code.includes('role="progressbar"'),
         hasAriaValueNow: code.includes(':aria-valuenow="Math.round(spending.percentage)"'),
         hasAriaValueMinMax: code.includes('aria-valuemin="0"') && code.includes('aria-valuemax="100"'),
@@ -131,8 +137,8 @@ def test_dashboard_supporting_context_and_date_contract(require_node):
     const code = fs.readFileSync(path.resolve('./frontend/app/pages/dashboard.vue'), 'utf-8');
 
     const checks = {
-        hasCurrentAccountsHeading: code.includes('Current Accounts'),
-        hasRecentActivityHeading: code.includes('Recent Activity'),
+        hasCurrentAccountsHeading: /id="heading-current-accounts"[^>]*>\\s*Current accounts/i.test(code),
+        hasRecentActivityHeading: /id="heading-recent-activity"[^>]*>\\s*Recent activity/i.test(code),
         importsFormatDateOnly: code.includes("from '~/utils/formatDate'"),
         usesFormatDateOnly: code.includes('formatDateOnly('),
         hasInflowSign: code.includes("tx.amount < 0 ? '+' : ''"),
@@ -147,3 +153,63 @@ def test_dashboard_supporting_context_and_date_contract(require_node):
     proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
     res = json.loads(proc.stdout)
     assert res["passed"] is True, f"Supporting context contract failures: {res['failures']}"
+
+
+def test_dashboard_to_be_assigned_and_data_fetching_contract(require_node):
+    """
+    To Be Assigned is presented from the existing dashboard API value; the page
+    still makes exactly the two existing requests and does not recompute it.
+    Credit card wording keeps formatCardBalance / creditDisplayLabel output.
+    """
+    script = """
+    import fs from 'node:fs';
+    import path from 'node:path';
+
+    const code = fs.readFileSync(path.resolve('./frontend/app/pages/dashboard.vue'), 'utf-8');
+    const fetches = code.match(/useFetch<any>\\(`([^`]+)`/g) || [];
+
+    const checks = {
+        exactlyTwoFetches: fetches.length === 2,
+        fetchesDashboardSummary: code.includes('${API_BASE}/summary/dashboard'),
+        fetchesCreditCardSummary: code.includes('${API_BASE}/credit-cards/summary'),
+        tbaFromApiValue: code.includes('dashboardData.value?.to_be_assigned'),
+        tbaLabelVisible: code.includes('To be assigned'),
+        tbaOverWording: code.includes('over-assigned'),
+        cardBalanceUsesFormatCardBalance: code.includes('formatCardBalance(cardOwed)'),
+        cardWordsOwedAndCredit: code.includes("return 'owed'") && code.includes("return 'credit'"),
+    };
+
+    const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+    console.log(JSON.stringify({ passed: failures.length === 0, failures }));
+    """
+    proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["passed"] is True, f"To Be Assigned / data contract failures: {res['failures']}"
+
+
+def test_dashboard_attention_state_contract(require_node):
+    """
+    The attention state is a labelled region with a visible heading and icon, so its
+    meaning never depends on color alone, and each notice links to the budget month.
+    """
+    script = """
+    import fs from 'node:fs';
+    import path from 'node:path';
+
+    const code = fs.readFileSync(path.resolve('./frontend/app/pages/dashboard.vue'), 'utf-8');
+
+    const checks = {
+        renderedOnlyWithItems: code.includes('v-if="attentionItems.length > 0"'),
+        labelledByHeading: code.includes('aria-labelledby="heading-attention"') && code.includes('id="heading-attention"'),
+        visibleHeadingText: code.includes('Needs attention'),
+        usesDerivedMessages: code.includes('{{ item.message }}'),
+        linkDescribedByMessage: code.includes(':aria-describedby="`attention-msg-${item.id}`"'),
+        linksToBudgetMonth: code.includes("path: '/categories', query: { month: selectedMonth }"),
+    };
+
+    const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+    console.log(JSON.stringify({ passed: failures.length === 0, failures }));
+    """
+    proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["passed"] is True, f"Attention state contract failures: {res['failures']}"
