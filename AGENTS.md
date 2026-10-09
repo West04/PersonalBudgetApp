@@ -53,10 +53,10 @@ backend/
 
 frontend/
 ├── app/
-│   ├── app.vue               # Root layout with collapsible sidebar
-│   ├── tokens.css            # Centralized CSS design tokens
-│   ├── base.css              # Base stylesheet
-│   ├── components/           # Reusable UI primitives (AppDialog, MonthNavigator, etc.)
+│   ├── app.vue               # App shell: left rail (desktop), top bar + drawer (mobile)
+│   ├── assets/css/tokens.css # Semantic design tokens (see docs/frontend_design_foundation.md)
+│   ├── assets/css/base.css   # Type roles, focus, buttons, forms, page containers, money tones
+│   ├── components/           # Reusable UI primitives (AppDialog, MonthNavigator, Money, AppIcon, etc.)
 │   ├── composables/          # useBudgetMonth.ts, useTransactionFilters.ts, useAccountTypes.ts
 │   └── pages/                # File-based routing (dashboard, categories,
 │                             # transactions, accounts, credit-cards, upload, settings)

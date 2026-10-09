@@ -166,8 +166,7 @@ onBeforeUnmount(() => {
 .dialog-backdrop {
   position: fixed;
   inset: 0;
-  background-color: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(2px);
+  background-color: var(--overlay-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -177,8 +176,8 @@ onBeforeUnmount(() => {
 }
 
 .dialog-panel {
-  background-color: var(--color-surface);
-  border-radius: var(--radius-xl);
+  background-color: var(--bg-elevated);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-modal);
   width: 100%;
   max-height: 90vh;

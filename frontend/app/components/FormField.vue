@@ -46,11 +46,9 @@ const fieldId = computed(() => props.id || autoId)
   display: inline-flex;
   align-items: center;
   gap: var(--space-2xs);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  color: var(--text-secondary);
   user-select: none;
 }
 

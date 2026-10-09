@@ -3,44 +3,163 @@
   box-sizing: border-box;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   padding: 0;
-  font-family: var(--font-family-base);
-  color: var(--color-text);
-  background-color: var(--color-background);
-  line-height: 1.5;
+  font-family: var(--font-body);
+  font-size: var(--type-body-size);
+  color: var(--text-primary);
+  background-color: var(--bg-page);
+  line-height: var(--line-height-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Typography Utilities */
-.page-title {
+/* -------------------------------------------------------------------------- */
+/* Focus                                                                      */
+/* One visible system for every focusable element. Pages that removed the     */
+/* outline on inputs (outline: none + faint halo) are overridden for form     */
+/* controls so focus can never disappear.                                     */
+/* -------------------------------------------------------------------------- */
+
+:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+:where(input, select, textarea):focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring) !important;
+  outline-offset: 1px !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Typography roles                                                           */
+/* display: page titles | heading: sections | body | meta: supporting text    */
+/* label: sentence-case field/control labels | num: tabular financial figures */
+/* -------------------------------------------------------------------------- */
+
+.page-title,
+.type-title {
   margin: 0;
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-  letter-spacing: -0.02em;
+  font-family: var(--font-display);
+  font-size: var(--type-title-size);
+  font-weight: var(--type-title-weight);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--type-title-tracking);
+  color: var(--text-primary);
 }
 
 .page-subtitle {
   margin: var(--space-xs) 0 0 0;
-  font-size: var(--font-size-base);
-  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
 }
 
-.section-title {
+.section-title,
+.type-heading {
   margin: 0 0 var(--space-sm) 0;
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
+  font-family: var(--font-display);
+  font-size: var(--type-heading-size);
+  font-weight: var(--type-heading-weight);
+  line-height: var(--line-height-tight);
+  color: var(--text-primary);
 }
 
+.type-subheading {
+  font-size: var(--type-subheading-size);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.type-body {
+  font-size: var(--type-body-size);
+  line-height: var(--line-height-body);
+}
+
+.type-meta {
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+.type-label {
+  font-size: var(--type-label-size);
+  font-weight: var(--type-label-weight);
+  color: var(--text-secondary);
+}
+
+.type-metric {
+  font-family: var(--font-numeric);
+  font-variant-numeric: var(--font-numeric-features);
+  font-size: var(--type-metric-size);
+  font-weight: var(--type-metric-weight);
+  letter-spacing: var(--type-metric-tracking);
+  line-height: var(--line-height-tight);
+}
+
+/* Tabular figures without switching to a monospace face */
+.num {
+  font-family: var(--font-numeric);
+  font-variant-numeric: var(--font-numeric-features);
+}
+
+/* Legacy: still used by pages; new work should prefer .num */
 .font-mono {
   font-family: var(--font-family-mono);
   font-variant-numeric: tabular-nums;
 }
 
 .text-muted {
-  color: var(--color-text-muted);
+  color: var(--text-muted);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Financial values (see components/Money.vue)                                */
+/* Tone classes carry accounting meaning chosen by the caller.                */
+/* -------------------------------------------------------------------------- */
+
+.money {
+  font-family: var(--font-numeric);
+  font-variant-numeric: var(--font-numeric-features);
+  white-space: nowrap;
+}
+
+.money--neutral { color: var(--financial-neutral); }
+.money--outflow { color: var(--financial-outflow); }
+.money--inflow { color: var(--financial-inflow); }
+.money--debt { color: var(--financial-debt); }
+.money--credit { color: var(--financial-credit); }
+.money--available { color: var(--financial-available); }
+.money--overspent { color: var(--financial-overspent); }
+
+/* Right-align numeric cells/columns */
+.align-num {
+  text-align: right;
+  font-variant-numeric: var(--font-numeric-features);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Page containers                                                            */
+/* Pages opt in during their redesign slice; the shell adds no padding.       */
+/* -------------------------------------------------------------------------- */
+
+.page-container {
+  width: 100%;
+  max-width: var(--page-width-standard);
+  margin-inline: auto;
+  padding: var(--page-padding-top) var(--page-gutter) var(--space-2xl);
+}
+
+.page-container--narrow {
+  max-width: var(--page-width-narrow);
+}
+
+.page-container--wide {
+  max-width: var(--page-width-wide);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -52,22 +171,24 @@ body {
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  padding: 8px 16px;
+  min-height: 36px;
+  padding: 7px 14px;
   font-family: inherit;
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-medium);
   line-height: 1.25;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   cursor: pointer;
   text-decoration: none;
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   white-space: nowrap;
 }
 
-.btn:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
+.btn-sm {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: var(--font-size-sm);
 }
 
 .btn:disabled {
@@ -76,47 +197,47 @@ body {
 }
 
 .btn-primary {
-  background-color: var(--color-primary);
-  color: #ffffff;
-  border-color: var(--color-primary);
+  background-color: var(--button-primary);
+  color: var(--button-primary-text);
+  border-color: var(--button-primary);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: var(--color-primary-hover);
-  border-color: var(--color-primary-hover);
+  background-color: var(--button-primary-hover);
+  border-color: var(--button-primary-hover);
 }
 
 .btn-secondary {
-  background-color: var(--color-surface);
-  color: var(--color-primary);
-  border-color: var(--color-border);
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  border-color: var(--button-secondary-border);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background-color: var(--color-primary-light);
-  border-color: var(--color-primary);
+  background-color: var(--accent-subtle);
+  border-color: var(--accent-primary);
 }
 
 .btn-ghost {
   background-color: transparent;
-  color: var(--color-text-muted);
-  border-color: var(--color-border);
+  color: var(--text-secondary);
+  border-color: var(--border-default);
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text);
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
 }
 
 .btn-danger {
-  background-color: var(--color-danger);
-  color: #ffffff;
-  border-color: var(--color-danger);
+  background-color: var(--button-danger);
+  color: var(--text-on-accent);
+  border-color: var(--button-danger);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background-color: var(--color-danger-hover);
-  border-color: var(--color-danger-hover);
+  background-color: var(--button-danger-hover);
+  border-color: var(--button-danger-hover);
 }
 
 .btn-icon {
@@ -125,27 +246,22 @@ body {
   cursor: pointer;
   padding: 6px;
   border-radius: var(--radius-sm);
-  color: var(--color-text-muted);
+  color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
-  transition: all 0.15s ease;
-}
-
-.btn-icon:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .btn-icon:hover:not(:disabled) {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text);
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
 }
 
 .btn-icon.btn-icon-danger:hover:not(:disabled) {
-  background-color: var(--color-danger-bg);
-  color: var(--color-danger);
+  background-color: var(--status-error-bg);
+  color: var(--status-error);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -158,42 +274,45 @@ body {
   padding: 8px 12px;
   font-family: inherit;
   font-size: var(--font-size-base);
-  color: var(--color-text);
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  outline: none;
+  color: var(--input-text);
+  background-color: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
   box-sizing: border-box;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease;
+}
+
+.form-input:hover:not(:disabled),
+.form-select:hover:not(:disabled) {
+  border-color: var(--input-border-hover);
 }
 
 .form-input:focus,
 .form-select:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px var(--color-primary-focus);
+  border-color: var(--accent-primary);
 }
 
 .form-input:disabled,
 .form-select:disabled {
-  background-color: var(--color-background);
-  color: var(--color-text-light);
+  background-color: var(--input-disabled-bg);
+  color: var(--text-disabled);
   cursor: not-allowed;
 }
 
 .form-input::placeholder {
-  color: var(--color-text-light);
+  color: var(--input-placeholder);
 }
 
 .form-input.has-error,
 .form-select.has-error {
-  border-color: var(--color-danger);
+  border-color: var(--status-error);
 }
 
 .form-checkbox {
   width: 16px;
   height: 16px;
   cursor: pointer;
-  accent-color: var(--color-primary);
+  accent-color: var(--accent-primary);
 }
 
 .checkbox-label {
@@ -202,19 +321,20 @@ body {
   gap: var(--space-sm);
   cursor: pointer;
   font-size: var(--font-size-base);
-  color: var(--color-text);
+  color: var(--text-primary);
   user-select: none;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Shared Surface / Card Container                                            */
+/* Surfaces                                                                   */
+/* The page background is the primary surface. Use .surface-card only for     */
+/* genuinely bounded content (tables, grouped rows): border, no shadow.       */
 /* -------------------------------------------------------------------------- */
 
 .surface-card {
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
 }
 
 /* Accessible Screen Reader Only Utility */
@@ -228,4 +348,23 @@ body {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Reduced motion                                                             */
+/* -------------------------------------------------------------------------- */
+
+/* Transitions are cut to 0s (not a tiny non-zero value): a non-zero duration */
+/* would turn every element's default `transition-property: all` into a real  */
+/* transition, e.g. inherited `visibility` lagging behind and blocking focus.  */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
 }

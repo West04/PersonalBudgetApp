@@ -1,67 +1,164 @@
+/*
+ * Design tokens
+ *
+ * Three layers:
+ *   1. Semantic tokens (--bg-*, --text-*, --accent-*, --status-*, --financial-*, ...)
+ *      Components and pages should consume these. A future theme (Light, Dark,
+ *      Pink, Tech) swaps these values without touching component code.
+ *   2. Scales (spacing, radius, type, layout) shared by every theme.
+ *   3. Legacy aliases (--color-*, --bg-color, ...) kept so existing pages keep
+ *      rendering while they are migrated slice by slice. Do not use in new code.
+ *
+ * Financial tokens are deliberately separate from accent/status tokens:
+ * accent = interaction, selection, focus; financial = accounting meaning.
+ * Never pick a financial token from the sign of a number alone.
+ */
+
 :root {
-  /* Semantic Colors */
-  --color-background: #f8fafc;
-  --color-surface: #ffffff;
-  --color-surface-hover: #f1f5f9;
-  --color-border: #e2e8f0;
-  --color-border-hover: #cbd5e1;
-  --color-border-subtle: #f1f5f9;
+  color-scheme: light;
 
-  --color-text: #1e293b;
-  --color-text-muted: #64748b;
-  --color-text-light: #94a3b8;
+  /* ------------------------------------------------------------------------ */
+  /* Surfaces                                                                 */
+  /* ------------------------------------------------------------------------ */
+  --bg-page: #f5f6f8;          /* the primary surface: most content sits directly on it */
+  --bg-surface: #ffffff;       /* bounded regions: tables, panels, inputs */
+  --bg-elevated: #ffffff;      /* dialogs, drawers, popovers (paired with --shadow-modal) */
+  --bg-subtle: #eef1f5;        /* hover wells, quiet fills */
+  --bg-sunken: #f8f9fb;        /* insets inside a surface (dialog footer, toolbars) */
 
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-primary-light: #eff6ff;
-  --color-primary-focus: rgba(37, 99, 235, 0.15);
+  /* ------------------------------------------------------------------------ */
+  /* Text                                                                     */
+  /* ------------------------------------------------------------------------ */
+  --text-primary: #18202d;     /* 15:1 on page */
+  --text-secondary: #3f4a5a;   /* 8.3:1 on page */
+  --text-muted: #5b6779;       /* 5.3:1 on page, 5.7:1 on surface: minimum for readable text */
+  --text-disabled: #8a94a3;    /* non-essential only (disabled controls) */
+  --text-on-accent: #ffffff;
 
-  --color-success: #16a34a;
-  --color-success-hover: #15803d;
-  --color-success-bg: #dcfce7;
-  --color-success-border: #bbf7d0;
+  /* ------------------------------------------------------------------------ */
+  /* Borders                                                                  */
+  /* ------------------------------------------------------------------------ */
+  --border-subtle: #e3e7ec;    /* dividers, row rules */
+  --border-default: #d5dae1;   /* surface outlines */
+  --border-strong: #8a94a3;    /* form-control edges: 3:1 against surface */
 
-  --color-warning: #d97706;
-  --color-warning-hover: #b45309;
-  --color-warning-bg: #fffbeb;
-  --color-warning-border: #fde68a;
+  /* ------------------------------------------------------------------------ */
+  /* Accent (interaction, selection, focus; never financial meaning)          */
+  /* ------------------------------------------------------------------------ */
+  --accent-primary: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-subtle: #e8effd;    /* selected/active backgrounds */
+  --accent-text: #1d4ed8;      /* accent used as text on light surfaces */
 
-  --color-danger: #dc2626;
-  --color-danger-hover: #b91c1c;
-  --color-danger-bg: #fee2e2;
-  --color-danger-border: #fca5a5;
+  --focus-ring: #2563eb;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-halo: rgba(37, 99, 235, 0.18); /* optional soft halo; never the only indicator */
 
-  /* Backward Compatibility Aliases */
-  --bg-color: var(--color-background);
-  --sidebar-bg: var(--color-surface);
-  --text-color: var(--color-text);
-  --text-muted: var(--color-text-muted);
-  --accent-color: var(--color-primary);
-  --border-color: var(--color-border);
-  --nav-hover-bg: var(--color-surface-hover);
-  --nav-active-bg: var(--color-primary-light);
+  /* ------------------------------------------------------------------------ */
+  /* Status (system feedback)                                                 */
+  /* ------------------------------------------------------------------------ */
+  --status-success: #15803d;
+  --status-success-bg: #e8f6ed;
+  --status-success-border: #b7e2c6;
 
-  /* Spacing Scale */
-  --space-2xs: 2px;
-  --space-xs: 4px;
-  --space-sm: 8px;
-  --space-md: 16px;
-  --space-lg: 24px;
-  --space-xl: 32px;
-  --space-2xl: 48px;
+  --status-warning: #b45309;
+  --status-warning-bg: #fff7e6;
+  --status-warning-border: #f6d79a;
 
-  /* Border Radii */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-full: 9999px;
+  --status-error: #b42318;
+  --status-error-bg: #fdecea;
+  --status-error-border: #f5b8b1;
 
-  /* Typography */
-  --font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --status-info: #1d4ed8;
+  --status-info-bg: #eef3fe;
+  --status-info-border: #c3d4fa;
+
+  /* ------------------------------------------------------------------------ */
+  /* Financial semantics (caller decides meaning; never derived from sign)    */
+  /* ------------------------------------------------------------------------ */
+  --financial-neutral: var(--text-primary);  /* informational amounts */
+  --financial-outflow: var(--text-primary);  /* spending is normal, not alarming */
+  --financial-inflow: #047857;               /* money arriving: income, refunds, deposits */
+  --financial-debt: #a3361f;                 /* liability owed */
+  --financial-credit: #047857;               /* balance in the user's favor */
+  --financial-available: #047857;            /* money left to spend/assign */
+  --financial-overspent: #b42318;            /* spent beyond plan / over-assigned */
+  --financial-overspent-bg: #fdecea;
+
+  /* ------------------------------------------------------------------------ */
+  /* Tables                                                                   */
+  /* ------------------------------------------------------------------------ */
+  --table-header: #f3f5f8;
+  --table-header-text: var(--text-secondary);
+  --table-border: var(--border-subtle);
+  --table-hover: #f6f8fb;
+  --table-row-selected: var(--accent-subtle);
+
+  /* ------------------------------------------------------------------------ */
+  /* Controls                                                                 */
+  /* ------------------------------------------------------------------------ */
+  --input-bg: #ffffff;
+  --input-text: var(--text-primary);
+  --input-border: var(--border-strong);
+  --input-border-hover: #6b7686;
+  --input-placeholder: var(--text-muted);
+  --input-disabled-bg: var(--bg-subtle);
+
+  --button-primary: var(--accent-primary);
+  --button-primary-hover: var(--accent-hover);
+  --button-primary-text: var(--text-on-accent);
+  --button-secondary-bg: var(--bg-surface);
+  --button-secondary-text: var(--accent-text);
+  --button-secondary-border: var(--border-default);
+  --button-danger: var(--status-error);
+  --button-danger-hover: #912018;
+
+  --overlay-scrim: rgba(17, 24, 39, 0.48);
+
+  /* ------------------------------------------------------------------------ */
+  /* Application shell                                                        */
+  /* ------------------------------------------------------------------------ */
+  --nav-bg: #fbfbfc;
+  --nav-border: var(--border-subtle);
+  --nav-text: var(--text-secondary);
+  --nav-text-hover: var(--text-primary);
+  --nav-item-hover: var(--bg-subtle);
+  --nav-item-active: var(--accent-subtle);
+  --nav-text-active: var(--accent-text);
+  --nav-indicator: var(--accent-primary);
+
+  /* ------------------------------------------------------------------------ */
+  /* Typography                                                               */
+  /* ------------------------------------------------------------------------ */
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-family-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
+  /* Roles: one family, hierarchy from size/weight; numbers use tabular figures */
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
+  --font-numeric: var(--font-sans);
+  --font-numeric-features: tabular-nums lining-nums;
+
+  /* Role scale */
+  --type-title-size: 1.5rem;        /* page title */
+  --type-title-weight: 650;
+  --type-title-tracking: -0.018em;
+  --type-heading-size: 1.0625rem;   /* section heading */
+  --type-heading-weight: 600;
+  --type-subheading-size: 0.9375rem;
+  --type-body-size: 0.9375rem;
+  --type-meta-size: 0.8125rem;      /* supporting text, metadata, captions */
+  --type-label-size: 0.8125rem;     /* sentence-case control/field labels */
+  --type-label-weight: 500;
+  --type-metric-size: 1.75rem;      /* emphasized financial figure */
+  --type-metric-weight: 600;
+  --type-metric-tracking: -0.02em;
+
+  --line-height-tight: 1.2;
+  --line-height-body: 1.5;
+
+  /* Legacy size scale (still used by pages) */
   --font-size-2xs: 0.72rem;
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.85rem;
@@ -76,14 +173,97 @@
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
 
-  /* Elevation & Shadows */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
-  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.15);
+  /* ------------------------------------------------------------------------ */
+  /* Spacing                                                                  */
+  /* ------------------------------------------------------------------------ */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
 
-  /* Layout */
-  --sidebar-width: 260px;
-  --sidebar-collapsed-width: 68px;
-  --page-max-width: 1200px;
+  /* ------------------------------------------------------------------------ */
+  /* Radius: modest. Controls sm/md, bounded surfaces md, dialogs lg.         */
+  /* ------------------------------------------------------------------------ */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;   /* legacy; avoid in new work */
+  --radius-full: 9999px;
+
+  /* ------------------------------------------------------------------------ */
+  /* Elevation: borders before shadows. Page sections get none;               */
+  /* --shadow-modal is reserved for dialogs and the mobile navigation drawer. */
+  /* ------------------------------------------------------------------------ */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(16, 24, 40, 0.08), 0 2px 4px -2px rgba(16, 24, 40, 0.04);
+  --shadow-lg: 0 20px 25px -5px rgba(16, 24, 40, 0.1), 0 8px 10px -6px rgba(16, 24, 40, 0.06);
+  --shadow-modal: 0 24px 48px -12px rgba(16, 24, 40, 0.24);
+
+  /* ------------------------------------------------------------------------ */
+  /* Layout                                                                   */
+  /* Breakpoints (media queries cannot read tokens):                          */
+  /*   mobile  <= 767px   top bar + drawer                                    */
+  /*   compact 768-1023px icon rail                                           */
+  /*   wide    >= 1024px  rail, user-collapsible                              */
+  /* ------------------------------------------------------------------------ */
+  --rail-width: 232px;
+  --rail-collapsed-width: 64px;
+  --mobile-bar-height: 52px;
+
+  --page-width-narrow: 880px;     /* forms, wizards, settings-like pages */
+  --page-width-standard: 1200px;  /* default content pages */
+  --page-width-wide: 1520px;      /* dense tables (transactions, ledgers) */
+  --page-gutter: clamp(16px, 3vw, 32px);
+  --page-padding-top: clamp(16px, 3vw, 28px);
+
+  /* ------------------------------------------------------------------------ */
+  /* Legacy aliases: map old names onto the semantic layer.                   */
+  /* ------------------------------------------------------------------------ */
+  --color-background: var(--bg-page);
+  --color-surface: var(--bg-surface);
+  --color-surface-hover: var(--bg-subtle);
+  --color-border: var(--border-default);
+  --color-border-hover: #c4cad4;
+  --color-border-subtle: var(--border-subtle);
+
+  --color-text: var(--text-primary);
+  --color-text-muted: var(--text-secondary);
+  --color-text-light: var(--text-muted);
+
+  --color-primary: var(--accent-primary);
+  --color-primary-hover: var(--accent-hover);
+  --color-primary-light: var(--accent-subtle);
+  --color-primary-focus: var(--focus-halo);
+
+  --color-success: var(--status-success);
+  --color-success-hover: #166534;
+  --color-success-bg: var(--status-success-bg);
+  --color-success-border: var(--status-success-border);
+
+  --color-warning: var(--status-warning);
+  --color-warning-hover: #92400e;
+  --color-warning-bg: var(--status-warning-bg);
+  --color-warning-border: var(--status-warning-border);
+
+  --color-danger: var(--status-error);
+  --color-danger-hover: var(--button-danger-hover);
+  --color-danger-bg: var(--status-error-bg);
+  --color-danger-border: var(--status-error-border);
+
+  --bg-color: var(--bg-page);
+  --sidebar-bg: var(--nav-bg);
+  --text-color: var(--text-primary);
+  --accent-color: var(--accent-primary);
+  --border-color: var(--border-default);
+  --nav-hover-bg: var(--nav-item-hover);
+  --nav-active-bg: var(--nav-item-active);
+
+  --font-family-base: var(--font-body);
+  --sidebar-width: var(--rail-width);
+  --sidebar-collapsed-width: var(--rail-collapsed-width);
+  --page-max-width: var(--page-width-standard);
 }

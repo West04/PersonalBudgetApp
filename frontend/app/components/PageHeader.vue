@@ -40,16 +40,18 @@ defineProps<{
 
 .page-title {
   margin: 0;
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-  line-height: 1.2;
+  font-family: var(--font-display);
+  font-size: var(--type-title-size);
+  font-weight: var(--type-title-weight);
+  letter-spacing: var(--type-title-tracking);
+  color: var(--text-primary);
+  line-height: var(--line-height-tight);
 }
 
 .page-subtitle {
   margin: 0;
-  font-size: var(--font-size-base);
-  color: var(--color-text-muted);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
 }
 
 .header-actions {
