@@ -35,7 +35,7 @@ def test_accounts_reconciliation_ui_contract(require_node):
         // 1. Entry point on depository accounts
         hasReconcileButton: code.includes('class="btn-reconcile"') && code.includes('openReconcileModal'),
         hasReconcileAriaLabel: code.includes(':aria-label="`Reconcile ${account.name}`"'),
-        hasReconciledMeta: code.includes('class="reconciled-meta"') && code.includes('Last reconciled') && code.includes('Never reconciled'),
+        hasReconciledMeta: /class="[^"]*\\breconciled-meta\\b[^"]*"/.test(code) && code.includes('Last reconciled') && code.includes('Never reconciled'),
 
         // 2. Reconcile Dialog
         hasReconcileDialog: code.includes(':open="reconcileModalOpen"') && code.includes('Reconcile'),

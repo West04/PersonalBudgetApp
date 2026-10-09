@@ -43,6 +43,11 @@ The caller decides which meaning applies. Never choose one from the sign of a nu
 credit-card debt is positive but unfavorable, and a refund is an inflow, not an
 error.
 
+Credit-card balances use one presentation everywhere (Dashboard, Accounts, Credit
+Cards): the `formatCardBalance` figure in `neutral` tone when owed or `credit` tone
+when in credit, with the word "owed" / "credit" set beneath it; zero has no word.
+Debt is not shown in an alarm color.
+
 ## Money primitive
 
 `<Money :amount="value" tone="debt" sign="never" />`
@@ -101,5 +106,6 @@ Page containers (opt-in per page slice): `.page-container` (1200px),
   states (pre-existing).
 - Undefined custom properties referenced by pages: `--color-primary-bg`,
   `--color-surface-subtle`, `--font-mono`, `--font-weight-normal` (pre-existing).
-- Page-local hardcoded colors (Upload, Credit Cards, Transactions) and the
-  calendar emoji in `MonthNavigator`.
+- Page-local hardcoded colors (Upload) and the calendar emoji in `MonthNavigator`.
+  Credit Cards and the Accounts reconcile dialog now use tokens (Accounts/Credit
+  Cards slice); Transactions was cleared in its own slice.

@@ -113,9 +113,12 @@ def test_accounts_grouping_and_no_emoji_contract(require_node):
     const code = fs.readFileSync(path.resolve('./frontend/app/pages/accounts.vue'), 'utf-8');
 
     const checks = {
-        hasDepositoryHeading: code.includes('id="heading-depository"') || code.includes('Depository'),
-        hasCreditCardsHeading: code.includes('id="heading-credit-cards"') || code.includes('Credit Cards'),
-        hasInactiveHeading: code.includes('Inactive Accounts') || code.includes('heading-inactive'),
+        // Group sections are rendered from one list; each keeps a stable heading id
+        hasSectionsLabelledByHeadings: code.includes(':aria-labelledby="group.headingId"') && code.includes(':id="group.headingId"'),
+        hasDepositoryHeading: code.includes("headingId: 'heading-depository'"),
+        hasCreditCardsHeading: code.includes("headingId: 'heading-credit-cards'"),
+        hasOtherHeading: code.includes("headingId: 'heading-other'"),
+        hasInactiveHeading: code.includes("headingId: 'heading-inactive'"),
         noCreditCardEmoji: !code.includes('💳'),
         noBankEmoji: !code.includes('🏦'),
         noMoneyBagEmoji: !code.includes('💰'),

@@ -1,329 +1,131 @@
 <template>
-  <div class="accounts-page">
+  <div class="accounts-page page-container">
     <PageHeader
       title="Accounts"
       subtitle="Current balances across active accounts"
     >
       <template #actions>
         <button type="button" class="btn btn-primary" @click="openAddModal">
-          + Add Account
+          <AppIcon name="plus" :size="16" />
+          Add account
         </button>
       </template>
     </PageHeader>
 
-    <!-- Error Banner -->
     <ErrorBanner v-if="error" :error="error" @dismiss="error = null" />
 
-    <!-- Loading State -->
     <LoadingState v-if="pending" message="Loading accounts..." />
 
-    <!-- Empty State -->
+    <!-- A failed load shows only the error, never "No accounts yet" -->
     <EmptyState
-      v-else-if="!accounts.length"
+      v-else-if="!accounts.length && !error"
       title="No accounts yet"
       description="Add an account to start tracking balances."
     >
       <template #actions>
         <button type="button" class="btn btn-primary" @click="openAddModal">
-          + Add Account
+          <AppIcon name="plus" :size="16" />
+          Add account
         </button>
       </template>
     </EmptyState>
 
-    <!-- Accounts Content -->
-    <div v-else class="accounts-content">
-      <!-- 1. Depository Group -->
+    <!-- One ledger surface: column labels once, then a band per account group -->
+    <div v-else-if="accounts.length" class="ledger surface-card">
+      <div class="ledger-row ledger-head" aria-hidden="true">
+        <span class="col-account">Account</span>
+        <span class="col-type">Type</span>
+        <span class="col-balance">Balance</span>
+        <span class="col-status">Status</span>
+        <span class="col-actions"></span>
+      </div>
+
       <section
-        v-if="depositoryAccounts.length"
+        v-for="group in accountGroups"
+        :key="group.key"
         class="account-group"
-        aria-labelledby="heading-depository"
+        :class="`account-group--${group.key}`"
+        :aria-labelledby="group.headingId"
       >
-        <div class="group-header">
-          <h2 id="heading-depository" class="group-title">Depository</h2>
-          <span class="group-count">
-            {{ depositoryAccounts.length }} {{ depositoryAccounts.length === 1 ? 'account' : 'accounts' }}
+        <div class="group-band">
+          <h2 :id="group.headingId" class="group-title">{{ group.title }}</h2>
+          <span class="group-count num">
+            {{ group.accounts.length }} {{ group.accounts.length === 1 ? group.noun : `${group.noun}s` }}
           </span>
         </div>
-        <div class="accounts-table surface-card">
-          <div class="table-header">
-            <span>Account</span>
-            <span>Type</span>
-            <span class="right">Current Balance</span>
-            <span class="sr-only">Actions</span>
-          </div>
-          <div
-            v-for="account in depositoryAccounts"
+
+        <ul class="account-list">
+          <li
+            v-for="account in group.accounts"
             :key="account.account_id"
-            class="table-row"
+            class="ledger-row account-row"
+            :class="{ 'is-inactive': !account.is_active }"
           >
-            <div class="account-info">
-              <div class="account-titles">
-                <span class="account-name">{{ account.name }}</span>
-                <span v-if="account.last_reconciled_date" class="reconciled-meta">
-                  Last reconciled {{ formatDateOnly(account.last_reconciled_date, { includeYear: true }) }}
-                </span>
-                <span v-else class="reconciled-meta text-muted">
-                  Never reconciled
-                </span>
+            <div class="cell-account">
+              <span class="account-name">{{ account.name }}</span>
+              <span v-if="account.mask" class="account-mask num">
+                <span class="sr-only">ending in </span>••{{ account.mask }}
+              </span>
+            </div>
+
+            <!-- Card balances use the Dashboard wording: figure, then "owed" / "credit" beneath -->
+            <div class="cell-balance">
+              <span
+                class="money balance-figure"
+                :class="getAccountBalance(account).isCredit ? 'money--credit' : 'money--neutral'"
+              >{{ getAccountBalance(account).formatted }}</span>
+              <span v-if="balanceWord(account)" class="balance-word">{{ balanceWord(account) }}</span>
+            </div>
+
+            <!-- Meta and actions share a line when stacked; separate columns when wider -->
+            <div class="row-foot">
+              <!-- Type and status: own columns when wide, one meta line otherwise -->
+              <div class="cell-meta">
+                <span class="account-type">{{ formatAccountType(account) }}</span>
+                <span v-if="!account.is_active" class="account-status status-inactive">Inactive</span>
+                <template v-else-if="group.key === 'depository'">
+                  <span v-if="account.last_reconciled_date" class="account-status reconciled-meta">
+                    Last reconciled {{ formatDateOnly(account.last_reconciled_date, { includeYear: true }) }}
+                  </span>
+                  <span v-else class="account-status reconciled-meta is-never">
+                    Never reconciled
+                  </span>
+                </template>
+              </div>
+
+              <div class="cell-actions">
+                <button
+                  v-if="group.key === 'depository'"
+                  type="button"
+                  class="btn-reconcile"
+                  @click="openReconcileModal(account)"
+                  :aria-label="`Reconcile ${account.name}`"
+                  title="Reconcile account"
+                >
+                  Reconcile
+                </button>
+                <button
+                  type="button"
+                  class="btn-icon"
+                  @click="openEditModal(account)"
+                  :aria-label="`Edit ${account.name}`"
+                  title="Edit account"
+                >
+                  <AppIcon name="edit" :size="16" />
+                </button>
+                <button
+                  type="button"
+                  class="btn-icon btn-icon-danger"
+                  @click="confirmDelete(account)"
+                  :aria-label="`Delete ${account.name}`"
+                  title="Delete account"
+                >
+                  <AppIcon name="trash" :size="16" />
+                </button>
               </div>
             </div>
-            <div class="account-type-cell">
-              <span class="account-subtype">
-                {{ formatAccountType(account) }}
-              </span>
-            </div>
-            <div class="account-balance-cell right font-mono">
-              {{ formatCurrency(account.current_balance) }}
-            </div>
-            <div class="row-actions">
-              <button
-                type="button"
-                class="btn-reconcile"
-                @click="openReconcileModal(account)"
-                :aria-label="`Reconcile ${account.name}`"
-                title="Reconcile account"
-              >
-                ⚖ Reconcile
-              </button>
-              <button
-                type="button"
-                class="btn-icon"
-                @click="openEditModal(account)"
-                :aria-label="`Edit ${account.name}`"
-                title="Edit account"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="btn-icon btn-icon-danger"
-                @click="confirmDelete(account)"
-                :aria-label="`Delete ${account.name}`"
-                title="Delete account"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <polyline points="3 6 5 6 21 6"></polyline>
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 2. Credit Cards Group -->
-      <section
-        v-if="creditCardAccounts.length"
-        class="account-group"
-        aria-labelledby="heading-credit-cards"
-      >
-        <div class="group-header">
-          <h2 id="heading-credit-cards" class="group-title">Credit Cards</h2>
-          <span class="group-count">
-            {{ creditCardAccounts.length }} {{ creditCardAccounts.length === 1 ? 'card' : 'cards' }}
-          </span>
-        </div>
-        <div class="accounts-table surface-card">
-          <div class="table-header">
-            <span>Account</span>
-            <span>Type</span>
-            <span class="right">Current Balance</span>
-            <span class="sr-only">Actions</span>
-          </div>
-          <div
-            v-for="account in creditCardAccounts"
-            :key="account.account_id"
-            class="table-row"
-          >
-            <div class="account-info">
-              <span class="account-name">{{ account.name }}</span>
-            </div>
-            <div class="account-type-cell">
-              <span class="account-subtype">
-                {{ formatAccountType(account) }}
-              </span>
-            </div>
-            <div class="account-balance-cell right font-mono">
-              <span
-                :class="{
-                  'balance-debt': getAccountBalance(account).isOwed,
-                  'balance-credit': getAccountBalance(account).isCredit,
-                  'balance-zero': !getAccountBalance(account).isOwed && !getAccountBalance(account).isCredit
-                }"
-              >
-                {{ getAccountBalance(account).displayLabel }}
-              </span>
-            </div>
-            <div class="row-actions">
-              <button
-                type="button"
-                class="btn-icon"
-                @click="openEditModal(account)"
-                :aria-label="`Edit ${account.name}`"
-                title="Edit account"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="btn-icon btn-icon-danger"
-                @click="confirmDelete(account)"
-                :aria-label="`Delete ${account.name}`"
-                title="Delete account"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <polyline points="3 6 5 6 21 6"></polyline>
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 3. Other Accounts Group (Investments, Loans, etc.) -->
-      <section
-        v-if="otherAccounts.length"
-        class="account-group"
-        aria-labelledby="heading-other"
-      >
-        <div class="group-header">
-          <h2 id="heading-other" class="group-title">Other Accounts</h2>
-          <span class="group-count">
-            {{ otherAccounts.length }} {{ otherAccounts.length === 1 ? 'account' : 'accounts' }}
-          </span>
-        </div>
-        <div class="accounts-table surface-card">
-          <div class="table-header">
-            <span>Account</span>
-            <span>Type</span>
-            <span class="right">Current Balance</span>
-            <span class="sr-only">Actions</span>
-          </div>
-          <div
-            v-for="account in otherAccounts"
-            :key="account.account_id"
-            class="table-row"
-          >
-            <div class="account-info">
-              <span class="account-name">{{ account.name }}</span>
-            </div>
-            <div class="account-type-cell">
-              <span class="account-subtype">
-                {{ formatAccountType(account) }}
-              </span>
-            </div>
-            <div class="account-balance-cell right font-mono">
-              {{ formatCurrency(account.current_balance) }}
-            </div>
-            <div class="row-actions">
-              <button
-                type="button"
-                class="btn-icon"
-                @click="openEditModal(account)"
-                :aria-label="`Edit ${account.name}`"
-                title="Edit account"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="btn-icon btn-icon-danger"
-                @click="confirmDelete(account)"
-                :aria-label="`Delete ${account.name}`"
-                title="Delete account"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <polyline points="3 6 5 6 21 6"></polyline>
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 4. Inactive Accounts Group -->
-      <section
-        v-if="inactiveAccounts.length"
-        class="account-group inactive-group"
-        aria-labelledby="heading-inactive"
-      >
-        <div class="group-header">
-          <h2 id="heading-inactive" class="group-title">Inactive Accounts</h2>
-          <span class="group-count">
-            {{ inactiveAccounts.length }} {{ inactiveAccounts.length === 1 ? 'account' : 'accounts' }}
-          </span>
-        </div>
-        <div class="accounts-table surface-card">
-          <div class="table-header">
-            <span>Account</span>
-            <span>Type</span>
-            <span class="right">Current Balance</span>
-            <span class="sr-only">Actions</span>
-          </div>
-          <div
-            v-for="account in inactiveAccounts"
-            :key="account.account_id"
-            class="table-row inactive-row"
-          >
-            <div class="account-info">
-              <span class="account-name">{{ account.name }}</span>
-              <span class="status-badge inactive">Inactive</span>
-            </div>
-            <div class="account-type-cell">
-              <span class="account-subtype">
-                {{ formatAccountType(account) }}
-              </span>
-            </div>
-            <div class="account-balance-cell right font-mono">
-              <span
-                :class="{
-                  'balance-debt': getAccountBalance(account).isOwed,
-                  'balance-credit': getAccountBalance(account).isCredit,
-                  'balance-zero': !getAccountBalance(account).isOwed && !getAccountBalance(account).isCredit
-                }"
-              >
-                {{ getAccountBalance(account).displayLabel }}
-              </span>
-            </div>
-            <div class="row-actions">
-              <button
-                type="button"
-                class="btn-icon"
-                @click="openEditModal(account)"
-                :aria-label="`Edit ${account.name}`"
-                title="Edit account"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="btn-icon btn-icon-danger"
-                @click="confirmDelete(account)"
-                :aria-label="`Delete ${account.name}`"
-                title="Delete account"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <polyline points="3 6 5 6 21 6"></polyline>
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
+          </li>
+        </ul>
       </section>
     </div>
 
@@ -567,6 +369,7 @@ const API_BASE = '/api'
 interface Account {
   account_id: string
   name: string
+  mask?: string | null
   type: string
   subtype: string | null
   current_balance: number
@@ -698,6 +501,24 @@ const otherAccounts = computed(() =>
     return t !== 'depository' && t !== 'credit'
   })
 )
+
+// Display order and headings for the ledger; empty groups are omitted
+const accountGroups = computed(() =>
+  [
+    { key: 'depository', headingId: 'heading-depository', title: 'Checking and savings', noun: 'account', accounts: depositoryAccounts.value },
+    { key: 'credit', headingId: 'heading-credit-cards', title: 'Credit cards', noun: 'card', accounts: creditCardAccounts.value },
+    { key: 'other', headingId: 'heading-other', title: 'Other accounts', noun: 'account', accounts: otherAccounts.value },
+    { key: 'inactive', headingId: 'heading-inactive', title: 'Inactive accounts', noun: 'account', accounts: inactiveAccounts.value },
+  ].filter(group => group.accounts.length > 0)
+)
+
+// "owed" / "credit" wording from formatCardBalance; ordinary balances have none
+const balanceWord = (account: Account): string => {
+  const display = getAccountBalance(account)
+  if (display.isOwed) return 'owed'
+  if (display.isCredit) return 'credit'
+  return ''
+}
 
 // --- Modal Handlers ---
 const openAddModal = () => {
@@ -959,153 +780,301 @@ const finishReconciliation = async () => {
 </script>
 
 <style scoped>
-.accounts-page {
-  padding: var(--space-lg);
-  max-width: var(--page-max-width);
-  margin: 0 auto;
-}
+/* Ledger ---------------------------------------------------------------------
+   One surface, container-sized tiers:
+   stacked (< 560px), compact (560-879px), full (>= 880px).
+   Fixed balance and action tracks keep every group's figures on one right edge. */
 
-.accounts-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xl);
-}
-
-/* Account Groups */
-.account-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.group-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 0 var(--space-2xs);
-}
-
-.group-title {
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-  margin: 0;
-  letter-spacing: -0.01em;
-}
-
-.group-count {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  font-weight: var(--font-weight-medium);
-}
-
-/* Table */
-.accounts-table {
+.ledger {
+  container: accounts / inline-size;
   overflow: hidden;
 }
 
-.table-header {
+.ledger-row {
   display: grid;
-  grid-template-columns: minmax(180px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "account balance"
+    "foot foot";
+  column-gap: var(--space-md);
+  row-gap: 2px;
   align-items: center;
   padding: 10px var(--space-md);
-  background-color: var(--color-background);
-  border-bottom: 1px solid var(--color-border);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
 }
 
-.table-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 2fr) minmax(120px, 1fr) minmax(140px, 1fr) auto;
-  align-items: center;
-  padding: 14px var(--space-md);
-  border-bottom: 1px solid var(--color-border-subtle);
-  font-size: var(--font-size-base);
-  transition: background-color 0.15s ease;
+.ledger-head {
+  display: none;
+  padding-top: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+  background: var(--table-header);
+  border-bottom: 1px solid var(--border-default);
 }
 
-.table-row:last-child {
-  border-bottom: none;
-}
-
-.table-row:hover {
-  background-color: var(--color-surface-hover);
-}
-
-.account-info {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  min-width: 0;
-}
-
-.account-name {
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.account-subtype {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-}
-
-.account-balance-cell {
-  font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-base);
-}
-
-.balance-debt {
-  color: var(--color-danger);
-}
-
-.balance-credit {
-  color: var(--color-success);
-}
-
-.balance-zero {
-  color: var(--color-text);
-}
-
-.right {
+.ledger-head .col-balance {
   text-align: right;
 }
 
-.row-actions {
+.group-band {
   display: flex;
-  gap: var(--space-2xs);
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px var(--space-sm);
+  padding: 8px var(--space-md);
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.account-group + .account-group .group-band {
+  border-top: 1px solid var(--border-default);
+}
+
+.group-title {
+  margin: 0;
+  font-size: var(--type-subheading-size);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}
+
+.group-count {
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+.account-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.account-row + .account-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.account-row:hover {
+  background: var(--table-hover);
+}
+
+/* Cells */
+
+.cell-account {
+  grid-area: account;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.account-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+/* Flows after the last word of the name, so long names wrap cleanly */
+.account-mask {
+  margin-left: var(--space-sm);
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.cell-meta {
+  grid-area: meta;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-md);
+  min-width: 0;
+  font-size: var(--type-meta-size);
+  color: var(--text-muted);
+}
+
+.account-type,
+.account-status {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-type {
+  color: var(--text-secondary);
+}
+
+.reconciled-meta.is-never {
+  color: var(--text-muted);
+}
+
+/* Inactive: subdued and named in text, never styled as an error */
+.status-inactive {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-secondary);
+}
+
+.account-row.is-inactive .account-name {
+  color: var(--text-secondary);
+}
+
+.cell-balance {
+  grid-area: balance;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  min-width: 0;
+}
+
+.balance-figure {
+  font-weight: var(--font-weight-semibold);
+}
+
+.account-row.is-inactive .money--neutral {
+  color: var(--text-secondary);
+}
+
+/* "owed" / "credit" sits under the figure so amounts stay flush right */
+.balance-word {
+  font-size: var(--type-meta-size);
+  line-height: 1.3;
+  color: var(--text-muted);
+}
+
+.cell-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 2px;
 }
 
-/* Inactive Accounts Styling */
-.inactive-group {
-  opacity: 0.85;
+.cell-actions .btn-icon {
+  min-width: 36px;
+  min-height: 36px;
+  color: var(--text-muted);
 }
 
-.inactive-row {
-  background-color: #fafbfc;
+.cell-actions .btn-icon:hover:not(:disabled) {
+  color: var(--text-primary);
 }
 
-.status-badge {
-  font-size: var(--font-size-2xs);
-  font-weight: var(--font-weight-bold);
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  display: inline-block;
+.cell-actions .btn-icon-danger:hover:not(:disabled),
+.cell-actions .btn-icon-danger:focus-visible {
+  color: var(--status-error);
 }
 
-.status-badge.inactive {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
+/* Compact text action in the shared button language (btn btn-ghost btn-sm) */
+.btn-reconcile {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  margin-right: var(--space-xs);
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-reconcile:hover {
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+/* Stacked tier: name and balance lead; meta and actions share the line beneath */
+@container accounts (width < 560px) {
+  .cell-account,
+  .cell-balance {
+    align-self: start;
+  }
+
+  .account-status {
+    white-space: normal;
+  }
+
+  .row-foot {
+    grid-area: foot;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    min-width: 0;
+  }
+
+  .cell-meta {
+    flex: 1 1 auto;
+  }
+
+  .cell-actions {
+    flex: none;
+    margin: -2px -6px -4px 0;
+  }
+}
+
+/* Compact tier: column labels return; type/status stay under the name */
+@container accounts (min-width: 560px) {
+  .ledger-row {
+    grid-template-columns: minmax(0, 1fr) 9.5rem 9.5rem;
+    grid-template-areas:
+      "account balance actions"
+      "meta balance actions";
+    column-gap: var(--space-lg);
+  }
+
+  .row-foot {
+    display: contents;
+  }
+
+  .ledger-head {
+    display: grid;
+    grid-template-areas: "account balance actions";
+  }
+
+  .ledger-head .col-account { grid-area: account; }
+  .ledger-head .col-balance { grid-area: balance; }
+  .ledger-head .col-actions { grid-area: actions; }
+  .ledger-head .col-type,
+  .ledger-head .col-status { display: none; }
+
+  .cell-actions .btn-icon {
+    min-width: 32px;
+    min-height: 32px;
+  }
+}
+
+/* Full tier: Account | Type | Balance | Status | Actions */
+@container accounts (min-width: 880px) {
+  .ledger-row {
+    grid-template-columns: minmax(10rem, 1fr) 8rem 9.5rem 12.5rem 9.5rem;
+    column-gap: var(--space-md);
+    grid-template-areas: "account type balance status actions";
+    min-height: 52px;
+  }
+
+  .ledger-head {
+    grid-template-areas: "account type balance status actions";
+    min-height: 0;
+  }
+
+  .ledger-head .col-type { display: block; grid-area: type; }
+  .ledger-head .col-status { display: block; grid-area: status; }
+
+  .cell-meta {
+    display: contents;
+  }
+
+  .account-type {
+    grid-area: type;
+    font-size: var(--type-body-size);
+  }
+
+  .account-status {
+    grid-area: status;
+  }
 }
 
 /* Modal Form Layout */
@@ -1120,44 +1089,15 @@ const finishReconciliation = async () => {
   margin-bottom: var(--space-md);
 }
 
-/* Reconciliation Styling */
-.account-titles {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* Reconciliation dialog --------------------------------------------------- */
+.right {
+  text-align: right;
 }
 
-.reconciled-meta {
-  font-size: var(--font-size-xs);
-  color: var(--color-primary);
-  font-weight: var(--font-weight-medium);
-}
 
-.reconciled-meta.text-muted {
-  color: var(--color-text-muted);
-  font-weight: normal;
-}
 
-.btn-reconcile {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  border-radius: var(--radius-sm);
-  background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
 
-.btn-reconcile:hover {
-  background-color: var(--color-surface-hover);
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
+
 
 .reconcile-dialog-content {
   display: flex;
@@ -1213,8 +1153,8 @@ const finishReconciliation = async () => {
 }
 
 .diff-balanced {
-  border-color: var(--color-success);
-  background-color: #f0fdf4;
+  border-color: var(--status-success-border);
+  background-color: var(--status-success-bg);
 }
 
 .diff-balanced .card-value {
@@ -1222,12 +1162,12 @@ const finishReconciliation = async () => {
 }
 
 .diff-mismatch {
-  border-color: #f59e0b;
-  background-color: #fffbeb;
+  border-color: var(--status-warning-border);
+  background-color: var(--status-warning-bg);
 }
 
 .diff-mismatch .card-value {
-  color: #b45309;
+  color: var(--status-warning);
 }
 
 .card-status-text {
@@ -1241,7 +1181,7 @@ const finishReconciliation = async () => {
 }
 
 .diff-mismatch .card-status-text {
-  color: #b45309;
+  color: var(--status-warning);
 }
 
 .reconcile-transactions-section {
@@ -1325,7 +1265,7 @@ const finishReconciliation = async () => {
 }
 
 .row-cleared {
-  background-color: #f8fafc;
+  background-color: var(--bg-sunken);
 }
 
 .desc-cell {
@@ -1352,22 +1292,22 @@ const finishReconciliation = async () => {
 }
 
 .badge-transfer {
-  background-color: #e0e7ff;
-  color: #3730a3;
+  background-color: var(--bg-subtle);
+  color: var(--text-secondary);
 }
 
 .badge-pending {
-  background-color: #fef3c7;
-  color: #92400e;
+  background-color: var(--status-warning-bg);
+  color: var(--status-warning);
 }
 
 .badge-reviewed {
-  background-color: #d1fae5;
-  color: #065f46;
+  background-color: var(--status-success-bg);
+  color: var(--status-success);
 }
 
 .inflow {
-  color: var(--color-success);
+  color: var(--financial-inflow);
 }
 
 .reconcile-footer {
@@ -1377,41 +1317,8 @@ const finishReconciliation = async () => {
   width: 100%;
 }
 
-/* Responsive Narrow Screen Adaptations */
+/* Narrow screens: dialog fields stack */
 @media (max-width: 640px) {
-  .accounts-page {
-    padding: var(--space-md);
-  }
-
-  .table-header {
-    display: none;
-  }
-
-  .table-row {
-    grid-template-columns: 1fr auto;
-    grid-template-areas:
-      "info actions"
-      "type balance";
-    row-gap: var(--space-xs);
-    padding: var(--space-md);
-  }
-
-  .account-info {
-    grid-area: info;
-  }
-
-  .row-actions {
-    grid-area: actions;
-  }
-
-  .account-type-cell {
-    grid-area: type;
-  }
-
-  .account-balance-cell {
-    grid-area: balance;
-  }
-
   .field-row {
     grid-template-columns: 1fr;
   }
