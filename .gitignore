@@ -88,3 +88,9 @@ docs/responses/
 # ---------------------------------
 data/models/
 *.joblib
+
+# ---------------------------------
+# Backups and Database Dumps
+# ---------------------------------
+*.dump
+*.dmg
