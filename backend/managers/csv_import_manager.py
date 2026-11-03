@@ -192,8 +192,8 @@ def confirm_csv_import(
     5. Commits the transaction batch via db.commit().
     6. Returns CSVImportSummary.
     """
-    # 1. Account existence
-    account = account_access.get_account_by_id(db, account_id)
+    # 1. Account existence (locked for update to serialize concurrent imports for the same account)
+    account = account_access.get_account_by_id(db, account_id, for_update=True)
     if not account:
         raise CSVImportAccountNotFoundError(f"Account {account_id} not found")
 

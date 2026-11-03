@@ -1271,6 +1271,7 @@ async function runPreview() {
 }
 
 async function runImport() {
+  if (importing.value) return
   if (!selectedFile.value || !resolvedFormatId.value || !selectedAccountId.value) return
   importing.value = true
 

@@ -91,7 +91,7 @@ must update those assertions deliberately, not delete them.
 | COR-002 | P2 | Reconciliation | Finish Reconciliation can be enabled when the summary failed to load | Resolved | Fixed: guard isBalanced, disable button, clear stale summary |
 | COR-003 | P2 | Credit Cards | Transfer Confirm has no in-progress lock; index-based removal can hide the wrong candidate | Resolved | Fixed: confirmingPair lock, ID-based candidate removal |
 | COR-004 | P2 | Reconciliation | Default statement ending date is the UTC date, not the local date | Resolved | Fixed: getLocalDateString in accounts.vue |
-| COR-005 | P2 | Import | Confirm has no re-entrancy guard; backend duplicate check is not concurrency-safe | Confirmed | Analyze then fix |
+| COR-005 | P2 | Import | Confirm has no re-entrancy guard; backend duplicate check is not concurrency-safe | Resolved | Fixed: re-entrancy guard in runImport, with_for_update in confirm_csv_import |
 | COR-006 | P2 | Accounts | Card-summary load failure silently falls back to stored `current_balance` | Confirmed | Analyze then fix |
 | COR-007 | P2 | Import | Account-list load failure is not represented (empty/stray options, unhandled rejection) | Confirmed | Analyze then fix |
 | COR-008 | P3 | Settings | `/category-groups` load failure leaves rule category selects silently empty | Confirmed | Analyze then fix |
@@ -351,7 +351,13 @@ Analyze then fix
 Priority: P2
 Area: Import (`frontend/app/pages/upload.vue`), CSV import backend
 Classification: CONFIRMED DEFECT
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- Added synchronous client re-entrancy guard in `runImport` (`if (importing.value) return`) in `frontend/app/pages/upload.vue`.
+- Added `for_update: bool = False` to `backend/access/account_access.get_account_by_id`.
+- In `backend/managers/csv_import_manager.confirm_csv_import`, acquired row lock on the target account (`for_update=True`), serializing concurrent imports for the same account and ensuring duplicate checks execute after preceding commits.
+- Added multithreaded concurrency test `test_manager_concurrent_csv_import_deduplication` in `tests/test_manager_csv_import.py` and contract test in `tests/test_frontend_import_redesign.py`.
 
 Observed behavior:
 `runImport` (≈ line 1273) sets `importing = true` but never returns early when

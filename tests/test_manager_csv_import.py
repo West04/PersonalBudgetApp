@@ -61,7 +61,7 @@ def test_manager_validation_order_mocked():
                 raw_bytes=raw_bytes,
             )
 
-        mock_get_account.assert_called_once_with(db_mock, account_id)
+        mock_get_account.assert_called_once_with(db_mock, account_id, for_update=True)
         mock_resolve.assert_not_called()
 
 
@@ -355,6 +355,59 @@ def test_manager_successful_import_and_duplicate_skipping(db_session):
     assert res2.imported == 0
     assert res2.skipped == 2
     assert res2.errors == ()
+
+
+def test_manager_concurrent_csv_import_deduplication(db_session):
+    """
+    COR-005 Regression:
+    Verify concurrent confirm_csv_import requests on the same account are serialized
+    via account row locking, ensuring zero duplicate transactions are inserted.
+    """
+    import concurrent.futures
+    from backend.database import SessionLocal
+
+    account = models.Account(
+        name="Concurrent Import Test",
+        type="depository",
+        current_balance=Decimal("0"),
+        starting_balance=Decimal("0"),
+        currency="USD",
+    )
+    db_session.add(account)
+    db_session.commit()
+
+    csv_data = (
+        "Date,Description,Category,Amount,Status\n"
+        "2026-06-01,PARALLEL STORE 1,Food,-10.00,posted\n"
+        "2026-06-02,PARALLEL STORE 2,Food,-20.00,posted\n"
+    ).encode("utf-8")
+
+    def run_import():
+        session = SessionLocal()
+        try:
+            return confirm_csv_import(
+                db=session,
+                account_id=account.id,
+                format_identifier="usaa",
+                raw_bytes=csv_data,
+            )
+        finally:
+            session.close()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        f1 = executor.submit(run_import)
+        f2 = executor.submit(run_import)
+        res1 = f1.result()
+        res2 = f2.result()
+
+    # One worker must import the 2 rows; the other must detect them and skip 2 rows
+    assert sorted([res1.imported, res2.imported]) == [0, 2]
+    assert sorted([res1.skipped, res2.skipped]) == [0, 2]
+
+    # Total rows in the database for this account must be exactly 2, with no duplicates
+    db_session.expire_all()
+    txns = db_session.query(models.Transaction).filter(models.Transaction.account_id == account.id).all()
+    assert len(txns) == 2
 
 
 def test_manager_same_request_duplicates_both_imported(db_session):

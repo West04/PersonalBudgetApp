@@ -15,15 +15,15 @@ from .. import models
 def get_account_by_id(
     db: Session,
     account_id: UUID,
+    for_update: bool = False,
 ) -> Optional[models.Account]:
     """
     Retrieves an Account by primary key without active-status or type filtering.
     """
-    return (
-        db.query(models.Account)
-        .filter(models.Account.id == account_id)
-        .first()
-    )
+    query = db.query(models.Account).filter(models.Account.id == account_id)
+    if for_update:
+        query = query.with_for_update()
+    return query.first()
 
 
 def get_active_accounts(db: Session) -> Sequence[models.Account]:

@@ -208,6 +208,16 @@ def test_reconciliation_load_error_is_not_empty_or_zero():
     empty = RECONCILE_TEMPLATE.index("No unreconciled transactions dated on or before")
     assert loading < loaded < empty
     # Cleared balance and difference show a dash until the summary exists
+
+
+def test_import_confirm_reentrancy_guard():
+    """
+    COR-005 Regression:
+    Verifies that runImport includes a synchronous re-entrancy guard to prevent
+    duplicate concurrent submissions before Vue re-renders the disabled button.
+    """
+    assert "async function runImport() {\n  if (importing.value) return" in SCRIPT
+    assert ':disabled="preview.valid_rows === 0 || importing"' in TEMPLATE
     assert RECONCILE_TEMPLATE.count('<span v-else class="value-unavailable">—</span>') == 2
     assert '<Money v-if="reconcileSummary" :amount="calculatedClearedBalance" />' in RECONCILE_TEMPLATE
     assert '<Money v-if="reconcileSummary" :amount="differenceAmount" />' in RECONCILE_TEMPLATE
