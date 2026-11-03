@@ -498,7 +498,13 @@ Analyze then fix
 Priority: P3
 Area: Settings → Categorization rules (`frontend/app/pages/settings.vue`)
 Classification: CONFIRMED DEFECT (failure-state)
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- In `settings.vue`, destructured `error: categoryGroupsError` from `useFetch<any[]>(`${API_BASE}/category-groups`)`.
+- Displayed an `ErrorBanner` informing the user that categories failed to load above the rules table when `categoryGroupsError && !categoryGroups`.
+- Displayed `ErrorBanner` warnings inside the Add Rule and Edit Rule dialogs so users know why the category selector cannot be populated.
+- Added contract tests in `tests/test_frontend_settings_redesign.py` verifying error destructuring and banner presence across sections and dialogs.
 
 Observed behavior:
 `const { data: categoryGroups } = await useFetch(…/category-groups)` (≈ line 459) ignores

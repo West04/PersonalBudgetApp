@@ -56,6 +56,12 @@
         </div>
       </div>
 
+      <ErrorBanner
+        v-if="categoryGroupsError && !categoryGroups"
+        error="Couldn't load categories. Reload the page to try again."
+        :dismissible="false"
+      />
+
       <LoadingState v-if="pending" message="Loading categorization rules..." />
 
       <!-- A failed load shows only the error, never "No categorization rules yet" -->
@@ -286,6 +292,11 @@
           </select>
         </FormField>
 
+        <ErrorBanner
+          v-if="categoryGroupsError && !categoryGroups"
+          error="Couldn't load categories. Reload the page to try again."
+          :dismissible="false"
+        />
         <ErrorBanner v-if="modalError" :error="modalError" :dismissible="false" />
       </div>
 
@@ -343,6 +354,11 @@
           </select>
         </FormField>
 
+        <ErrorBanner
+          v-if="categoryGroupsError && !categoryGroups"
+          error="Couldn't load categories. Reload the page to try again."
+          :dismissible="false"
+        />
         <ErrorBanner v-if="modalError" :error="modalError" :dismissible="false" />
       </div>
 
@@ -456,7 +472,7 @@ const config = useRuntimeConfig()
 const API_BASE = config.public.apiBase || '/api'
 
 // Metadata
-const { data: categoryGroups } = await useFetch<any[]>(`${API_BASE}/category-groups`)
+const { data: categoryGroups, error: categoryGroupsError } = await useFetch<any[]>(`${API_BASE}/category-groups`)
 
 // Rules Fetching
 const {

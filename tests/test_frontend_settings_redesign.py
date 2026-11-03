@@ -140,3 +140,23 @@ def test_settings_single_continuous_container_tier():
     # Narrow tier changes table display, so table semantics are explicit in markup
     for role in ['role="table"', 'role="row"', 'role="columnheader"', 'role="cell"']:
         assert role in TEMPLATE, role
+
+
+def test_settings_category_groups_load_failure_representation():
+    """
+    COR-008 Regression:
+    Verifies that category-groups fetch captures errors and surfaces them
+    truthfully to the user:
+    1. useFetch captures categoryGroupsError from /category-groups.
+    2. An ErrorBanner is displayed in the rules section when categoryGroups fails.
+    3. ErrorBanners are displayed inside both the Add Rule and Edit Rule dialogs.
+    """
+    settings = (REPO_ROOT / "frontend/app/pages/settings.vue").read_text()
+    script = settings[settings.index("<script setup"): settings.index("</script>")]
+    template = settings[: settings.index("<script setup")]
+
+    assert "error: categoryGroupsError" in script
+    assert "useFetch<any[]>(`${API_BASE}/category-groups`)" in script
+    assert template.count('v-if="categoryGroupsError && !categoryGroups"') == 3
+    assert template.count('error="Couldn\'t load categories. Reload the page to try again."') == 3
+
