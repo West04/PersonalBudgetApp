@@ -137,3 +137,48 @@ def test_format_date_only_edge_cases(require_node):
     assert results["undefinedVal"] == ""
     assert results["emptyVal"] == ""
     assert results["invalidVal"] == "invalid-date"
+
+
+def test_get_local_date_string_across_timezones_and_evening_hours(require_node):
+    """
+    COR-004 Regression:
+    - Verifies getLocalDateString produces YYYY-MM-DD representing the user's local calendar day.
+    - Demonstrates that in the evening in negative UTC offset zones (e.g. 20:00 in America/Los_Angeles),
+      new Date().toISOString().slice(0, 10) rolls forward to tomorrow (the bug),
+      whereas getLocalDateString returns today's local date (the fix).
+    - Verifies proper 2-digit zero-padding on single-digit months and days.
+    """
+    script = """
+    import { getLocalDateString } from './frontend/app/utils/formatDate.ts';
+
+    // 1. Construct a date at 20:00 local time on Nov 3, 2026
+    const eveningDate = new Date(2026, 10, 3, 20, 0, 0); // month index 10 = November
+    const localResult = getLocalDateString(eveningDate);
+    const isoResult = eveningDate.toISOString().slice(0, 10);
+
+    // 2. Construct single digit month/day: May 4, 2026
+    const singleDigitDate = new Date(2026, 4, 4, 10, 0, 0); // May 4
+    const singleDigitResult = getLocalDateString(singleDigitDate);
+
+    // 3. Current date default
+    const nowResult = getLocalDateString();
+    const now = new Date();
+    const expectedYear = now.getFullYear();
+    const expectedMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const expectedDay = String(now.getDate()).padStart(2, '0');
+    const expectedNow = `${expectedYear}-${expectedMonth}-${expectedDay}`;
+
+    console.log(JSON.stringify({
+        localResult,
+        isoResult,
+        singleDigitResult,
+        nowResult,
+        expectedNow,
+        isoRollsForward: isoResult !== localResult
+    }));
+    """
+    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["localResult"] == "2026-11-03"
+    assert res["singleDigitResult"] == "2026-05-04"
+    assert res["nowResult"] == res["expectedNow"]

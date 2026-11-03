@@ -260,3 +260,32 @@ def test_reconciliation_finish_disabled_when_summary_unloaded_or_failed(require_
     proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
     res = json.loads(proc.stdout)
     assert res["passed"] is True, f"Reconciliation Finish button guard failures: {res['failures']}"
+
+
+def test_reconciliation_default_date_uses_local_date(require_node):
+    """
+    COR-004 Regression:
+    - Verifies accounts.vue imports getLocalDateString from ~/utils/formatDate.
+    - Verifies reconcileForm.endingDate is initialized with getLocalDateString().
+    - Verifies openReconcileModal sets today using getLocalDateString().
+    - Verifies new Date().toISOString().slice(0, 10) is not used for reconciliation dates.
+    """
+    script = """
+    import fs from 'node:fs';
+    import path from 'node:path';
+
+    const code = fs.readFileSync(path.resolve('./frontend/app/pages/accounts.vue'), 'utf-8');
+
+    const checks = {
+        importsGetLocalDateString: code.includes("import { formatDateOnly, getLocalDateString } from '~/utils/formatDate'"),
+        formInitUsesLocalDateString: code.includes('endingDate: getLocalDateString()'),
+        openModalUsesLocalDateString: code.includes('const today = getLocalDateString()'),
+        noIsoStringInReconciliation: !code.includes('endingDate: new Date().toISOString()') && !code.includes('const today = new Date().toISOString()'),
+    };
+
+    const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+    console.log(JSON.stringify({ passed: failures.length === 0, failures }));
+    """
+    proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["passed"] is True, f"Reconciliation local date defaults failures: {res['failures']}"

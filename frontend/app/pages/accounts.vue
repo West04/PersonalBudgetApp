@@ -383,7 +383,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ACCOUNT_TYPES, useAccountTypes } from '~/composables/useAccountTypes'
 import { formatCurrency, formatCardBalance } from '~/utils/dashboardMath'
-import { formatDateOnly } from '~/utils/formatDate'
+import { formatDateOnly, getLocalDateString } from '~/utils/formatDate'
 
 const { getSubtypes, getSubtypeLabel, getTypeLabel, defaultSubtype } = useAccountTypes()
 
@@ -664,7 +664,7 @@ interface ReconciliationSummary {
 const reconcileModalOpen = ref(false)
 const reconcilingAccount = ref<Account | null>(null)
 const reconcileForm = ref({
-  endingDate: new Date().toISOString().slice(0, 10),
+  endingDate: getLocalDateString(),
   endingBalance: 0,
 })
 const reconcileSummary = ref<ReconciliationSummary | null>(null)
@@ -676,7 +676,7 @@ const isTogglingClearAll = ref(false)
 const openReconcileModal = async (account: Account) => {
   reconcilingAccount.value = account
   reconcileError.value = null
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getLocalDateString()
   const defaultBalance = account.current_balance !== undefined ? Number(account.current_balance) : 0
   reconcileForm.value = {
     endingDate: today,
