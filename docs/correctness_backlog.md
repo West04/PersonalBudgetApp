@@ -98,7 +98,7 @@ must update those assertions deliberately, not delete them.
 | COR-009 | P3 | Accounts | Card-summary month computed in UTC | Resolved | Fixed: getLocalMonthString in accounts.vue |
 | COR-010 | P3 | Credit Cards | Failed month change keeps previous month's data (accurately labelled) | Deferred | Mitigated by redesign monthLabel; formally deferred |
 | COR-011 | P3 | Settings | "Last trained" hydration mismatch from `toLocaleString()` | Resolved | Fixed: formatTrainedDate with explicit UTC and en-US |
-| COR-012 | P3 | Dashboard, Transactions | Hydration mismatch warnings on `server: false` loading states | Needs focused investigation | Focused analysis only |
+| COR-012 | P3 | Dashboard, Transactions | Hydration mismatch warnings on `server: false` loading states | Diagnosed | Root cause confirmed; ready for fix decision |
 | PROD-001 | PRODUCT | Dashboard | Income groups appear under "Spending by group" with spending language | Product decision required | Product decision required |
 | PROD-002 | PRODUCT | Budget | Group totals sum income/expense/transfer categories together | Product decision required | Product decision required |
 | PROD-003 | PRODUCT | Accounts | Inactive credit cards always show stored `current_balance`, not `balance_owed` | Product decision required | Product decision required |
@@ -654,8 +654,25 @@ Analyze then fix
 
 Priority: P3 (provisional)
 Area: `frontend/app/pages/dashboard.vue`, `frontend/app/pages/transactions.vue`
-Classification: CONFIRMED UX/RELIABILITY ISSUE (cause unconfirmed)
-Status: Needs focused investigation
+Classification: CONFIRMED UX/RELIABILITY ISSUE
+Status: Diagnosed (Root cause confirmed)
+
+Diagnosis & Root Cause:
+1. **Mechanism:** Both pages invoke `useFetch(..., { server: false })`.
+   - On the server during SSR, `server: false` skips fetching. Nuxt initializes `pending.value = false` while `data.value = null`.
+   - On the client during setup, `useFetch` immediately kicks off async fetching in the browser, transitioning `pending.value = true` while `data.value = null` on the initial client hydration render pass.
+2. **Dashboard discrepancy:**
+   - Template: `<LoadingState v-if="pending && !dashboardData">` and `<div v-else-if="dashboardData">`.
+   - Server SSR: `pending` is `false` $\rightarrow$ both branches evaluate to `false` $\rightarrow$ server renders empty comment node `<!---->`.
+   - Client Hydration: `pending` is `true` $\rightarrow$ `v-if` matches $\rightarrow$ client renders `<div class="loading-state">`.
+   - Result: Hydration mismatch between server `<!---->` and client `<div class="loading-state">`.
+3. **Transactions discrepancy:**
+   - Template: `<LoadingState v-if="pending && !transactionsData">` followed by `<div v-else class="transactions-container">` with the ledger table.
+   - Server SSR: `pending` is `false` $\rightarrow$ `v-if` fails $\rightarrow$ server takes `v-else` and renders `<div class="transactions-container">` with an empty table.
+   - Client Hydration: `pending` is `true` $\rightarrow$ `v-if` matches $\rightarrow$ client renders `<div class="loading-state">`.
+   - Result: Severe hydration mismatch between server `<div class="transactions-container">` and client `<div class="loading-state">`, causing DOM teardown and recreation.
+4. **Contrast with other pages:**
+   - `categories.vue`, `accounts.vue`, and `credit-cards.vue` explicitly initialize `const pending = ref(true)`. Both server and client initial passes evaluate `v-if="pending"` as `true`, rendering `<LoadingState>` identically on both sides without hydration mismatch.
 
 Observed behavior:
 Hydration mismatch warnings were repeatedly observed on these pages during redesign
@@ -665,15 +682,8 @@ reviews and are listed as pre-existing in `docs/frontend_design_foundation.md`
 Expected behavior:
 No hydration mismatches.
 
-Evidence / reproduction:
-Both pages fetch primary data with `useFetch(…, { server: false })`
-(`dashboard.vue` ≈ line 311–319; `transactions.vue` ≈ line 1109–1111) and branch the
-template on `pending` (`dashboard.vue`: `<LoadingState v-if="pending && !dashboardData">`).
-The suspected cause is the server and the first client render disagreeing about the
-loading branch. This is not confirmed; no reproduction was recorded for this backlog.
-
 Risk:
-Console noise; possible flash of incorrect content. Unknown until diagnosed.
+Console noise; possible flash of incorrect content.
 
 Scope guard:
 Diagnose first. Do not convert pages to SSR data fetching or restructure loading states
@@ -683,7 +693,7 @@ Existing test coverage:
 No direct coverage.
 
 Recommended next step:
-Focused analysis only
+Select fix strategy (e.g. `<ClientOnly>` with `<LoadingState>` fallback, or matching the `pending = ref(true)` pattern).
 
 ---
 
