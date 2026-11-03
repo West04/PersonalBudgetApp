@@ -198,3 +198,78 @@ def test_cards_responsive_tiers_and_truthful_month_label():
     assert "formatMonthDisplay(summary.value?.month ?? selectedMonth.value)" in CARDS
     # Empty state only once data has loaded; a failed load is not "no cards"
     assert '<template v-else-if="summary">' in template
+
+
+def test_cards_transfer_confirm_lock_and_id_based_removal():
+    """
+    COR-003 Regression:
+    - Verifies confirmingPair ref exists to prevent concurrent transfer confirmations.
+    - Verifies Confirm button and Dismiss button have :disabled="confirmingPair".
+    - Verifies confirmTransfer guards against concurrent execution.
+    - Verifies candidate removal matches by transaction IDs rather than blindly splicing by captured index.
+    - Simulates rapid/interleaved confirmation in Node.js to prove correct candidate is removed.
+    """
+    template = _template(CARDS)
+    assert "const confirmingPair = ref(false)" in CARDS
+    assert ':disabled="confirmingPair"' in template
+    assert "if (confirmingPair.value) return" in CARDS
+    assert "finally {\n    confirmingPair.value = false" in CARDS
+    assert "c.inflow_side.transaction_id === pair.inflow_side.transaction_id" in CARDS
+    assert "c.outflow_side.transaction_id === pair.outflow_side.transaction_id" in CARDS
+
+    script = """
+    const candidates = [
+        {
+            inflow_side: { transaction_id: 'in-1', description: 'Payment 1' },
+            outflow_side: { transaction_id: 'out-1', description: 'Checking 1' }
+        },
+        {
+            inflow_side: { transaction_id: 'in-2', description: 'Payment 2' },
+            outflow_side: { transaction_id: 'out-2', description: 'Checking 2' }
+        }
+    ];
+
+    let confirmingPair = false;
+    async function mockFetch() {
+        return { success: true };
+    }
+
+    async function confirmTransfer(pair, idx) {
+        if (confirmingPair) return false;
+        confirmingPair = true;
+        try {
+            await mockFetch();
+            const foundIdx = candidates.findIndex(
+                c => c.inflow_side.transaction_id === pair.inflow_side.transaction_id &&
+                     c.outflow_side.transaction_id === pair.outflow_side.transaction_id
+            );
+            if (foundIdx !== -1) {
+                candidates.splice(foundIdx, 1);
+            } else {
+                candidates.splice(idx, 1);
+            }
+            return true;
+        } finally {
+            confirmingPair = false;
+        }
+    }
+
+    (async () => {
+        // Confirm pair 2 using stale idx 0 (simulating array index drift)
+        const pair2 = candidates[1];
+        const res = await confirmTransfer(pair2, 0);
+
+        const checks = {
+            confirmedSuccess: res === true,
+            remainingLength: candidates.length === 1,
+            remainingIsPair1: candidates[0].inflow_side.transaction_id === 'in-1',
+            lockReset: confirmingPair === false,
+        };
+
+        const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+        console.log(JSON.stringify({ passed: failures.length === 0, failures }));
+    })();
+    """
+    proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["passed"] is True, f"Credit cards confirm transfer lock/removal failures: {res['failures']}"

@@ -88,14 +88,16 @@
                 <button
                   type="button"
                   class="btn btn-secondary btn-sm confirm-btn"
+                  :disabled="confirmingPair"
                   @click="confirmTransfer(pair, idx)"
                   :aria-label="`Confirm transfer between ${pair.outflow_account_name} and ${pair.inflow_account_name}`"
                 >
-                  Confirm
+                  {{ confirmingPair ? 'Confirming…' : 'Confirm' }}
                 </button>
                 <button
                   type="button"
                   class="btn btn-ghost btn-sm dismiss-btn"
+                  :disabled="confirmingPair"
                   @click="candidates.splice(idx, 1)"
                   :aria-label="`Dismiss candidate match between ${pair.outflow_account_name} and ${pair.inflow_account_name}`"
                 >
@@ -291,6 +293,7 @@ const candidates = ref<TransferCandidate[]>([])
 const showCandidates = ref(false)
 const pending = ref(true)
 const candidatesLoading = ref(false)
+const confirmingPair = ref(false)
 const error = ref<string | null>(null)
 const editingStartingBalance = ref<string | null>(null)
 
@@ -330,15 +333,27 @@ watch(selectedMonth, fetchSummary, { immediate: true })
 
 // --- Actions ---
 const confirmTransfer = async (pair: TransferCandidate, idx: number) => {
+  if (confirmingPair.value) return
+  confirmingPair.value = true
   try {
     await $fetch(`${API_BASE}/credit-cards/mark-transfers`, {
       method: 'POST',
       body: { transaction_ids: [pair.inflow_side.transaction_id, pair.outflow_side.transaction_id] }
     })
-    candidates.value.splice(idx, 1)
+    const foundIdx = candidates.value.findIndex(
+      c => c.inflow_side.transaction_id === pair.inflow_side.transaction_id &&
+           c.outflow_side.transaction_id === pair.outflow_side.transaction_id
+    )
+    if (foundIdx !== -1) {
+      candidates.value.splice(foundIdx, 1)
+    } else {
+      candidates.value.splice(idx, 1)
+    }
     await fetchSummary()
   } catch (err: any) {
     error.value = 'Failed to mark transfers'
+  } finally {
+    confirmingPair.value = false
   }
 }
 

@@ -89,7 +89,7 @@ must update those assertions deliberately, not delete them.
 | --- | --- | --- | --- | --- | --- |
 | COR-001 | P1 | Reconciliation | Clear All shows every row cleared after a PATCH failure | Resolved | Fixed: lock, rollback, error reporting |
 | COR-002 | P2 | Reconciliation | Finish Reconciliation can be enabled when the summary failed to load | Resolved | Fixed: guard isBalanced, disable button, clear stale summary |
-| COR-003 | P2 | Credit Cards | Transfer Confirm has no in-progress lock; index-based removal can hide the wrong candidate | Confirmed | Analyze then fix |
+| COR-003 | P2 | Credit Cards | Transfer Confirm has no in-progress lock; index-based removal can hide the wrong candidate | Resolved | Fixed: confirmingPair lock, ID-based candidate removal |
 | COR-004 | P2 | Reconciliation | Default statement ending date is the UTC date, not the local date | Confirmed | Analyze then fix |
 | COR-005 | P2 | Import | Confirm has no re-entrancy guard; backend duplicate check is not concurrency-safe | Confirmed | Analyze then fix |
 | COR-006 | P2 | Accounts | Card-summary load failure silently falls back to stored `current_balance` | Confirmed | Analyze then fix |
@@ -255,7 +255,13 @@ Analyze then fix
 Priority: P2
 Area: Credit Cards → Potential transfers (`frontend/app/pages/credit-cards.vue`)
 Classification: CONFIRMED DEFECT
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- Added `confirmingPair` ref to lock Confirm and Dismiss actions while transfer marking is in-flight.
+- Guarded `confirmTransfer` against concurrent invocations (`if (confirmingPair.value) return`).
+- Removed candidates by matching `inflow_side.transaction_id` and `outflow_side.transaction_id` instead of blindly relying on the captured array index.
+- Added regression test `test_cards_transfer_confirm_lock_and_id_based_removal` in `tests/test_frontend_accounts_cards_redesign.py`.
 
 Observed behavior:
 `confirmTransfer(pair, idx)` (≈ line 332) has no in-progress flag and the Confirm button
