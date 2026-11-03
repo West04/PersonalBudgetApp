@@ -368,7 +368,7 @@
           <button
             type="button"
             class="btn btn-primary"
-            :disabled="!isBalanced || completingReconcile || reconcileLoading || isTogglingClearAll"
+            :disabled="!isBalanced || !reconcileSummary || completingReconcile || reconcileLoading || isTogglingClearAll"
             @click="finishReconciliation"
           >
             {{ completingReconcile ? 'Finishing…' : 'Finish Reconciliation' }}
@@ -709,6 +709,7 @@ const loadReconciliation = async () => {
     )
     reconcileSummary.value = data
   } catch (err: any) {
+    reconcileSummary.value = null
     reconcileError.value = err.data?.detail || err.message || 'Failed to load reconciliation data'
   } finally {
     reconcileLoading.value = false
@@ -742,6 +743,7 @@ const differenceAmount = computed(() => {
 })
 
 const isBalanced = computed(() => {
+  if (!reconcileSummary.value) return false
   return Math.abs(differenceAmount.value) < 0.005
 })
 
@@ -791,7 +793,7 @@ const toggleClearAll = async () => {
 }
 
 const finishReconciliation = async () => {
-  if (!reconcilingAccount.value || !isBalanced.value || isTogglingClearAll.value) return
+  if (!reconcilingAccount.value || !reconcileSummary.value || !isBalanced.value || isTogglingClearAll.value) return
   completingReconcile.value = true
   reconcileError.value = null
   try {

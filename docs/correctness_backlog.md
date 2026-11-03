@@ -88,7 +88,7 @@ must update those assertions deliberately, not delete them.
 | ID | Priority | Area | Issue | Status | Next action |
 | --- | --- | --- | --- | --- | --- |
 | COR-001 | P1 | Reconciliation | Clear All shows every row cleared after a PATCH failure | Resolved | Fixed: lock, rollback, error reporting |
-| COR-002 | P2 | Reconciliation | Finish Reconciliation can be enabled when the summary failed to load | Confirmed | Analyze then fix |
+| COR-002 | P2 | Reconciliation | Finish Reconciliation can be enabled when the summary failed to load | Resolved | Fixed: guard isBalanced, disable button, clear stale summary |
 | COR-003 | P2 | Credit Cards | Transfer Confirm has no in-progress lock; index-based removal can hide the wrong candidate | Confirmed | Analyze then fix |
 | COR-004 | P2 | Reconciliation | Default statement ending date is the UTC date, not the local date | Confirmed | Analyze then fix |
 | COR-005 | P2 | Import | Confirm has no re-entrancy guard; backend duplicate check is not concurrency-safe | Confirmed | Analyze then fix |
@@ -195,7 +195,13 @@ Analyze then fix
 Priority: P2
 Area: Accounts → Reconcile dialog (`frontend/app/pages/accounts.vue`)
 Classification: CONFIRMED DEFECT
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- Guarded `isBalanced` to return `false` whenever `reconcileSummary.value` is null/missing, preventing false $0.00 balanced evaluations when data is unloaded.
+- Added `!reconcileSummary` check to the Finish Reconciliation button `:disabled` expression and `finishReconciliation` handler.
+- In `loadReconciliation`, cleared `reconcileSummary.value = null` on catch to prevent stale summaries from previous dates persisting and enabling completion.
+- Updated source contract in `tests/test_frontend_import_redesign.py` and added behavioral simulation regression coverage in `tests/test_frontend_reconciliation.py`.
 
 Observed behavior:
 Finish is disabled by `!isBalanced || completingReconcile || reconcileLoading`

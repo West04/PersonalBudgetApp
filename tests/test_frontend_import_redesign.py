@@ -199,7 +199,7 @@ def test_reconciliation_requests_unchanged():
     assert '@change="loadReconciliation"' in RECONCILE_TEMPLATE
     assert '@change="toggleTxCleared(tx)"' in RECONCILE_TEMPLATE
     assert '@click="toggleClearAll"' in RECONCILE_TEMPLATE
-    assert ':disabled="!isBalanced || completingReconcile || reconcileLoading || isTogglingClearAll"' in RECONCILE_TEMPLATE
+    assert ':disabled="!isBalanced || !reconcileSummary || completingReconcile || reconcileLoading || isTogglingClearAll"' in RECONCILE_TEMPLATE
 
 
 def test_reconciliation_load_error_is_not_empty_or_zero():
