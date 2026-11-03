@@ -14,7 +14,6 @@
 
     <div class="month-display-container">
       <label class="month-label" :title="`Selected: ${displayMonth}. Click to choose another month.`">
-        <span class="calendar-icon" aria-hidden="true">📅</span>
         <span class="month-text">{{ displayMonth }}</span>
         <input
           type="month"

@@ -35,5 +35,44 @@ services:
       - "${POSTGRES_PORT}:5432"
     restart: unless-stopped
 
+  backend-uat:
+    build:
+      context: backend/.
+      dockerfile: Dockerfile
+    ports:
+      - "12346:8000"
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_DATABASE=budget_app_display
+    env_file: .env
+    restart: unless-stopped
+    depends_on:
+      - db
+    profiles:
+      - uat
+    networks:
+      default:
+      uat-net:
+        aliases:
+          - backend
+
+  frontend-uat:
+    build:
+      context: frontend/.
+      dockerfile: Dockerfile
+    ports:
+      - "12347:3000"
+    env_file: .env
+    restart: unless-stopped
+    depends_on:
+      - backend-uat
+    profiles:
+      - uat
+    networks:
+      - uat-net
+
 volumes:
   budget_postgres_data:
+
+networks:
+  uat-net:

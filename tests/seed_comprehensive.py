@@ -541,10 +541,10 @@ class BudgetSeeder:
             "Books": 25.00,
 
             # Savings & Debt
-            "Emergency Fund": 500.00,
-            "Retirement": 200.00,
-            "Credit Card Payment": 500.00,
-            "Student Loans": 0.00,
+            "Emergency Fund": 2500.00,
+            "Retirement": 1500.00,
+            "Credit Card Payment": 1000.00,
+            "Student Loans": 470.00,
         }
 
         # Create budgets for current month and 2 previous months
