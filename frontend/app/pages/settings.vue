@@ -523,7 +523,17 @@ const formatTrainedDate = (d: string | null | undefined) => {
   if (!d) return 'Never'
   try {
     const date = new Date(d)
-    return date.toLocaleString()
+    if (isNaN(date.getTime())) return d
+    return date.toLocaleString('en-US', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZoneName: 'short',
+    })
   } catch {
     return d
   }

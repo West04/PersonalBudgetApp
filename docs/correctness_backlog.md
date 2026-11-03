@@ -617,7 +617,11 @@ Defer
 Priority: P3
 Area: Settings → ML (`frontend/app/pages/settings.vue`)
 Classification: CONFIRMED DEFECT (SSR, pre-existing)
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- In `settings.vue`, updated `formatTrainedDate` to format timestamps with explicit `en-US` locale and `timeZone: 'UTC'` (`year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short'`), producing deterministic string representations across server and client environments.
+- Added regression test `test_settings_format_trained_date_deterministic_utc` in `tests/test_frontend_settings_redesign.py`.
 
 Observed behavior:
 `formatTrainedDate` (≈ line 506) returns `new Date(d).toLocaleString()`. `/ml/status` is

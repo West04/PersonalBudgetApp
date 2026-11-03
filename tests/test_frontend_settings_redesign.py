@@ -16,14 +16,25 @@ Contract tests for the Settings redesign slice.
 7. One container-query tier in range syntax (no adjacent max/min gap).
 """
 
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SETTINGS = (REPO_ROOT / "frontend/app/pages/settings.vue").read_text()
 TEMPLATE = SETTINGS[: SETTINGS.index("<script setup")]
 SCRIPT = SETTINGS[SETTINGS.index("<script setup"): SETTINGS.index("</script>")]
 STYLE = SETTINGS[SETTINGS.index("<style scoped>"):]
+
+
+@pytest.fixture(scope="module")
+def require_node():
+    if not shutil.which("node"):
+        pytest.skip("Node.js not available")
 
 
 def test_settings_endpoints_and_payloads_unchanged():
@@ -159,4 +170,56 @@ def test_settings_category_groups_load_failure_representation():
     assert "useFetch<any[]>(`${API_BASE}/category-groups`)" in script
     assert template.count('v-if="categoryGroupsError && !categoryGroups"') == 3
     assert template.count('error="Couldn\'t load categories. Reload the page to try again."') == 3
+
+
+def test_settings_format_trained_date_deterministic_utc(require_node):
+    """
+    COR-011 regression test:
+    Verifies that settings.vue formatTrainedDate formats timestamps with explicit
+    en-US locale and UTC timezone, preventing server-client hydration mismatches.
+    """
+    settings = (REPO_ROOT / "frontend/app/pages/settings.vue").read_text()
+    script = settings[settings.index("<script setup"): settings.index("</script>")]
+
+    assert "timeZone: 'UTC'" in script
+    assert "en-US" in script
+    assert "date.toLocaleString()" not in script
+
+    node_script = """
+    const formatTrainedDate = (d) => {
+        if (!d) return 'Never';
+        try {
+            const date = new Date(d);
+            if (isNaN(date.getTime())) return d;
+            return date.toLocaleString('en-US', {
+                timeZone: 'UTC',
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+                timeZoneName: 'short',
+            });
+        } catch {
+            return d;
+        }
+    };
+
+    const checks = {
+        formatsNullAsNever: formatTrainedDate(null) === 'Never',
+        formatsUndefinedAsNever: formatTrainedDate(undefined) === 'Never',
+        formatsEmptyAsNever: formatTrainedDate('') === 'Never',
+        formatsInvalidReturnsRaw: formatTrainedDate('not-a-date') === 'not-a-date',
+        formatsUtcDateDeterministic: formatTrainedDate('2026-05-15T18:30:00Z') === 'May 15, 2026, 6:30 PM UTC',
+        formatsMorningUtcDateDeterministic: formatTrainedDate('2026-01-05T09:05:00Z') === 'Jan 5, 2026, 9:05 AM UTC',
+    };
+
+    const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+    console.log(JSON.stringify({ passed: failures.length === 0, failures }));
+    """
+    proc = subprocess.run(["node", "-e", node_script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["passed"] is True, f"COR-011 formatTrainedDate failures: {res['failures']}"
+
 
