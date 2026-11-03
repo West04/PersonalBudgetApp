@@ -92,12 +92,12 @@ must update those assertions deliberately, not delete them.
 | COR-003 | P2 | Credit Cards | Transfer Confirm has no in-progress lock; index-based removal can hide the wrong candidate | Resolved | Fixed: confirmingPair lock, ID-based candidate removal |
 | COR-004 | P2 | Reconciliation | Default statement ending date is the UTC date, not the local date | Resolved | Fixed: getLocalDateString in accounts.vue |
 | COR-005 | P2 | Import | Confirm has no re-entrancy guard; backend duplicate check is not concurrency-safe | Resolved | Fixed: re-entrancy guard in runImport, with_for_update in confirm_csv_import |
-| COR-006 | P2 | Accounts | Card-summary load failure silently falls back to stored `current_balance` | Confirmed | Analyze then fix |
-| COR-007 | P2 | Import | Account-list load failure is not represented (empty/stray options, unhandled rejection) | Confirmed | Analyze then fix |
-| COR-008 | P3 | Settings | `/category-groups` load failure leaves rule category selects silently empty | Confirmed | Analyze then fix |
-| COR-009 | P3 | Accounts | Card-summary month computed in UTC | Confirmed | Analyze then fix |
-| COR-010 | P3 | Credit Cards | Failed month change keeps previous month's data (accurately labelled) | Confirmed | Defer |
-| COR-011 | P3 | Settings | "Last trained" hydration mismatch from `toLocaleString()` | Confirmed | Analyze then fix |
+| COR-006 | P2 | Accounts | Card-summary load failure silently falls back to stored `current_balance` | Resolved | Fixed: show error banner, unavailable state for active cards |
+| COR-007 | P2 | Import | Account-list load failure is not represented (empty/stray options, unhandled rejection) | Resolved | Fixed: accountsError ref, ErrorBanner, retry button |
+| COR-008 | P3 | Settings | `/category-groups` load failure leaves rule category selects silently empty | Resolved | Fixed: categoryGroupsError, ErrorBanners in rules & dialogs |
+| COR-009 | P3 | Accounts | Card-summary month computed in UTC | Resolved | Fixed: getLocalMonthString in accounts.vue |
+| COR-010 | P3 | Credit Cards | Failed month change keeps previous month's data (accurately labelled) | Deferred | Mitigated by redesign monthLabel; formally deferred |
+| COR-011 | P3 | Settings | "Last trained" hydration mismatch from `toLocaleString()` | Resolved | Fixed: formatTrainedDate with explicit UTC and en-US |
 | COR-012 | P3 | Dashboard, Transactions | Hydration mismatch warnings on `server: false` loading states | Needs focused investigation | Focused analysis only |
 | PROD-001 | PRODUCT | Dashboard | Income groups appear under "Spending by group" with spending language | Product decision required | Product decision required |
 | PROD-002 | PRODUCT | Budget | Group totals sum income/expense/transfer categories together | Product decision required | Product decision required |
