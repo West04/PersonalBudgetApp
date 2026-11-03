@@ -55,9 +55,10 @@ frontend/
 ├── app/
 │   ├── app.vue               # App shell: left rail (desktop), top bar + drawer (mobile)
 │   ├── assets/css/tokens.css # Semantic design tokens (see docs/frontend_design_foundation.md)
+│   ├── assets/css/themes.css # Theme token overrides (system, light, dark, pink, tech)
 │   ├── assets/css/base.css   # Type roles, focus, buttons, forms, page containers, money tones
 │   ├── components/           # Reusable UI primitives (AppDialog, MonthNavigator, Money, AppIcon, etc.)
-│   ├── composables/          # useBudgetMonth.ts, useTransactionFilters.ts, useAccountTypes.ts
+│   ├── composables/          # useBudgetMonth.ts, useTransactionFilters.ts, useAccountTypes.ts, useTheme.ts
 │   └── pages/                # File-based routing (dashboard, categories,
 │                             # transactions, accounts, credit-cards, upload, settings)
 ├── nuxt.config.ts            # Nuxt config with API proxy
@@ -68,8 +69,8 @@ docs/                         # In-depth architectural & API documentation
 │   ├── decisions/            # Architectural Decision Records (ADR-001 through ADR-007)
 │   └── legacy/               # Historical architecture docs superseded by source audit
 ├── development/              # Developer guides & agent fallback prompts
-├── checkpoints/              # Modernization checkpoints (number_1.md)
-├── session_handoffs/         # Multi-session handoff logs
+├── checkpoints/              # Modernization checkpoints (local/git-ignored: number_1.md)
+├── session_handoffs/         # Multi-session handoff logs (local/git-ignored: session_1.md)
 ├── PRODUCT_REDESIGN_PLAN.md  # Product redesign strategy & completed phases
 ├── TODO.md                   # Canonical TODO and active roadmap
 ├── correctness_backlog.md    # Canonical post-redesign correctness backlog
@@ -150,7 +151,7 @@ One volatility boundary -> one refactor -> tests -> review -> commit.
 8. `docs/architecture/refactor-roadmap.md`
 9. `docs/architecture/vbd-source-evidence-audit.md` (Authoritative source snapshot)
 10. Relevant ADRs under `docs/architecture/decisions/`
-11. Supporting context: `docs/architecture/refactor-safety.md`, `docs/checkpoints/number_1.md`, and `docs/session_handoffs/session_1.md`.
+11. Supporting context: `docs/architecture/refactor-safety.md`, and local/optional context if present: `docs/checkpoints/number_1.md`, `docs/session_handoffs/session_1.md`.
 12. Fallback prompt for agents without automatic discovery: `docs/development/CODE_AGENT_BOOTSTRAP_PROMPT.md`.
 
 If documentation and source disagree, source/tests define current behavior while accepted architecture docs define intended constraints. Report the discrepancy before changing code.

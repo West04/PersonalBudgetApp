@@ -4,8 +4,8 @@ Reference for the UI redesign slices that follow `budget_app_ui_redesign_brief.m
 Direction: **Instrument** (precise, compact, tool-like) with Ledger restraint
 (few surfaces, minimal shadow, hierarchy before decoration).
 
-This slice set up tokens, typography roles, financial semantics, the app shell and
-a Money primitive. Page content has not been redesigned yet.
+This document defines the tokens, typography roles, financial semantics, the app shell,
+theme system, and a Money primitive established during the UI redesign.
 
 ## Tokens (`frontend/app/assets/css/tokens.css`)
 
@@ -106,8 +106,6 @@ Debt is not shown in an alarm color.
 - The `.money--{tone}` classes can be used directly when a component would be
   overkill.
 
-Pages adopt it during their own redesign slices.
-
 ## Typography
 
 One system sans family. Roles are exposed as tokens and classes:
@@ -143,18 +141,17 @@ Page containers (opt-in per page slice): `.page-container` (1200px),
 `.page-container--wide` (1520px, dense tables), `.page-container--narrow`
 (880px, forms and wizards). The shell itself adds no padding.
 
-## Known issues deferred to page slices
+## Post-redesign status & issues
 
-- ~~Budget group header crushes the group name at ~700px content width~~ (fixed in the Budget slice:
-  the ledger uses fixed numeric tracks and stacked/compact/full container-query tiers).
-- Hydration mismatch warnings on Dashboard/Transactions `server: false` loading
-  states (pre-existing).
-- Undefined custom properties referenced by pages: `--color-primary-bg`,
-  `--color-surface-subtle`, `--font-mono`, `--font-weight-normal` (pre-existing).
-- The calendar emoji in `MonthNavigator` and the warning emoji in `ErrorBanner`
-  (the banner's last hardcoded hover color now uses `--status-error-border`).
-  Page-local hardcoded colors are gone: Credit Cards and Accounts (Accounts/Credit
-  Cards slice), Transactions (its own slice) and Import plus the reconcile dialog
-  (Import/Reconciliation slice). Import keeps its existing four-step sequence
-  (File, Account, Preview, Done); its preview table and the reconcile dialog's
-  transaction table restack with explicit ARIA roles below 560px / 480px.
+- **Budget group header width:** Fixed in the Budget slice (the ledger uses fixed numeric
+  tracks and stacked/compact/full container-query tiers).
+- **Undefined custom properties:** Resolved across all page redesign slices; no undefined
+  custom properties remain in frontend templates or styles.
+- **Hydration mismatch warnings on `server: false` loading states:** Pre-existing on
+  Dashboard and Transactions; tracked in `docs/correctness_backlog.md` under `COR-012`.
+- **Emoji icons:** Calendar in `MonthNavigator` and warning in `ErrorBanner` are tracked
+  in `docs/correctness_backlog.md` under Non-blocking polish.
+- **Page redesign status:** All pages (Dashboard, Budget/Categories, Transactions,
+  Accounts, Credit Cards, Import, Settings) have completed their redesign slices.
+  Remaining functional, reliability, and accessibility issues are tracked in the
+  canonical `docs/correctness_backlog.md`.

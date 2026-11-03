@@ -109,9 +109,9 @@ must update those assertions deliberately, not delete them.
 | UX-005 | UX | Import | Import failure uses native `alert()` | Confirmed | Defer |
 | UX-006 | UX | Budget, Accounts | Destructive deletes use native `confirm()` | Confirmed | Defer |
 | UX-007 | UX | Settings | Success/retrain feedback renders at page top, can be off-screen on mobile | Confirmed | Defer |
-| DOC-001 | DOCS | Docs | `frontend_design_foundation.md` has stale pre-redesign statements | Confirmed | Documentation cleanup |
-| DOC-002 | DOCS | Docs | `AGENTS.md` omits `themes.css` and `useTheme.ts` | Confirmed | Documentation cleanup |
-| DOC-003 | DOCS | Docs | `AGENTS.md` required reading points at git-ignored files | Confirmed | Documentation cleanup |
+| DOC-001 | DOCS | Docs | `frontend_design_foundation.md` has stale pre-redesign statements | Resolved | Fixed: cleaned up pre-redesign statements and undefined properties |
+| DOC-002 | DOCS | Docs | `AGENTS.md` omits `themes.css` and `useTheme.ts` | Resolved | Fixed: added themes.css and useTheme.ts to project structure |
+| DOC-003 | DOCS | Docs | `AGENTS.md` required reading points at git-ignored files | Resolved | Fixed: marked checkpoints and handoffs as local/optional |
 
 ---
 
@@ -1016,7 +1016,12 @@ Defer
 Priority: DOCS
 Area: `docs/frontend_design_foundation.md`
 Classification: DOCUMENTATION/HOUSEKEEPING
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- Replaced stale pre-redesign opening and adoption statements with completed redesign summary.
+- Updated "Known issues deferred to page slices" to "Post-redesign status & issues", noting that all referenced undefined custom properties were eliminated during page redesign slices.
+- Added cross-references to `COR-012` for hydration warnings and non-blocking polish for emojis.
 
 Observed behavior:
 Still says "Page content has not been redesigned yet" and "Pages adopt it during their own
@@ -1043,7 +1048,11 @@ Documentation cleanup
 Priority: DOCS
 Area: `AGENTS.md`
 Classification: DOCUMENTATION/HOUSEKEEPING
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- Added `assets/css/themes.css` (multi-theme token overrides) to the frontend directory tree in `AGENTS.md`.
+- Added `useTheme.ts` to the composables list in `AGENTS.md`.
 
 Observed behavior:
 Project structure lists `tokens.css` and `base.css` but not `assets/css/themes.css`, and
@@ -1065,7 +1074,11 @@ Documentation cleanup
 Priority: DOCS
 Area: `AGENTS.md`
 Classification: DOCUMENTATION/HOUSEKEEPING
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- Annotated `docs/checkpoints/` and `docs/session_handoffs/` entries in the `AGENTS.md` directory tree as local/git-ignored.
+- Clarified in "Read first for architecture work" item 11 that `number_1.md` and `session_1.md` are local/optional context if present, preventing confusion on fresh checkouts.
 
 Observed behavior:
 "Read first" item 11 and the structure tree reference `docs/checkpoints/number_1.md` and
