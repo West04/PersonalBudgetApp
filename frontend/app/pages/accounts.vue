@@ -382,6 +382,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ACCOUNT_TYPES, useAccountTypes } from '~/composables/useAccountTypes'
+import { getLocalMonthString } from '~/composables/useBudgetMonth'
 import { formatCurrency, formatCardBalance } from '~/utils/dashboardMath'
 import { formatDateOnly, getLocalDateString } from '~/utils/formatDate'
 
@@ -445,7 +446,7 @@ const fetchAccounts = async () => {
   pending.value = true
   error.value = null
   try {
-    const currentMonth = new Date().toISOString().slice(0, 7)
+    const currentMonth = getLocalMonthString()
     const [accountsData, creditCardsData] = await Promise.all([
       $fetch<Account[]>(`${API_BASE}/accounts/`),
       $fetch<CreditCardSummaryResponse>(`${API_BASE}/credit-cards/summary`, {

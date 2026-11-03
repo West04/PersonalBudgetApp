@@ -366,3 +366,39 @@ def test_accounts_card_summary_failure_representation(require_node):
     res = json.loads(proc.stdout)
     assert res["passed"] is True, f"COR-006 card summary failure representation failures: {res['failures']}"
 
+
+def test_accounts_card_summary_uses_local_month(require_node):
+    """
+    COR-009 regression test:
+    Verifies that accounts.vue computes the credit card summary query month
+    using local time (getLocalMonthString) rather than UTC (toISOString().slice(0, 7)).
+    """
+    code = (REPO_ROOT / "frontend/app/pages/accounts.vue").read_text()
+    assert "getLocalMonthString" in code
+    assert "currentMonth = getLocalMonthString()" in code
+    assert "new Date().toISOString().slice(0, 7)" not in code
+
+    script = """
+    import { getLocalMonthString } from './frontend/app/composables/useBudgetMonth.ts';
+
+    // Test specific date instances across month and year boundaries
+    const d1 = new Date(2026, 5, 30, 23, 30); // Local June 30, 2026
+    const d2 = new Date(2026, 6, 1, 0, 15);   // Local July 1, 2026
+    const d3 = new Date(2026, 11, 31, 23, 59); // Local Dec 31, 2026
+    const d4 = new Date(2027, 0, 1, 0, 1);    // Local Jan 1, 2027
+
+    const checks = {
+        juneMonth: getLocalMonthString(d1) === '2026-06',
+        julyMonth: getLocalMonthString(d2) === '2026-07',
+        decMonth: getLocalMonthString(d3) === '2026-12',
+        janMonth: getLocalMonthString(d4) === '2027-01',
+    };
+
+    const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+    console.log(JSON.stringify({ passed: failures.length === 0, failures }));
+    """
+    proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["passed"] is True, f"COR-009 getLocalMonthString failures: {res['failures']}"
+
+

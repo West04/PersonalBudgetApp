@@ -539,7 +539,11 @@ Analyze then fix
 Priority: P3
 Area: Accounts (`frontend/app/pages/accounts.vue`)
 Classification: CONFIRMED DEFECT (low impact)
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- In `accounts.vue`, replaced naive UTC derivation `new Date().toISOString().slice(0, 7)` with `getLocalMonthString()`.
+- Added contract assertions and regression tests for `getLocalMonthString` across month and year boundaries in `tests/test_frontend_accounts_cards_redesign.py`.
 
 Observed behavior:
 `const currentMonth = new Date().toISOString().slice(0, 7)` (≈ line 441) can name the
