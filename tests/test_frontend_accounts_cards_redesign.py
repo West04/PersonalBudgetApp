@@ -273,3 +273,96 @@ def test_cards_transfer_confirm_lock_and_id_based_removal():
     proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
     res = json.loads(proc.stdout)
     assert res["passed"] is True, f"Credit cards confirm transfer lock/removal failures: {res['failures']}"
+
+
+def test_accounts_card_summary_failure_representation(require_node):
+    """
+    COR-006 regression test:
+    When credit card summary fails to load or an active credit card's balance_owed
+    is missing, the page must:
+    1. Set error.value = 'Failed to load credit card balances'.
+    2. NOT fall back to account.current_balance (which for manual cards is opening balance).
+    3. Return an unavailable representation ('—', isUnavailable: true) with empty balanceWord.
+    4. Preserve formatCardBalance(account.current_balance) for inactive cards (PROD-003 boundary).
+    """
+    code = (REPO_ROOT / "frontend/app/pages/accounts.vue").read_text()
+    assert "error.value = 'Failed to load credit card balances'" in code
+    assert "isUnavailable: true" in code
+    assert "if (account.is_active)" in code
+
+    script = """
+    import { formatCardBalance, formatCurrency } from './frontend/app/utils/dashboardMath.ts';
+
+    // Simulate creditCardOwedMap and getAccountBalance from accounts.vue
+    const creditCardOwedMap = new Map();
+    // card-1 has authoritative owed in map
+    creditCardOwedMap.set('card-1', 250.75);
+
+    const getAccountBalance = (account) => {
+        const typeStr = (account.type || '').toLowerCase();
+        if (typeStr === 'credit') {
+            const cardOwed = creditCardOwedMap.get(account.account_id);
+            if (cardOwed !== undefined) {
+                return formatCardBalance(cardOwed);
+            }
+            if (account.is_active) {
+                return {
+                    amount: 0,
+                    formatted: '—',
+                    isOwed: false,
+                    isCredit: false,
+                    isUnavailable: true,
+                    displayLabel: 'Unavailable',
+                };
+            }
+            return formatCardBalance(account.current_balance);
+        }
+        const bal = Number(account.current_balance) || 0;
+        return {
+            amount: bal,
+            formatted: formatCurrency(bal),
+            isOwed: false,
+            isCredit: false,
+            displayLabel: formatCurrency(bal),
+        };
+    };
+
+    const balanceWord = (account) => {
+        const display = getAccountBalance(account);
+        if (display.isOwed) return 'owed';
+        if (display.isCredit) return 'credit';
+        return '';
+    };
+
+    const activeCardKnown = { account_id: 'card-1', type: 'credit', is_active: true, current_balance: 0 };
+    const activeCardMissing = { account_id: 'card-2', type: 'credit', is_active: true, current_balance: 1000 };
+    const inactiveCardMissing = { account_id: 'card-3', type: 'credit', is_active: false, current_balance: 500 };
+
+    const knownBal = getAccountBalance(activeCardKnown);
+    const missingBal = getAccountBalance(activeCardMissing);
+    const inactiveBal = getAccountBalance(inactiveCardMissing);
+
+    const checks = {
+        knownIsFormatted: knownBal.formatted === '$250.75',
+        knownIsOwed: knownBal.isOwed === true,
+        knownBalanceWord: balanceWord(activeCardKnown) === 'owed',
+
+        // Active card with missing summary does not use current_balance (1000)
+        missingNotUsingCurrentBalance: missingBal.amount === 0 && missingBal.formatted === '—',
+        missingIsUnavailable: missingBal.isUnavailable === true,
+        missingNotOwed: missingBal.isOwed === false,
+        missingNoWord: balanceWord(activeCardMissing) === '',
+
+        // Inactive card fallback preserved per PROD-003 scope guard
+        inactiveUsesCurrentBalance: inactiveBal.amount === 500 && inactiveBal.formatted === '$500.00',
+        inactiveIsOwed: inactiveBal.isOwed === true,
+        inactiveBalanceWord: balanceWord(inactiveCardMissing) === 'owed',
+    };
+
+    const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+    console.log(JSON.stringify({ passed: failures.length === 0, failures }));
+    """
+    proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["passed"] is True, f"COR-006 card summary failure representation failures: {res['failures']}"
+

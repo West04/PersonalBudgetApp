@@ -404,7 +404,13 @@ Analyze then fix
 Priority: P2
 Area: Accounts (`frontend/app/pages/accounts.vue`)
 Classification: CONFIRMED DEFECT (failure-state)
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- In `fetchAccounts`, when `/credit-cards/summary` fails (catches and returns `null`), populated `error.value = 'Failed to load credit card balances'` so `<ErrorBanner>` visibly alerts the user.
+- In `getAccountBalance`, when `balance_owed` is missing for an active credit card (`account.is_active`), returned `{ amount: 0, formatted: '—', isOwed: false, isCredit: false, isUnavailable: true, displayLabel: 'Unavailable' }` rather than misleadingly displaying the static opening `current_balance`.
+- Preserved fallback to `formatCardBalance(account.current_balance)` for inactive credit cards per the PROD-003 scope guard.
+- Added contract assertions and Node.js-based simulation regression test `test_accounts_card_summary_failure_representation` in `tests/test_frontend_accounts_cards_redesign.py`.
 
 Observed behavior:
 `fetchAccounts` (≈ line 437) loads `/credit-cards/summary` with a `.catch` that only

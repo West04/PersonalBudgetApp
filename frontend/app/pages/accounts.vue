@@ -457,6 +457,9 @@ const fetchAccounts = async () => {
     ])
     accounts.value = accountsData || []
     creditCardsSummary.value = creditCardsData
+    if (!creditCardsData) {
+      error.value = 'Failed to load credit card balances'
+    }
   } catch (e: any) {
     error.value = e.message || 'Failed to load accounts'
   } finally {
@@ -487,6 +490,16 @@ const getAccountBalance = (account: Account) => {
     const cardOwed = creditCardOwedMap.value.get(account.account_id)
     if (cardOwed !== undefined) {
       return formatCardBalance(cardOwed)
+    }
+    if (account.is_active) {
+      return {
+        amount: 0,
+        formatted: '—',
+        isOwed: false,
+        isCredit: false,
+        isUnavailable: true,
+        displayLabel: 'Unavailable',
+      }
     }
     return formatCardBalance(account.current_balance)
   }
