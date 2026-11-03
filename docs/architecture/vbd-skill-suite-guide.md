@@ -1,6 +1,6 @@
 # VBD Skill Suite Guide
 
-This suite contains three complementary skills for the budget-app modernization process.
+This suite contains three complementary skills for the budget-app modernization process. For an exhaustive file-by-file breakdown of `.agents/` and its skills, see [`.agents/README.md`](../../.agents/README.md).
 
 ## 1. VBD Architect
 Use before changing code.
