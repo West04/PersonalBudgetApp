@@ -452,7 +452,14 @@ Analyze then fix
 Priority: P2
 Area: Import step 2 (`frontend/app/pages/upload.vue`)
 Classification: CONFIRMED DEFECT
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- In `fetchAccounts`, added `res.ok` verification and `catch` block for network/server errors.
+- Extracted error messages (`err.detail` or `e.message`) into a dedicated `accountsError` ref and guaranteed `accounts.value = []` on failure, preventing raw error objects from binding to `v-for`.
+- In step 2 template, added an `ErrorBanner` displaying the failure message and a secondary "Retry loading accounts" button that invokes `fetchAccounts`.
+- Updated `accountStepStatus` to guide the user to retry when account loading fails.
+- Added contract assertions and Node.js-based simulation regression test `test_import_accounts_load_failure_representation` in `tests/test_frontend_import_redesign.py`.
 
 Observed behavior:
 `fetchAccounts` (≈ line 926) uses raw `fetch` with `try/finally` and no `catch` and no

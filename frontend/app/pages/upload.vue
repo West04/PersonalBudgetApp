@@ -370,6 +370,20 @@
         Loading accounts…
       </p>
 
+      <div v-else-if="accountsError" class="account-step">
+        <ErrorBanner
+          :error="`Failed to load accounts: ${accountsError}`"
+          :dismissible="false"
+        />
+        <button
+          type="button"
+          class="btn btn-secondary"
+          @click="fetchAccounts"
+        >
+          Retry loading accounts
+        </button>
+      </div>
+
       <div v-else class="account-step">
         <FormField label="Account" required v-slot="{ id }">
           <select :id="id" v-model="selectedAccountId" class="form-select">
@@ -721,6 +735,7 @@ const stepLabels = ['File', 'Account', 'Preview', 'Done']
 // Step 2 — Account
 const accounts = ref<Account[]>([])
 const accountsLoading = ref(true)
+const accountsError = ref('')
 const selectedAccountId = ref('')
 const newAccount = ref({
   name: '',
@@ -900,6 +915,7 @@ const fileStepStatus = computed(() => {
 
 const accountStepStatus = computed(() => {
   if (accountsLoading.value) return ''
+  if (accountsError.value) return 'Loading accounts failed. Retry to choose an account.'
   if (!selectedAccountId.value) return 'Choose an account to continue.'
   if (selectedAccountId.value === '__new__') return 'Create the account to continue.'
   return ''
@@ -925,9 +941,22 @@ onMounted(async () => {
 
 async function fetchAccounts() {
   accountsLoading.value = true
+  accountsError.value = ''
   try {
     const res = await fetch(`${API_BASE}/accounts/`)
-    accounts.value = await res.json()
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      accountsError.value = err.detail ?? 'Failed to load accounts'
+      accounts.value = []
+      selectedAccountId.value = ''
+      return
+    }
+    const data = await res.json()
+    accounts.value = Array.isArray(data) ? data : []
+  } catch (e: any) {
+    accountsError.value = e.message ?? 'Failed to load accounts'
+    accounts.value = []
+    selectedAccountId.value = ''
   } finally {
     accountsLoading.value = false
   }

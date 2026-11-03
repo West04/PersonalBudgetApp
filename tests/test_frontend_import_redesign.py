@@ -242,3 +242,110 @@ def test_reconciliation_styles_use_semantic_tokens():
     # Cleared rows are not dimmed to look disabled
     assert ".row-cleared" not in RECONCILE_STYLE
     assert "opacity" not in RECONCILE_STYLE
+
+
+def test_import_accounts_load_failure_representation():
+    """
+    COR-007 Regression:
+    Verifies that upload.vue handles account loading failures gracefully:
+    1. accountsError state is declared and rendered via ErrorBanner.
+    2. A retry button triggers fetchAccounts.
+    3. Failed responses (HTTP error or network error) set accounts to empty array,
+       never assigning the error JSON object to accounts.value.
+    4. Simulation verifies error capture, empty account list, and recovery on retry.
+    """
+    import json
+    import subprocess
+    import shutil
+    import pytest
+
+    upload_code = (REPO_ROOT / "frontend/app/pages/upload.vue").read_text()
+    template = upload_code[: upload_code.index('<script setup lang="ts">')]
+    script = upload_code[upload_code.index('<script setup lang="ts">'): upload_code.index("</script>")]
+
+    assert "const accountsError = ref('')" in script
+    assert 'v-else-if="accountsError"' in template
+    assert ':error="`Failed to load accounts: ${accountsError}`"' in template
+    assert '@click="fetchAccounts"' in template
+    assert "accounts.value = []" in script
+
+    if not shutil.which("node"):
+        pytest.skip("Node.js not available")
+
+    node_script = """
+    // Simulation of upload.vue account loading logic
+    let accountsLoading = false;
+    let accountsError = '';
+    let accounts = [];
+    let selectedAccountId = '';
+
+    const accountStepStatus = () => {
+        if (accountsLoading) return '';
+        if (accountsError) return 'Loading accounts failed. Retry to choose an account.';
+        if (!selectedAccountId) return 'Choose an account to continue.';
+        if (selectedAccountId === '__new__') return 'Create the account to continue.';
+        return '';
+    };
+
+    async function fetchAccounts(mockFetch) {
+        accountsLoading = true;
+        accountsError = '';
+        try {
+            const res = await mockFetch();
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                accountsError = err.detail ?? 'Failed to load accounts';
+                accounts = [];
+                selectedAccountId = '';
+                return;
+            }
+            const data = await res.json();
+            accounts = Array.isArray(data) ? data : [];
+        } catch (e) {
+            accountsError = e.message ?? 'Failed to load accounts';
+            accounts = [];
+            selectedAccountId = '';
+        } finally {
+            accountsLoading = false;
+        }
+    }
+
+    (async () => {
+        // 1. Simulate 500 error response
+        await fetchAccounts(async () => ({
+            ok: false,
+            json: async () => ({ detail: 'Database unavailable' }),
+        }));
+
+        const checks = {
+            httpErrorSetsMessage: accountsError === 'Database unavailable',
+            httpErrorKeepsAccountsArray: Array.isArray(accounts) && accounts.length === 0,
+            httpErrorStepStatus: accountStepStatus() === 'Loading accounts failed. Retry to choose an account.',
+        };
+
+        // 2. Simulate network exception
+        await fetchAccounts(async () => {
+            throw new Error('Network connection refused');
+        });
+
+        checks.networkErrorSetsMessage = accountsError === 'Network connection refused';
+        checks.networkErrorKeepsAccountsArray = Array.isArray(accounts) && accounts.length === 0;
+
+        // 3. Simulate retry success
+        await fetchAccounts(async () => ({
+            ok: true,
+            json: async () => [{ account_id: 'acct-1', name: 'Checking' }],
+        }));
+
+        checks.retryClearsError = accountsError === '';
+        checks.retryPopulatesAccounts = accounts.length === 1 && accounts[0].account_id === 'acct-1';
+        checks.retryStepStatus = accountStepStatus() === 'Choose an account to continue.';
+
+        const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+        console.log(JSON.stringify({ passed: failures.length === 0, failures }));
+    })();
+    """
+    proc = subprocess.run(["node", "-e", node_script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["passed"] is True, f"COR-007 account load failure representation failures: {res['failures']}"
+
