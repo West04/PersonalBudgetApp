@@ -296,9 +296,10 @@
               v-if="totalTxnCount > 0"
               type="button"
               class="btn btn-ghost btn-sm"
+              :disabled="isTogglingClearAll || completingReconcile"
               @click="toggleClearAll"
             >
-              {{ allCleared ? 'Unclear All' : 'Clear All' }}
+              {{ isTogglingClearAll ? 'Updating…' : (allCleared ? 'Unclear All' : 'Clear All') }}
             </button>
           </div>
 
@@ -328,6 +329,7 @@
                     <input
                       type="checkbox"
                       :checked="tx.is_cleared"
+                      :disabled="isTogglingClearAll || completingReconcile"
                       @change="toggleTxCleared(tx)"
                       :aria-label="`Mark ${tx.description} as cleared`"
                       class="reconcile-checkbox"
@@ -355,13 +357,18 @@
 
       <template #footer>
         <div class="reconcile-footer">
-          <button type="button" class="btn btn-ghost" @click="closeReconcileModal">
+          <button
+            type="button"
+            class="btn btn-ghost"
+            :disabled="completingReconcile || isTogglingClearAll"
+            @click="closeReconcileModal"
+          >
             Cancel
           </button>
           <button
             type="button"
             class="btn btn-primary"
-            :disabled="!isBalanced || completingReconcile || reconcileLoading"
+            :disabled="!isBalanced || completingReconcile || reconcileLoading || isTogglingClearAll"
             @click="finishReconciliation"
           >
             {{ completingReconcile ? 'Finishing…' : 'Finish Reconciliation' }}
@@ -664,6 +671,7 @@ const reconcileSummary = ref<ReconciliationSummary | null>(null)
 const reconcileLoading = ref(false)
 const reconcileError = ref<string | null>(null)
 const completingReconcile = ref(false)
+const isTogglingClearAll = ref(false)
 
 const openReconcileModal = async (account: Account) => {
   reconcilingAccount.value = account
@@ -682,6 +690,7 @@ const closeReconcileModal = () => {
   reconcileModalOpen.value = false
   reconcilingAccount.value = null
   reconcileSummary.value = null
+  isTogglingClearAll.value = false
 }
 
 const loadReconciliation = async () => {
@@ -741,6 +750,7 @@ const recalculateDifference = () => {
 }
 
 const toggleTxCleared = async (tx: ReconciliationTransaction) => {
+  if (isTogglingClearAll.value || completingReconcile.value) return
   const newStatus = !tx.is_cleared
   tx.is_cleared = newStatus
   try {
@@ -755,24 +765,33 @@ const toggleTxCleared = async (tx: ReconciliationTransaction) => {
 }
 
 const toggleClearAll = async () => {
-  if (!reconcileSummary.value) return
+  if (!reconcileSummary.value || isTogglingClearAll.value || completingReconcile.value) return
+  isTogglingClearAll.value = true
+  reconcileError.value = null
   const targetStatus = !allCleared.value
   const txsToUpdate = reconcileSummary.value.transactions.filter(t => t.is_cleared !== targetStatus)
-  for (const tx of txsToUpdate) {
-    tx.is_cleared = targetStatus
-    try {
-      await $fetch(`${API_BASE}/transactions/${tx.transaction_id}/cleared`, {
-        method: 'PATCH',
-        body: { is_cleared: targetStatus },
-      })
-    } catch (err: any) {
-      console.warn('Failed to toggle cleared status', tx.transaction_id, err)
+  try {
+    for (const tx of txsToUpdate) {
+      if (!reconcileSummary.value) break
+      const prevStatus = tx.is_cleared
+      tx.is_cleared = targetStatus
+      try {
+        await $fetch(`${API_BASE}/transactions/${tx.transaction_id}/cleared`, {
+          method: 'PATCH',
+          body: { is_cleared: targetStatus },
+        })
+      } catch (err: any) {
+        tx.is_cleared = prevStatus
+        reconcileError.value = err.data?.detail || err.message || 'Failed to update transaction cleared status'
+      }
     }
+  } finally {
+    isTogglingClearAll.value = false
   }
 }
 
 const finishReconciliation = async () => {
-  if (!reconcilingAccount.value || !isBalanced.value) return
+  if (!reconcilingAccount.value || !isBalanced.value || isTogglingClearAll.value) return
   completingReconcile.value = true
   reconcileError.value = null
   try {

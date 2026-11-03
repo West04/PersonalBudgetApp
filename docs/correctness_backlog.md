@@ -87,7 +87,7 @@ must update those assertions deliberately, not delete them.
 
 | ID | Priority | Area | Issue | Status | Next action |
 | --- | --- | --- | --- | --- | --- |
-| COR-001 | P1 | Reconciliation | Clear All shows every row cleared after a PATCH failure | Confirmed | Analyze then fix |
+| COR-001 | P1 | Reconciliation | Clear All shows every row cleared after a PATCH failure | Resolved | Fixed: lock, rollback, error reporting |
 | COR-002 | P2 | Reconciliation | Finish Reconciliation can be enabled when the summary failed to load | Confirmed | Analyze then fix |
 | COR-003 | P2 | Credit Cards | Transfer Confirm has no in-progress lock; index-based removal can hide the wrong candidate | Confirmed | Analyze then fix |
 | COR-004 | P2 | Reconciliation | Default statement ending date is the UTC date, not the local date | Confirmed | Analyze then fix |
@@ -139,7 +139,13 @@ must update those assertions deliberately, not delete them.
 Priority: P1
 Area: Accounts → Reconcile dialog (`frontend/app/pages/accounts.vue`)
 Classification: CONFIRMED DEFECT (pre-existing; untouched by the redesign)
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- Added `isTogglingClearAll` ref to lock Clear All, table checkboxes, and Finish action during batch processing.
+- In `toggleClearAll`, each failing PATCH immediately reverts `tx.is_cleared = prevStatus` and sets `reconcileError.value`.
+- Disabled Cancel and Finish buttons and row checkboxes while `isTogglingClearAll` is true to prevent race conditions.
+- Updated source contract in `tests/test_frontend_import_redesign.py` and added behavioral simulation regression coverage in `tests/test_frontend_reconciliation.py`.
 
 Observed behavior:
 `toggleClearAll` (≈ line 759) loops over rows whose `is_cleared` differs from the target,
