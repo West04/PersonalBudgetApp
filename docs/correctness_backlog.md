@@ -98,7 +98,7 @@ must update those assertions deliberately, not delete them.
 | COR-009 | P3 | Accounts | Card-summary month computed in UTC | Resolved | Fixed: getLocalMonthString in accounts.vue |
 | COR-010 | P3 | Credit Cards | Failed month change keeps previous month's data (accurately labelled) | Deferred | Mitigated by redesign monthLabel; formally deferred |
 | COR-011 | P3 | Settings | "Last trained" hydration mismatch from `toLocaleString()` | Resolved | Fixed: formatTrainedDate with explicit UTC and en-US |
-| COR-012 | P3 | Dashboard, Transactions | Hydration mismatch warnings on `server: false` loading states | Diagnosed | Root cause confirmed; ready for fix decision |
+| COR-012 | P3 | Dashboard, Transactions | Hydration mismatch warnings on `server: false` loading states | Resolved | Fixed: wrapped in ClientOnly with LoadingState fallback |
 | PROD-001 | PRODUCT | Dashboard | Income groups appear under "Spending by group" with spending language | Product decision required | Product decision required |
 | PROD-002 | PRODUCT | Budget | Group totals sum income/expense/transfer categories together | Product decision required | Product decision required |
 | PROD-003 | PRODUCT | Accounts | Inactive credit cards always show stored `current_balance`, not `balance_owed` | Product decision required | Product decision required |
@@ -655,7 +655,13 @@ Analyze then fix
 Priority: P3 (provisional)
 Area: `frontend/app/pages/dashboard.vue`, `frontend/app/pages/transactions.vue`
 Classification: CONFIRMED UX/RELIABILITY ISSUE
-Status: Diagnosed (Root cause confirmed)
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- In `frontend/app/pages/dashboard.vue`, wrapped the loading state and `.dashboard-content` in `<ClientOnly>` with a `#fallback` slot providing `<LoadingState message="Loading financial overview..." />`.
+- In `frontend/app/pages/transactions.vue`, wrapped the loading state and `.transactions-container` in `<ClientOnly>` with a `#fallback` slot providing `<LoadingState message="Loading transactions..." />`.
+- Ensures SSR renders `<LoadingState>` instead of empty comment nodes (`<!---->`) or unpopulated table shells, perfectly matching the client's initial hydration render while `server: false` fetches are pending.
+- Added regression tests `test_dashboard_client_only_hydration_guard` in `tests/test_frontend_dashboard_redesign.py` and `test_transactions_client_only_hydration_guard` in `tests/test_frontend_transactions_redesign.py`.
 
 Diagnosis & Root Cause:
 1. **Mechanism:** Both pages invoke `useFetch(..., { server: false })`.
@@ -690,10 +696,10 @@ Diagnose first. Do not convert pages to SSR data fetching or restructure loading
 as part of the investigation.
 
 Existing test coverage:
-No direct coverage.
+Contract tests in `test_frontend_dashboard_redesign.py` and `test_frontend_transactions_redesign.py`.
 
 Recommended next step:
-Select fix strategy (e.g. `<ClientOnly>` with `<LoadingState>` fallback, or matching the `pending = ref(true)` pattern).
+Resolved.
 
 ---
 

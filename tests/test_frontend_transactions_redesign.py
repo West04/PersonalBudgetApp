@@ -631,3 +631,31 @@ def test_amount_track_stays_stable_through_medium_ledger():
     flag = _css_block(style, ".tx-flag")
     assert "flex-shrink: 0" in flag and "max-width: 100%" in flag
     assert "text-overflow: ellipsis" in flag
+
+
+def test_transactions_client_only_hydration_guard(require_node):
+    """
+    COR-012: Protects against hydration mismatch warnings caused by useFetch server: false.
+    The dynamic ledger and loading state must be wrapped in <ClientOnly> with a #fallback
+    slot rendering <LoadingState message="Loading transactions..." /> so that server
+    and client initial hydration agree.
+    """
+    script = """
+    import fs from 'node:fs';
+    import path from 'node:path';
+
+    const code = fs.readFileSync(path.resolve('./frontend/app/pages/transactions.vue'), 'utf-8');
+
+    const checks = {
+        hasClientOnly: code.includes('<ClientOnly>') && code.includes('</ClientOnly>'),
+        hasFallbackSlot: code.includes('<template #fallback>'),
+        hasFallbackLoadingState: /<template\\s+#fallback>\\s*<LoadingState\\s+message="Loading transactions\\.\\.\\."\\s*\\/>/s.test(code),
+        hasDefaultLoadingState: code.includes('<LoadingState') && code.includes('v-if="pending && !transactionsData"'),
+    };
+
+    const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+    console.log(JSON.stringify({ passed: failures.length === 0, failures }));
+    """
+    proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["passed"] is True, f"Transactions hydration guard contract failures: {res['failures']}"

@@ -15,12 +15,13 @@
       @dismiss="dismissError"
     />
 
-    <LoadingState
-      v-if="pending && !dashboardData"
-      message="Loading financial overview..."
-    />
+    <ClientOnly>
+      <LoadingState
+        v-if="pending && !dashboardData"
+        message="Loading financial overview..."
+      />
 
-    <div v-else-if="dashboardData" class="dashboard-content">
+      <div v-else-if="dashboardData" class="dashboard-content">
       <!-- 1. Financial position: Net leads, Cash and card balance support it -->
       <section class="dash-section" aria-labelledby="heading-financial-position">
         <div class="section-head">
@@ -280,7 +281,12 @@
         </section>
       </div>
     </div>
-  </div>
+
+    <template #fallback>
+      <LoadingState message="Loading financial overview..." />
+    </template>
+  </ClientOnly>
+</div>
 </template>
 
 <script setup lang="ts">

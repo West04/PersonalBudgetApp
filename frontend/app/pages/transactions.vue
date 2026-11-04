@@ -374,13 +374,14 @@
       </div>
     </section>
 
-    <LoadingState
-      v-if="pending && !transactionsData"
-      message="Loading transactions..."
-    />
+    <ClientOnly>
+      <LoadingState
+        v-if="pending && !transactionsData"
+        message="Loading transactions..."
+      />
 
-    <!-- Ledger -->
-    <div v-else class="transactions-container">
+      <!-- Ledger -->
+      <div v-else class="transactions-container">
       <div class="ledger surface-card">
         <div class="table-responsive">
           <table class="transactions-table" aria-label="Transactions ledger" role="table">
@@ -627,7 +628,12 @@
       </div>
     </div>
 
-    <!-- Split transaction dialog -->
+    <template #fallback>
+      <LoadingState message="Loading transactions..." />
+    </template>
+  </ClientOnly>
+
+  <!-- Split transaction dialog -->
     <AppDialog
       :open="splitDialogOpen"
       :title="splitDialogTitle"

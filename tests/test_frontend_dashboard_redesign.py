@@ -213,3 +213,31 @@ def test_dashboard_attention_state_contract(require_node):
     proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
     res = json.loads(proc.stdout)
     assert res["passed"] is True, f"Attention state contract failures: {res['failures']}"
+
+
+def test_dashboard_client_only_hydration_guard(require_node):
+    """
+    COR-012: Protects against hydration mismatch warnings caused by useFetch server: false.
+    The dynamic content and loading state must be wrapped in <ClientOnly> with a #fallback
+    slot rendering <LoadingState message="Loading financial overview..." /> so that server
+    and client initial hydration agree.
+    """
+    script = """
+    import fs from 'node:fs';
+    import path from 'node:path';
+
+    const code = fs.readFileSync(path.resolve('./frontend/app/pages/dashboard.vue'), 'utf-8');
+
+    const checks = {
+        hasClientOnly: code.includes('<ClientOnly>') && code.includes('</ClientOnly>'),
+        hasFallbackSlot: code.includes('<template #fallback>'),
+        hasFallbackLoadingState: /<template\\s+#fallback>\\s*<LoadingState\\s+message="Loading financial overview\\.\\.\\."\\s*\\/>/s.test(code),
+        hasDefaultLoadingState: code.includes('<LoadingState') && code.includes('v-if="pending && !dashboardData"'),
+    };
+
+    const failures = Object.entries(checks).filter(([_, v]) => !v).map(([k]) => k);
+    console.log(JSON.stringify({ passed: failures.length === 0, failures }));
+    """
+    proc = subprocess.run(["node", "-e", script], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    res = json.loads(proc.stdout)
+    assert res["passed"] is True, f"Dashboard hydration guard contract failures: {res['failures']}"
