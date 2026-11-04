@@ -451,6 +451,7 @@
                         {{ tx.merchant || tx.description }}
                       </span>
                       <button
+                        :id="`btn-edit-merchant-${tx.transaction_id}`"
                         type="button"
                         class="btn-icon btn-edit-merchant"
                         @click="startEditingMerchant(tx)"
@@ -1184,6 +1185,16 @@ const savingMerchant = ref(false)
 // Template ref inside v-for: Vue fills it as an array (only one editor is open at a time)
 const merchantInputRef = ref<HTMLInputElement | HTMLInputElement[] | null>(null)
 
+const focusMerchantEditTrigger = (txId: string) => {
+  nextTick(() => {
+    const btn = document.getElementById(`btn-edit-merchant-${txId}`) ||
+      document.querySelector<HTMLElement>(`[data-tx-id="${txId}"] .btn-edit-merchant`)
+    if (btn instanceof HTMLElement) {
+      btn.focus()
+    }
+  })
+}
+
 const startEditingMerchant = (tx: any) => {
   editingMerchantId.value = tx.transaction_id
   editMerchantValue.value = tx.merchant || tx.description || ''
@@ -1197,8 +1208,12 @@ const startEditingMerchant = (tx: any) => {
 }
 
 const cancelEditingMerchant = () => {
+  const txId = editingMerchantId.value
   editingMerchantId.value = null
   editMerchantValue.value = ''
+  if (txId) {
+    focusMerchantEditTrigger(txId)
+  }
 }
 
 const saveMerchant = async (tx: any) => {
@@ -1220,6 +1235,7 @@ const saveMerchant = async (tx: any) => {
     tx.merchant = updated.merchant
     tx.is_merchant_overridden = updated.is_merchant_overridden
     editingMerchantId.value = null
+    focusMerchantEditTrigger(tx.transaction_id)
   } catch (err: any) {
     updateError.value = err.message || 'Failed to update merchant. Please try again.'
     console.error(err)

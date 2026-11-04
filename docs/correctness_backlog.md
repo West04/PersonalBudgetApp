@@ -104,7 +104,7 @@ must update those assertions deliberately, not delete them.
 | PROD-003 | PRODUCT | Accounts | Inactive credit cards always show stored `current_balance`, not `balance_owed` | Product decision required | Product decision required |
 | UX-001 | UX | Budget | Drag reorder has no keyboard alternative | Confirmed | Accessibility design decision required |
 | UX-002 | UX | Budget | Planned input loses focus to the document on Enter/Escape | Confirmed | Accessibility design decision required |
-| UX-003 | UX | Transactions | Merchant edit does not return focus to the edit trigger | Confirmed | Analyze then fix |
+| UX-003 | UX | Transactions | Merchant edit does not return focus to the edit trigger | Resolved | Fixed: focus returned to edit trigger on cancel/save |
 | UX-004 | UX | Transactions | Recurring tabs lack arrow-key tab navigation | Confirmed | Accessibility design decision required |
 | UX-005 | UX | Import | Import failure uses native `alert()` | Confirmed | Defer |
 | UX-006 | UX | Budget, Accounts | Destructive deletes use native `confirm()` | Confirmed | Defer |
@@ -883,7 +883,13 @@ Accessibility design decision required
 Priority: UX
 Area: Transactions (`frontend/app/pages/transactions.vue`)
 Classification: CONFIRMED ACCESSIBILITY ISSUE (pre-existing)
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- Added deterministic `:id="`btn-edit-merchant-${tx.transaction_id}`"` to the merchant edit trigger button in `frontend/app/pages/transactions.vue`.
+- Added helper `focusMerchantEditTrigger(txId)` that queries the button after DOM update (`nextTick`) and invokes `.focus()`.
+- Updated `cancelEditingMerchant` and `saveMerchant` (on success) to call `focusMerchantEditTrigger`, restoring focus to the row trigger instead of dropping focus to `document.body`.
+- Added contract test `test_merchant_edit_focus_return_contract` and Node.js-based simulation regression test `test_merchant_edit_focus_return_simulation` in `tests/test_frontend_merchant_normalization.py`.
 
 Observed behavior:
 `cancelEditingMerchant` and a successful `saveMerchant` (≈ lines 1193–1216) set
@@ -903,10 +909,10 @@ Scope guard:
 Focus management only. Do not change the merchant save contract.
 
 Existing test coverage:
-Source-contract: `tests/test_frontend_merchant_normalization.py`.
+Source-contract and simulation: `tests/test_frontend_merchant_normalization.py`.
 
 Recommended next step:
-Analyze then fix
+Resolved.
 
 ---
 
