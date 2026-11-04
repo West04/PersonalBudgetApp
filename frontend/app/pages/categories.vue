@@ -259,7 +259,7 @@
                               step="0.01"
                               :value="formatPlannedInput(getCategoryPlanned(category))"
                               @change="onPlannedAmountChange(category, ($event.target as HTMLInputElement).value)"
-                              @keydown.enter="($event.target as HTMLInputElement).blur()"
+                              @keydown.enter="commitPlannedAmount(category, $event.target as HTMLInputElement)"
                               @keydown.escape="revertPlannedAmount(category, $event.target as HTMLInputElement)"
                               class="form-input num amount-input"
                               placeholder="0.00"
@@ -1104,9 +1104,14 @@ const onPlannedAmountChange = async (category: Category, rawValue: string) => {
   await savePlannedAmount(category, amount)
 }
 
+const commitPlannedAmount = async (category: Category, inputEl: HTMLInputElement) => {
+  await onPlannedAmountChange(category, inputEl.value)
+  inputEl.select()
+}
+
 const revertPlannedAmount = (category: Category, inputEl: HTMLInputElement) => {
   inputEl.value = formatPlannedInput(getCategoryPlanned(category))
-  inputEl.blur()
+  inputEl.select()
 }
 
 // Shows the stored planned amount with cents so the input scans like the other figures.

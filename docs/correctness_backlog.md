@@ -103,7 +103,7 @@ must update those assertions deliberately, not delete them.
 | PROD-002 | PRODUCT | Budget | Group totals sum income/expense/transfer categories together | Product decision required | Product decision required |
 | PROD-003 | PRODUCT | Accounts | Inactive credit cards always show stored `current_balance`, not `balance_owed` | Product decision required | Product decision required |
 | UX-001 | UX | Budget | Drag reorder has no keyboard alternative | Confirmed | Accessibility design decision required |
-| UX-002 | UX | Budget | Planned input loses focus to the document on Enter/Escape | Confirmed | Accessibility design decision required |
+| UX-002 | UX | Budget | Planned input loses focus to the document on Enter/Escape | Resolved | Fixed: commit/revert retain focus via input.select() without blurring |
 | UX-003 | UX | Transactions | Merchant edit does not return focus to the edit trigger | Resolved | Fixed: focus returned to edit trigger on cancel/save |
 | UX-004 | UX | Transactions | Recurring tabs lack arrow-key tab navigation | Confirmed | Accessibility design decision required |
 | UX-005 | UX | Import | Import failure uses native `alert()` | Confirmed | Defer |
@@ -851,7 +851,14 @@ Accessibility design decision required
 Priority: UX
 Area: Budget (`frontend/app/pages/categories.vue`)
 Classification: CONFIRMED ACCESSIBILITY ISSUE (pre-existing)
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- Removed `($event.target as HTMLInputElement).blur()` from `@keydown.enter` and `inputEl.blur()` from `revertPlannedAmount`.
+- Implemented `commitPlannedAmount(category, inputEl)` to commit changes via `onPlannedAmountChange` and keep focus on the element with `inputEl.select()`.
+- Updated `revertPlannedAmount(category, inputEl)` to restore the formatted planned amount and retain focus on the element with `inputEl.select()`.
+- Focus remains consistently on the planned amount input without blurring to `document.body`, allowing natural Tab / Shift+Tab keyboard navigation to continue without restarting from the page top.
+- Updated contract assertion in `tests/test_frontend_budget_redesign.py` and added behavioral focus retention simulation `test_planned_input_focus_retention_simulation_ux002`.
 
 Observed behavior:
 Enter calls `($event.target).blur()`; Escape calls `revertPlannedAmount`, which also
@@ -871,10 +878,10 @@ Scope guard:
 Do not change the save path (`onPlannedAmountChange`) or the input's visual design.
 
 Existing test coverage:
-Source-contract: `tests/test_frontend_budget_redesign.py` pins the Escape handler.
+Source-contract & focus retention simulation: `tests/test_frontend_budget_redesign.py`.
 
 Recommended next step:
-Accessibility design decision required
+Resolved.
 
 ---
 

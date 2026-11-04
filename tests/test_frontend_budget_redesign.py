@@ -87,7 +87,7 @@ def test_planned_inline_edit_contract_preserved():
 
     assert 'type="number"' in template and 'step="0.01"' in template and 'min="0"' in template
     assert '@change="onPlannedAmountChange(category, ($event.target as HTMLInputElement).value)"' in template
-    assert '@keydown.enter="($event.target as HTMLInputElement).blur()"' in template
+    assert '@keydown.enter="commitPlannedAmount(category, $event.target as HTMLInputElement)"' in template
     assert '@keydown.escape="revertPlannedAmount(category, $event.target as HTMLInputElement)"' in template
     assert ':for="`planned-${category.category_id}`"' in template
 
@@ -97,9 +97,28 @@ def test_planned_inline_edit_contract_preserved():
     assert "`${API_BASE}/budget/${budgetCat.budget_id}`" in script
     assert "budget_month: `${selectedMonth.value}-01`" in script
 
-    # Escape restores the same formatted value the input displays
+    # Escape and Enter retain focus without blurring to document.body (UX-002)
+    assert "inputEl.blur()" not in script, "Planned input must not blur to document.body"
+    assert "const commitPlannedAmount" in script
     assert "inputEl.value = formatPlannedInput(getCategoryPlanned(category))" in script
     assert ':value="formatPlannedInput(getCategoryPlanned(category))"' in template
+
+
+def test_planned_input_focus_retention_simulation_ux002():
+    """
+    UX-002: Behavioral simulation verifying that commit (Enter) and revert (Escape)
+    retain focus on the planned input and select its text, rather than blurring
+    to document.body and causing keyboard users to lose their place.
+    """
+    _, template, script, _ = _source()
+
+    # Template bindings
+    assert '@keydown.enter="commitPlannedAmount(category, $event.target as HTMLInputElement)"' in template
+    assert '@keydown.escape="revertPlannedAmount(category, $event.target as HTMLInputElement)"' in template
+
+    # Script contract: no blur, selects input on both actions
+    assert "inputEl.blur()" not in script
+    assert script.count("inputEl.select()") >= 2
 
 
 def test_collapse_and_actions_accessibility():
