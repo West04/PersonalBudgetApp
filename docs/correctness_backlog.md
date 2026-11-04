@@ -105,7 +105,7 @@ must update those assertions deliberately, not delete them.
 | UX-001 | UX | Budget | Drag reorder has no keyboard alternative | Confirmed | Accessibility design decision required |
 | UX-002 | UX | Budget | Planned input loses focus to the document on Enter/Escape | Resolved | Fixed: commit/revert retain focus via input.select() without blurring |
 | UX-003 | UX | Transactions | Merchant edit does not return focus to the edit trigger | Resolved | Fixed: focus returned to edit trigger on cancel/save |
-| UX-004 | UX | Transactions | Recurring tabs lack arrow-key tab navigation | Confirmed | Accessibility design decision required |
+| UX-004 | UX | Transactions | Recurring tabs lack arrow-key tab navigation | Resolved | Fixed: roving tabindex and cyclic arrow-key/Home/End navigation |
 | UX-005 | UX | Import | Import failure uses native `alert()` | Confirmed | Defer |
 | UX-006 | UX | Budget, Accounts | Destructive deletes use native `confirm()` | Confirmed | Defer |
 | UX-007 | UX | Settings | Success/retrain feedback renders at page top, can be off-screen on mobile | Confirmed | Defer |
@@ -928,7 +928,14 @@ Resolved.
 Priority: UX
 Area: Transactions → Recurring panel (`frontend/app/pages/transactions.vue`)
 Classification: CONFIRMED ACCESSIBILITY ISSUE
-Status: Confirmed
+Status: Resolved (Fixed in slice)
+
+Resolution:
+- Added dynamic roving `:tabindex="recurringTab === tab.value ? 0 : -1"` to `role="tab"` buttons, ensuring only the active tab is in the standard Tab sequence.
+- Added `@keydown="onRecurringTabKeydown($event, tab.value)"` handling `ArrowRight`, `ArrowDown`, `ArrowLeft`, `ArrowUp`, `Home`, and `End`.
+- Right/Down advance with cyclic wrapping; Left/Up retreat with cyclic wrapping; Home moves to the first tab ('all'); End moves to the last tab ('dismissed').
+- Keyboard selection immediately activates the tab (`recurringTab.value = targetTab`) and transfers DOM focus to the activated button (`nextTick`).
+- Added source contract test `test_recurring_tabs_roving_tabindex_and_keyboard_contract` and behavioral keyboard simulation test `test_recurring_tabs_keyboard_navigation_simulation` in `tests/test_frontend_recurring.py`.
 
 Observed behavior:
 `role="tablist"` / `role="tab"` buttons (≈ lines 132–150) use `aria-selected` but have no
@@ -944,10 +951,10 @@ Scope guard:
 Do not change the recurring panel's architecture or data flow.
 
 Existing test coverage:
-`tests/test_frontend_recurring.py` covers panel presence; no tab keyboard coverage.
+`tests/test_frontend_recurring.py` covers roving tabindex, keydown handlers, and keyboard navigation simulation.
 
 Recommended next step:
-Accessibility design decision required
+Resolved.
 
 ---
 

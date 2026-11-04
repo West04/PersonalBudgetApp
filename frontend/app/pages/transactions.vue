@@ -137,10 +137,12 @@
           type="button"
           role="tab"
           :aria-selected="recurringTab === tab.value"
+          :tabindex="recurringTab === tab.value ? 0 : -1"
           aria-controls="recurring-tabpanel"
           class="tab-btn"
           :class="{ active: recurringTab === tab.value }"
           @click="recurringTab = tab.value"
+          @keydown="onRecurringTabKeydown($event, tab.value)"
         >
           {{ tab.label }} <span class="tab-count num">{{ tab.count }}</span>
         </button>
@@ -1005,6 +1007,36 @@ const filteredRecurringItems = computed(() => {
   if (recurringTab.value === 'all') return recurringItems.value
   return recurringItems.value.filter(i => i.status === recurringTab.value)
 })
+
+const onRecurringTabKeydown = (event: KeyboardEvent, currentTab: 'all' | 'confirmed' | 'detected' | 'dismissed') => {
+  const tabValues: Array<'all' | 'confirmed' | 'detected' | 'dismissed'> = ['all', 'confirmed', 'detected', 'dismissed']
+  const currentIndex = tabValues.indexOf(currentTab)
+  if (currentIndex === -1) return
+
+  let targetIndex: number | null = null
+
+  if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+    targetIndex = (currentIndex + 1) % tabValues.length
+  } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+    targetIndex = (currentIndex - 1 + tabValues.length) % tabValues.length
+  } else if (event.key === 'Home') {
+    targetIndex = 0
+  } else if (event.key === 'End') {
+    targetIndex = tabValues.length - 1
+  }
+
+  if (targetIndex !== null) {
+    event.preventDefault()
+    const targetTab = tabValues[targetIndex]
+    recurringTab.value = targetTab
+    nextTick(() => {
+      const targetBtn = document.getElementById(`recurring-tab-${targetTab}`)
+      if (targetBtn instanceof HTMLElement) {
+        targetBtn.focus()
+      }
+    })
+  }
+}
 
 const toggleRecurringPanel = () => {
   if (!showRecurringPanel.value && recurringItems.value.length === 0) {
